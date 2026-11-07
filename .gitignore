@@ -459,3 +459,5 @@ $RECYCLE.BIN/
 !ServerSelector/sodium.dll
 
 EpinelPS/Protos/allmsgs.proto
+# Per-session build, release and verification artifacts
+.nikke/
