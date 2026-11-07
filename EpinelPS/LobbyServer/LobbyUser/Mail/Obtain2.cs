@@ -11,31 +11,8 @@ public class Obtain2 : LobbyMessage
     {
         ReqObtainMail2 req = await ReadData<ReqObtainMail2>();
         User user = GetUser();
-        ResObtainMail2 response = new();
-        NetRewardData ret = new();
-
-        long timenow = DateTime.Now.Ticks;
-        if (user.MailDatas.TryGetValue(req.Msn,out NetUserMailData? mailData))
-        {
-
-            foreach (var item in mailData.Items)
-            {
-                if (item.ExpiredAt >= timenow)
-                {
-                    RewardUtils.AddSingleObject(user, ref ret, item.RewardId, (RewardType)item.RewardType, item.RewardValue);
-                }
-
-            }
-            mailData.State = 2;
-
-            response.Data = mailData;
-            response.Result = ObtainMailResult.Success;
-            response.Reward = ret;
-        }
-
-
-        // TODO
-        JsonDb.Save();
+        var result = MailRewardClaims.Claim(user, req.Msn);
+        ResObtainMail2 response = new() { Data = user.MailDatas[req.Msn].Clone(), Result = ObtainMailResult.Success, Reward = result.Reward };
         await WriteDataAsync(response);
     }
 }

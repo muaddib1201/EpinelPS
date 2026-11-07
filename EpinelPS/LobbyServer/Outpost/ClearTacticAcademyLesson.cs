@@ -1,4 +1,4 @@
-﻿using EpinelPS.Data;
+using EpinelPS.Data;
 using EpinelPS.Database;
 
 namespace EpinelPS.LobbyServer.Outpost;
@@ -56,6 +56,13 @@ public class ClearTacticAcademyLesson : LobbyMessage
                     user.OutpostBuffs.GetPercentages((CurrencyType)item.LessonRewardId).Add(item.LessonRewardValue);
                 }
             }
+        }
+        else if (r.LessonType == LessonType.SynchroDevice)
+        {
+            // Each Synchro Device lesson opens 5 more synchro slots.
+            int slotsToAdd = r.LessonReward.Sum(item => item.LessonRewardValue);
+            for (int i = 0; i < slotsToAdd; i++)
+                EpinelPS.LobbyServer.Character.SynchroAddSlot.AppendSlot(user);
         }
         else
         {

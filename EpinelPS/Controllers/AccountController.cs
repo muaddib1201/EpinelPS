@@ -1,5 +1,6 @@
 ﻿using EpinelPS.Database;
 using EpinelPS.Utils;
+using EpinelPS.Services;
 using Microsoft.AspNetCore.Mvc;
 using Paseto;
 using Paseto.Builder;
@@ -73,47 +74,17 @@ public class AccountController(GameContext DbContext) : ControllerBase
     [Route("register")]
     public string RegisterAccount(string seq, [FromBody] RegisterEPReq req)
     {
-        // check if the account already exists
+        lock (JsonDb.SaveLock)
+        {
         if (dbContext.SdkUsers.Any(x => x.Email == req.account))
              return "{\"msg\":\"send code failed; invalid account\",\"ret\":2112,\"seq\":\"" + seq + "\"}";
-
-        ulong uid = (ulong)new Random().Next(1, int.MaxValue);
-
-        // Check if we havent generated a UID that exists
-        foreach (User item in JsonDb.Instance.Users)
-        {
-            if (item.ID == uid)
-            {
-                uid -= (ulong)new Random().Next(1, 1221);
-            }
-        }
-
-        bool admin = JsonDb.Instance.Users.Count == 0;
-        var registerTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
-        JsonDb.Instance.Users.Add(new User()
-        {
-            ID = uid
-        });
-
-        dbContext.SdkUsers.Add(new SdkUser()
-        {
-            ID = uid,
-            Email = req.account,
-            PasswordHash = req.password,
-            RegisterTime = registerTime,
-            IsAdmin = admin,
-            PlayerName = "Player_" + Rng.RandomString(8),
-        });
-        dbContext.Users.Add(new GameUser()
-        {
-            ID = uid // todo remove later
-        });
-        dbContext.SaveChanges();
-
+        var account = AccountRegistrationService.Register(dbContext, req.account, req.password);
+        ulong uid = account.ID;
+        long registerTime = account.RegisterTime;
         AccessToken tok = CreateLauncherTokenForUser(uid);
 
         return "{\"expire\":" + tok.ExpirationTime + ",\"is_login\":false,\"msg\":\"Success\",\"register_time\":" + registerTime + ",\"ret\":0,\"seq\":\"" + seq + "\",\"token\":\"" + tok.Token + "\",\"uid\":\"" + uid + "\"}";
+        }
     }
     public static AccessToken CreateLauncherTokenForUser(ulong id)
     {

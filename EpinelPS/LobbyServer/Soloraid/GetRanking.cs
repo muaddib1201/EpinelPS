@@ -6,10 +6,11 @@ public class GetRanking : LobbyMessage
     protected override async Task HandleAsync()
     {
         await ReadData<ReqGetSoloRaidRanking>();
+        var user = GetUser();
 
         ResGetSoloRaidRanking response = new();
 
-        // TODO
+        SoloRaidHelper.GetSoloRaidRanking(user, ref response);
 
         await WriteDataAsync(response);
     }

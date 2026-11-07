@@ -127,7 +127,8 @@ public class UsersController(ILogger<UsersController> logger, GameContext dbCont
     public IActionResult DeleteConfirmed(ulong id)
     {
         if (!AdminController.CheckAuth(HttpContext)) return Redirect("/admin/");
-
+        lock (JsonDb.SaveLock)
+        {
         SdkUser? sdkUser = _db.SdkUsers.Find(id);
         GameUser? gameUser = _db.Users.Find(id);
         User? user = JsonDb.Instance.Users.FirstOrDefault(x => x.ID == id);
@@ -140,12 +141,18 @@ public class UsersController(ILogger<UsersController> logger, GameContext dbCont
         _db.Triggers.RemoveRange(triggerRows);
         _db.Users.Remove(gameUser);
         _db.SdkUsers.Remove(sdkUser);
-        _db.SaveChanges();
-
-        JsonDb.Instance.Users.Remove(user);
-        JsonDb.Save();
+        var previous = JsonDb.Instance.Users;
+        using var transaction = _db.Database.BeginTransaction();
+        try
+        {
+            _db.SaveChanges();
+            JsonDb.Instance.Users = previous.Where(u => u.ID != id).ToList();
+            JsonDb.Save(); transaction.Commit();
+        }
+        catch { JsonDb.Instance.Users = previous; _db.ChangeTracker.Clear(); JsonDb.Save(); throw; }
 
         return RedirectToAction(nameof(Index));
+        }
     }
 
     public List<CharacterGearModel> OverloadedGear = [];
@@ -224,13 +231,49 @@ public class UsersController(ILogger<UsersController> logger, GameContext dbCont
                 IsAdmin = sdkUser.IsAdmin,
                 IsBanned = user.IsBanned,
                 Nickname = gameUser.Nickname ?? "Unknown nickname",
-                sickpulls = user.sickpulls,
+                GachaRateSsr = user.CustomGachaRates?.Ssr,
+                GachaRateSr = user.CustomGachaRates?.Sr,
+                GachaRateR = user.CustomGachaRates?.R,
                 Username = sdkUser.Email ?? "Unknown username",
                 ID = user.ID,
                 OverloadedGear = OverloadedGear.Count > 0 ? OverloadedGear : [],
                 OverloadOptions = _overloadOptions
             }
         );
+    }
+
+    [HttpPost("ResetCounsel/{id}")]
+    [ValidateAntiForgeryToken]
+    public IActionResult ResetCounsel(ulong id)
+    {
+        if (!AdminController.CheckAuth(HttpContext)) return Unauthorized();
+        var user = JsonDb.GetUser(id);
+        if (user == null) return NotFound();
+
+        lock (user)
+        lock (JsonDb.SaveLock)
+        {
+            var grade = GameData.Instance.GetInfracoreGrade(user.InfraCoreLvl);
+            if (Models.User.GetDailyCounselLimit(grade) is not int limit) return Conflict();
+
+            var daily = user.ResetableData;
+            bool wasRefilled = daily.CounselRefilledToday;
+            bool hadCount = daily.DailyCounselCount.TryGetValue(1, out int before);
+            if (!wasRefilled || !hadCount || before != limit)
+            {
+                daily.DailyCounselCount[1] = limit;
+                daily.CounselRefilledToday = true;
+                try { JsonDb.Save(); }
+                catch
+                {
+                    daily.CounselRefilledToday = wasRefilled;
+                    if (hadCount) daily.DailyCounselCount[1] = before;
+                    else daily.DailyCounselCount.Remove(1);
+                    throw;
+                }
+            }
+            return Json(new { remaining = limit });
+        }
     }
 
     [Route("ModifyGear/{id}"), ActionName("ModifyGear")]
@@ -311,6 +354,14 @@ public class UsersController(ILogger<UsersController> logger, GameContext dbCont
         if (string.IsNullOrEmpty(toSet.Username))
             throw new Exception("username cannot be empty");
 
+        string? ratesError = GachaRates.Validate(toSet.GachaRateSsr, toSet.GachaRateSr, toSet.GachaRateR);
+        if (ratesError != null)
+        {
+            ModelState.AddModelError(string.Empty, ratesError);
+            toSet.ID = id;
+            return View(toSet);
+        }
+
         var sdkUser = _db.SdkUsers.Find(id);
         if (sdkUser == null) return NotFound();
         var gameUser = _db.Users.Find(id);
@@ -321,7 +372,9 @@ public class UsersController(ILogger<UsersController> logger, GameContext dbCont
         gameUser.Description = toSet.Description;
         _db.SaveChanges();
 
-        user.sickpulls = toSet.sickpulls;
+        user.CustomGachaRates = toSet.GachaRateSsr == null
+            ? null
+            : new GachaRates { Ssr = toSet.GachaRateSsr.Value, Sr = toSet.GachaRateSr!.Value, R = toSet.GachaRateR!.Value };
         user.IsBanned = toSet.IsBanned;
         JsonDb.Save();
 
@@ -330,7 +383,9 @@ public class UsersController(ILogger<UsersController> logger, GameContext dbCont
             IsAdmin = sdkUser.IsAdmin,
             IsBanned = user.IsBanned,
             Nickname = gameUser.Nickname,
-            sickpulls = user.sickpulls,
+            GachaRateSsr = user.CustomGachaRates?.Ssr,
+            GachaRateSr = user.CustomGachaRates?.Sr,
+            GachaRateR = user.CustomGachaRates?.R,
             Username = sdkUser.Email,
             ID = user.ID
         });

@@ -1,5 +1,6 @@
 using EpinelPS.Data;
 using EpinelPS.Database;
+using EpinelPS.LobbyServer.Team;
 using EpinelPS.Utils;
 
 namespace EpinelPS.LobbyServer.Stage;
@@ -13,20 +14,24 @@ public class ClearStage : LobbyMessage
 
         ResClearStage response = new();
         User user = GetUser();
+        user.ResetDataIfNeeded();
 
         Console.WriteLine($"Stage " + req.StageId + " completed, result is " + req.BattleResult);
 
         // TODO: check if user has already cleared this stage
         if (req.BattleResult == 1)
         {
-            response = CompleteStage(user, req.StageId);
+            response = CompleteStage(user, req.StageId, save: false);
         }
+
+        SupportCharacterHelper.FinishBattle(user, TeamType.Default, req.StageId, req.TeamNumber, req.BattleResult);
+        JsonDb.Save();
 
         await WriteDataAsync(response);
     }
 
 
-    public static ResClearStage CompleteStage(User user, int StageId, bool forceCompleteScenarios = false, bool recordMainQuest = true)
+    public static ResClearStage CompleteStage(User user, int StageId, bool forceCompleteScenarios = false, bool recordMainQuest = true, bool save = true)
     {
         ResClearStage response = new()
         {
@@ -169,7 +174,8 @@ public class ClearStage : LobbyMessage
             }
         }
 
-        JsonDb.Save();
+        if (save)
+            JsonDb.Save();
         return response;
     }
 

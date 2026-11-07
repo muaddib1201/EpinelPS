@@ -1,5 +1,6 @@
 using EpinelPS.Data;
 using EpinelPS.Database;
+using EpinelPS.LobbyServer.Guild;
 using EpinelPS.Utils;
 
 namespace EpinelPS.LobbyServer.Mission;
@@ -11,6 +12,15 @@ public class ObtainDaily : LobbyMessage
     {
         ReqObtainDailyMissionReward req = await ReadData<ReqObtainDailyMissionReward>();
         User user = GetUser();
+
+        var response = MissionProgressDelivery.Apply(user, () => Claim(user, req));
+        await WriteDataAsync(response);
+    }
+
+    private static ResObtainDailyMissionReward Claim(User user, ReqObtainDailyMissionReward req)
+    {
+        GuildActivity.EnsureMember(user, DateTime.UtcNow);
+        user.ResetDataIfNeeded();
 
         ResObtainDailyMissionReward response = new();
 
@@ -45,13 +55,12 @@ public class ObtainDaily : LobbyMessage
 
         user.AddTrigger(Trigger.PointRewardDaily, total_points);
         user.ResetableData.DailyMissionPoints += total_points;
+        GuildActivity.Record(user, total_points, DateTime.UtcNow);
 
         response.Reward = NetUtils.MergeRewards(rewards, user);
         response.EventBonusReward = new() { PassPoint = new() };
         response.Reward.PassPoint = new();
 
-        JsonDb.Save();
-
-        await WriteDataAsync(response);
+        return response;
     }
 }

@@ -36,12 +36,10 @@ public class RewardUtils
             while (newXp >= newLevelExp)
             {
                 newLevel++;
+                user.AddTrigger(Trigger.UserLevel, newLevel, 0);
                 newGems += 30;
                 newXp -= newLevelExp;
-                if (user.Currency.ContainsKey(CurrencyType.FreeCash))
-                    user.Currency[CurrencyType.FreeCash] += 30;
-                else
-                    user.Currency.Add(CurrencyType.FreeCash, 30);
+                user.AddCurrency(CurrencyType.FreeCash, 30);
 
                 newLevelExp = GameData.Instance.GetUserMinXpForLevel(newLevel);
             }
@@ -117,10 +115,7 @@ public class RewardUtils
                             user.AddTrigger(Trigger.UserLevel, newLevel, 0);
                             newGems += 30;
                             newXp -= newLevelExp;
-                            if (user.Currency.ContainsKey(CurrencyType.FreeCash))
-                                user.Currency[CurrencyType.FreeCash] += 30;
-                            else
-                                user.Currency.Add(CurrencyType.FreeCash, 30);
+                            user.AddCurrency(CurrencyType.FreeCash, 30);
 
                             newLevelExp = GameData.Instance.GetUserMinXpForLevel(newLevel);
                         }
@@ -171,22 +166,14 @@ public class RewardUtils
 
     public static void AddSingleCurrencyObject(User user, ref NetRewardData ret, CurrencyType currencyType, long rewardCount)
     {
-        bool found = user.Currency.Any(pair => pair.Key == currencyType);
-
-        if (found)
+        lock (user)
         {
-            user.Currency[currencyType] += rewardCount;
+            user.AddCurrency(currencyType, rewardCount);
+            ret.Currency.Add(new NetCurrencyData
+            {
+                FinalValue = user.GetCurrencyVal(currencyType), Value = rewardCount, Type = (int)currencyType
+            });
         }
-        else
-        {
-            user.Currency.Add(currencyType, rewardCount);
-        }
-        ret.Currency.Add(new NetCurrencyData()
-        {
-            FinalValue = found ? user.GetCurrencyVal(currencyType) : rewardCount,
-            Value = rewardCount,
-            Type = (int)currencyType
-        });
     }
     /// <summary>
     /// Adds a single item to users inventory, and also adds it to ret parameter.
@@ -216,6 +203,11 @@ public class RewardUtils
         }
         else if (rewardType == RewardType.Item || rewardType.ToString().StartsWith("Equipment"))
         {
+            if (rewardType == RewardType.Item && CharacterRewardHelper.TryGrantSpareBody(user, rewardId, rewardCount, out var spareReward))
+            {
+                ret.MergeFrom(spareReward);
+                return;
+            }
 
             int corpId = 0; // Default to 0 (None)
 
@@ -332,6 +324,7 @@ public class RewardUtils
                     Isn = newItem.Isn,
                     Tid = newItem.ItemType,
                     Count = newItem.Count,
+                    Lv = newItem.Level,
                     Corporation = newItem.Corp
                 });
             }
@@ -446,128 +439,9 @@ public class RewardUtils
         }
         else if (rewardType == RewardType.Character)
         {
-
-            int totalBodyLabels = 0;
-            CharacterRecord? character = GameData.Instance.CharacterTable.Where(x => x.Value.Id == rewardId).FirstOrDefault().Value;
-            if (character == null)
-                throw new Exception($"cannot find character record for id {rewardId}");
-
-
-            if (user.GetCharacter(rewardId) is CharacterModel ownedCharacter)
-            {
-                DbItemData? spareItem = user.Items.FirstOrDefault(i => i.ItemType == character.PieceId);
-                int maxLimitBroken = GetValueByRarity(character.OriginalRare, 0, 2, 11) - 1;
-
-                bool canIncreaseItem = character.OriginalRare != OriginalRareType.R && ownedCharacter.Grade + (spareItem?.Count ?? 0) < maxLimitBroken;
-                (int newSpareItemCount, int dissoluteCharacterCount) = canIncreaseItem ? (1, 0) : (0, 1);
-                if (canIncreaseItem)
-                {
-                    if (spareItem != null)
-                    {
-                        //Console.WriteLine($"[UseSelectBox] ������Ƭ: {newSpareItemCount}");
-                        spareItem.Count += newSpareItemCount;
-                    }
-                    else
-                    {
-                        //Console.WriteLine($"[UseSelectBox] �½���Ƭ: {newSpareItemCount}");
-                        spareItem = new()
-                        {
-                            ItemType = character.PieceId,
-                            Csn = 0,
-                            Count = newSpareItemCount,
-                            Level = 0,
-                            Exp = 0,
-                            Position = 0,
-                            Corp = 0,
-                            Isn = user.GenerateUniqueItemId()
-                        };
-                        user.Items.Add(spareItem);
-                    }
-
-                    ret.Item.Add(new NetItemData()
-                    {
-                        Count = rewardCount,
-                        Tid = spareItem.ItemType,
-                        Corporation = spareItem.Corp
-                    });
-
-
-                    ret.UserItems.Add(NetUtils.UserItemDataToNet(spareItem));
-                    ret.Character.Add(GetNetCharacterData(ownedCharacter));
-
-                    // Tell the client the new amount of this item
-                    //ret.UserItems.Add(new NetUserItemData()
-                    //{
-                    //    Isn = spareItem.Isn,
-                    //    Tid = spareItem.ItemType,
-                    //    Count = spareItem.Count,
-                    //    Corporation = spareItem.Corp
-                    //});
-                }
-                else
-                {
-                    // If we cannot increase the item, we give body label instead
-                    //����޷�������Ŀ�����Ǹ�Ϊ�ṩ�����ǩ
-
-                    int bodyLabel = GetValueByRarity(character.OriginalRare, 150, 200, 6000);
-
-                    Console.WriteLine($"Got: {bodyLabel} ��");
-
-                    totalBodyLabels += bodyLabel * dissoluteCharacterCount;
-                    ret.Character.Add(GetNetCharacterData(ownedCharacter, bodyLabel));
-                    ret.Currency.Add(new NetCurrencyData() { Type = (int)CurrencyType.DissolutionPoint, Value = totalBodyLabels });
-                    user.AddCurrency(CurrencyType.DissolutionPoint, totalBodyLabels);
-                }
-            }
-            else
-            {
-                //Console.WriteLine($"[UseSelectBox] ��ɫ�����ڣ����ӽ�ɫ��");
-                int csn = user.GenerateUniqueCharacterId();
-                ret.UserCharacters.Add(new NetUserCharacterDefaultData
-                {
-                    CostumeId = 0,
-                    Csn = csn,
-                    Grade = 0,
-                    Lv = 1,
-                    Skill1Lv = 1,
-                    Skill2Lv = 1,
-                    Tid = character.Id,
-                    UltiSkillLv = 1
-                });
-                ret.Character.Add(new NetCharacterData
-                {
-                    Csn = user.GenerateUniqueCharacterId(),
-                    Tid = character.Id,
-                });
-                user.Characters.Add(new CharacterModel
-                {
-                    CostumeId = 0,
-                    Csn = csn,
-                    Grade = 0,
-                    Level = 1,
-                    Skill1Lvl = 1,
-                    Skill2Lvl = 1,
-                    Tid = character.Id,
-                    UltimateLevel = 1
-                });
-
-                // Add "New Character" Badge
-                user.AddBadge(BadgeContents.NikkeNew, character.NameCode.ToString());
-                user.AddTrigger(Trigger.ObtainCharacter, 1, character.NameCode);
-                if (character.OriginalRare == OriginalRareType.SSR)
-                {
-                    user.AddTrigger(Trigger.ObtainCharacterSSR, 1);
-                }
-                else
-                {
-                    user.AddTrigger(Trigger.ObtainCharacterNew, 1, 0);
-                }
-
-                if (character.OriginalRare == OriginalRareType.SSR || character.OriginalRare == OriginalRareType.SR)
-                {
-                    user.BondInfo.Add(new() { NameCode = character.NameCode, Lv = 1 });
-                }
-            }
+            if (!GameData.Instance.CharacterTable.TryGetValue(rewardId, out var character))
+                throw new InvalidOperationException($"Unknown character reward {rewardId}");
+            ret.MergeFrom(CharacterRewardHelper.GrantCharacter(user, character, rewardCount));
         }
         else if (rewardType == RewardType.UserTitle)
         {

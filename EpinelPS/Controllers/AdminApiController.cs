@@ -78,6 +78,8 @@ public class AdminApiController(GameContext DbContext) : ControllerBase
     [HttpPost("RegisterAccount")]
     public RunCmdResponse RegisterAccount([FromBody] RegisterAccountReg req)
     {
+        lock (JsonDb.SaveLock)
+        {
         if (JsonDb.Instance.Users.Count != 0 && !AdminController.CheckAuth(HttpContext)) return new RunCmdResponse() { error = "Cannot register an account as an account already exists" };
 
         if (dbContext.SdkUsers.Where(x => x.Email == req.Email).Count() != 0)
@@ -85,43 +87,11 @@ public class AdminApiController(GameContext DbContext) : ControllerBase
             return new RunCmdResponse() { error = $"Email {req.Email} already exists" };
         }
 
-        ulong uid = (ulong)new Random().Next(1, int.MaxValue);
-
-        // Check if we havent generated a UID that exists
-        foreach (User item in JsonDb.Instance.Users)
-        {
-            if (item.ID == uid)
-            {
-                uid -= (ulong)new Random().Next(1, 1221);
-            }
-        }
-
-        bool admin = JsonDb.Instance.Users.Count == 0;
-
-        JsonDb.Instance.Users.Add(new User()
-        {
-            ID = uid
-        });
-
-        dbContext.SdkUsers.Add(new SdkUser()
-        {
-            ID = uid,
-            Email = req.Email,
-            PasswordHash = Convert.ToHexString(md5.ComputeHash(Encoding.ASCII.GetBytes(req.Password))).ToLower(),
-            RegisterTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-            IsAdmin = admin,
-            PlayerName = "Player_" + Rng.RandomString(8),
-        });
-
-        dbContext.Users.Add(new GameUser()
-        {
-            ID = uid // todo remove later
-        });
-
-        JsonDb.Save();
-        dbContext.SaveChanges();
+        EpinelPS.Services.AccountRegistrationService.Register(dbContext, req.Email,
+            Convert.ToHexString(md5.ComputeHash(Encoding.ASCII.GetBytes(req.Password))).ToLower());
 
         return new RunCmdResponse() { ok = true };
+        }
     }
 
     [HttpPost("RunCmd")]

@@ -1,5 +1,7 @@
 ﻿using ASodium;
 using EpinelPS.Database;
+using EpinelPS.LobbyServer.Guild;
+using EpinelPS.LobbyServer.LobbyUser.Tutorial;
 using EpinelPS.Utils;
 using Google.Protobuf;
 using Paseto;
@@ -39,8 +41,6 @@ public static class LobbyHandler
     }
     public static async Task DispatchSingle(HttpContext ctx)
     {
-        LobbyMessage? handler = null;
-
         string fullPath = ctx.Request.Path.Value ?? throw new Exception();
         string path = fullPath.Replace("/v1", "");
 
@@ -69,15 +69,7 @@ public static class LobbyHandler
             }
         }
 
-        foreach (KeyValuePair<string, LobbyMessage> item in Handlers)
-        {
-            if (path == item.Key)
-            {
-                handler = item.Value;
-            }
-        }
-
-        if (handler == null)
+        if (!Handlers.TryGetValue(path, out var registered))
         {
             Logging.WriteLine($"[LobbyHandler] No handler for: {path}", LogType.Error);
             //ctx.Response.StatusCode = 404;
@@ -89,8 +81,9 @@ public static class LobbyHandler
         }
         else
         {
+            // LobbyMessage stores the current HTTP context and user ID on the instance.
+            var handler = (LobbyMessage)Activator.CreateInstance(registered.GetType())!;
             await handler.HandleAsync(ctx);
-            return;
         }
     }
 
@@ -135,7 +128,7 @@ public static class LobbyHandler
         // By calling this function, we force .NET to initialize handler dictanary to catch errors early on.
     }
 
-    public static NetUserData CreateNetUserDataFromUser(User user)
+    public static NetUserData CreateNetUserDataFromUser(User user, DateTime? nowUtc = null)
     {
         NetUserData ret = new()
         {
@@ -143,6 +136,7 @@ public static class LobbyHandler
             Exp = user.userPointData.ExperiencePoint,
             CostumeLv = 1,
             Frame = user.ProfileFrame,
+            GuildLeaveAt = user.Guild.LeaveAt ?? 0,
             Icon = user.ProfileIconId,
             IconPrism = user.ProfileIconIsPrism,
             InfraCoreExp = user.InfraCoreExp,
@@ -151,18 +145,21 @@ public static class LobbyHandler
         };
 
 
-        // Restore completed tutorials.
-        foreach (KeyValuePair<int, ClearedTutorialData> item in user.ClearedTutorialDataNew)
-        {
-            ret.Tutorials.Add(new NetTutorialData()
-            {
-                GroupId = item.Key,
-                LastClearedTid = item.Value.Id,
-                LastClearedVersion = item.Value.VersionGroup
-            });
-        }
+        TutorialProgress.Restore(user, ret);
 
-        ret.CounselCount = user.ResetableData.DailyCounselCount[1];
+        lock (user)
+        {
+            ret.CounselCount = user.ResetableData.GetAvailableCounselCount();
+            // User/Get runs after arena settlement and must preserve the consumed attempts.
+            int day = int.Parse((nowUtc ?? DateTime.UtcNow).AddHours(-JsonDb.Instance.ResetHourUtcTime)
+                .ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture));
+            // ArenaService also preserves a later saved day when the system clock moves back.
+            if (user.Arena is { } arena && arena.Day >= day)
+            {
+                ret.ArenaCount = arena.RookieCount;
+                ret.SpecialArenaCount = arena.SpecialCount;
+            }
+        }
         ret.OutpostFastBattleCount = user.ResetableData.WipeoutCount;        
         return ret;
     }
@@ -178,8 +175,9 @@ public static class LobbyHandler
             IconPrism = user.ProfileIconIsPrism,
             UserTitleId = user.TitleId,
             Nickname = userDB.Nickname,
+            GuildName = GuildDirectory.Membership(user)?.Name ?? "",
             Usn = (long)user.ID,
-            LastActionAt = DateTimeOffset.UtcNow.Ticks,
+            LastActionAt = user.ManagedNpc?.LastActionUtc.Ticks ?? DateTimeOffset.UtcNow.Ticks,
             Server = 1001
         };
 
@@ -199,8 +197,9 @@ public static class LobbyHandler
             IconPrism = user.ProfileIconIsPrism,
             UserTitleId = user.TitleId,
             Nickname = userDB.Nickname,
+            GuildName = GuildDirectory.Membership(user)?.Name ?? "",
             Usn = (long)user.ID,
-            LastActionAt = DateTimeOffset.UtcNow.Ticks,
+            LastActionAt = user.ManagedNpc?.LastActionUtc.Ticks ?? DateTimeOffset.UtcNow.Ticks,
             Server = 1001
         };
 

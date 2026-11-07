@@ -9,6 +9,7 @@ namespace EpinelPS.Database;
 internal class JsonDb
 {
     public static CoreInfo Instance { get; internal set; }
+    internal static readonly object SaveLock = new();
 
     // Note: change this in sodium
     public static byte[] ServerPrivateKey = Convert.FromBase64String("FSUY8Ohd942n5LWAfxn6slK3YGwc8OqmyJoJup9nNos=");
@@ -36,6 +37,7 @@ internal class JsonDb
         var j = JsonConvert.DeserializeObject<CoreInfo>(text);
         if (j != null)
         {
+            MigrateBondRewardLevels(j);
             Instance = j;
 
             if (Instance.DbVersion != 5)
@@ -85,12 +87,38 @@ internal class JsonDb
             Save();
         }
 
-        var j = JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(AppDomain.CurrentDomain.BaseDirectory + "/db.json"));
-        if (j != null)
+        lock (SaveLock)
         {
-            Instance = j;
-            Console.WriteLine("Database reload complete.");
+            var j = JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(AppDomain.CurrentDomain.BaseDirectory + "/db.json"));
+            if (j != null)
+            {
+                bool migrated = MigrateBondRewardLevels(j);
+                Instance = j;
+                if (migrated) Save();
+                Console.WriteLine("Database reload complete.");
+            }
         }
+    }
+
+    private static bool MigrateBondRewardLevels(CoreInfo db)
+    {
+        // Some old row IDs are also valid levels for the same character. Translate only once.
+        if (db.BondRewardLevelsMigrated) return false;
+        foreach (var bond in db.Users.SelectMany(user => user.BondInfo))
+        {
+            var claims = bond.ObtainedRewardLevels;
+            if (claims.Count == 0) continue;
+            var table = GameData.Instance?.AttractiveLevelReward;
+            if (table == null || table.Count == 0)
+                throw new InvalidDataException("Cannot migrate bond reward claims without the attractive level reward table.");
+
+            var levels = claims.Select(id => table.TryGetValue(id, out var row) && row.NameCode == bond.NameCode
+                ? row.AttractiveLevel : id).Distinct().ToArray();
+            claims.Clear();
+            claims.AddRange(levels);
+        }
+        db.BondRewardLevelsMigrated = true;
+        return true;
     }
 
     private static void ValidateDb()
@@ -156,9 +184,13 @@ internal class JsonDb
 
     public static void Save()
     {
-        if (Instance != null)
+        lock (SaveLock)
         {
-            File.WriteAllText(AppDomain.CurrentDomain.BaseDirectory + "/db.json", JsonConvert.SerializeObject(Instance, Formatting.Indented));
+            if (RewardMutationScope.DefersSave) return;
+            if (Instance == null) return;
+            var path = Path.Combine(AppContext.BaseDirectory, "db.json");
+            File.WriteAllText(path + ".tmp", JsonConvert.SerializeObject(Instance, Formatting.Indented));
+            File.Move(path + ".tmp", path, overwrite: true);
         }
     }
     public static int CurrentJukeboxBgm(int position)
@@ -186,17 +218,5 @@ internal class JsonDb
 
         position = (position == 2 && activeJukeboxBgm.Count > 1) ? 2 : 1;
         return activeJukeboxBgm[position - 1];
-    }
-
-    public static bool IsSickPulls(User selectedUser)
-    {
-        if (selectedUser != null)
-        {
-            return selectedUser.sickpulls;
-        }
-        else
-        {
-            throw new Exception($"User not found");
-        }
     }
 }

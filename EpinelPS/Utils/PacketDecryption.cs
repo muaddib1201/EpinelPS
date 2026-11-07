@@ -68,7 +68,7 @@ public class PacketDecryption
                     contents = decoded.ToArray();
                 }
 
-                return new PacketDecryptResponse() { Contents = contents, UserId = key.UserId, UsedAuthToken = decryptionToken };
+                return new PacketDecryptResponse() { Contents = contents, UserId = key.UserId, UsedAuthToken = decryptionToken, Nonce = nonce };
             default:
                 throw new Exception($"Unsupported content encoding \"{encoding}\"");
         }
@@ -329,6 +329,7 @@ public class PacketDecryption
 }
 public class PacketDecryptResponse
 {
+    public byte[]? Nonce { get; init; }
     public ulong UserId;
     public string UsedAuthToken = "";
     public byte[] Contents = [];

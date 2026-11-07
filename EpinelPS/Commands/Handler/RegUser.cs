@@ -23,6 +23,8 @@ public class RegUserHandler(IExecutionContext context) : BaseHandler<RegUserPara
 
     protected async override Task<HandleResult> ExecuteAsync(RegUserParameter parameters)
     {
+        lock (JsonDb.SaveLock)
+        {
         if (JsonDb.Instance.Users.Any(u => u.Username.Equals(parameters.Email, StringComparison.OrdinalIgnoreCase)))
             return new HandleResult(false, $"User with email '{parameters.Email}' already exists");
 
@@ -36,10 +38,11 @@ public class RegUserHandler(IExecutionContext context) : BaseHandler<RegUserPara
             IsAdmin = JsonDb.Instance.Users.Count == 0
         };
 
-        JsonDb.Instance.Users.Add(newUser);
+        JsonDb.Instance.Users = [.. JsonDb.Instance.Users, newUser];
         JsonDb.Save();
 
         return new HandleResult(true, $"User '{parameters.Email}' registered successfully with ID {newUser.ID}");
+        }
     }
 
     private static ulong GenerateUniqueUserId()
@@ -48,7 +51,8 @@ public class RegUserHandler(IExecutionContext context) : BaseHandler<RegUserPara
         do
         {
             userId = (ulong)new Random().Next(1, int.MaxValue);
-        } while (JsonDb.Instance.Users.Any(u => u.ID == userId));
+        } while (JsonDb.Instance.Users.Any(u => u.ID == userId) ||
+            JsonDb.Instance.NpcManagement?.PendingUsers.Any(u => u.ID == userId) == true);
         return userId;
     }
 }

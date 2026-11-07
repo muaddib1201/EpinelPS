@@ -9,8 +9,58 @@ public class ClearedTutorialData
     public int Id { get; set; }
     public int VersionGroup;
 }
+
+/// <summary>
+/// Per-user gacha rarity rates in percent. Must add up to 100.
+/// </summary>
+public class GachaRates
+{
+    public double Ssr { get; set; }
+    public double Sr { get; set; }
+    public double R { get; set; }
+
+    /// <summary>
+    /// Returns an error message, or null when the rates are usable.
+    /// </summary>
+    public static string? Validate(double? ssr, double? sr, double? r)
+    {
+        if (ssr == null && sr == null && r == null) return null;
+        if (ssr == null || sr == null || r == null) return "SSR, SR and R rates must all be filled in, or all left empty";
+        if (ssr < 0 || sr < 0 || r < 0 || ssr > 100 || sr > 100 || r > 100) return "Each rate must be between 0 and 100";
+        if (Math.Abs(ssr.Value + sr.Value + r.Value - 100) > 0.001) return $"Rates must add up to 100 (currently {ssr + sr + r})";
+        return null;
+    }
+
+    public double For(OriginalRareType rare) => rare switch
+    {
+        OriginalRareType.SSR => Ssr,
+        OriginalRareType.SR => Sr,
+        OriginalRareType.R => R,
+        _ => 0
+    };
+
+    public override string ToString() => $"SSR {Ssr}% / SR {Sr}% / R {R}%";
+}
 public class User
 {
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public FriendshipState? Friendships { get; set; }
+    public Dictionary<int, int> GuildContributionByDay { get; set; } = [];
+    public bool ShouldSerializeGuildContributionByDay() => GuildContributionByDay.Count != 0;
+    public List<TriggerModelNew> PendingMissionTriggers { get; set; } = [];
+    public bool ShouldSerializePendingMissionTriggers() => PendingMissionTriggers.Count != 0;
+    public Dictionary<string, string> TowerEntryReceipts { get; set; } = [];
+    public bool ShouldSerializeTowerEntryReceipts() => TowerEntryReceipts.Count != 0;
+    [Newtonsoft.Json.JsonProperty(DefaultValueHandling = Newtonsoft.Json.DefaultValueHandling.Ignore)]
+    public bool ShopMissionHistoryRepaired { get; set; }
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public ArenaPlayer? Arena { get; set; }
+    public List<TriggerModelNew> PendingMailRewardTriggers { get; set; } = [];
+    public bool ShouldSerializePendingMailRewardTriggers() => PendingMailRewardTriggers.Count != 0;
+    [Newtonsoft.Json.JsonProperty(DefaultValueHandling = Newtonsoft.Json.DefaultValueHandling.Ignore)]
+    public long LastMailRewardTriggerAt { get; set; }
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public ManagedNpcState? ManagedNpc { get; set; }
     // User info
     [Obsolete]
     public string? Username { get; set; }
@@ -33,7 +83,10 @@ public class User
     public int ProfileFrame { get; set; } = 1;
     [Obsolete]
     public bool IsAdmin { get; set; } = false;
-    public bool sickpulls { get; set; } = false;
+    /// <summary>
+    /// Custom gacha rarity rates. Null = use the official rates from the game data.
+    /// </summary>
+    public GachaRates? CustomGachaRates { get; set; }
     public bool IsBanned { get; set; } = false;
     public int TitleId { get; set; } = 1;
     public DateTime BanStart { get; set; }
@@ -54,6 +107,8 @@ public class User
         };
     public List<SynchroSlot> SynchroSlots { get; set; } = [];
     public bool SynchroDeviceUpgraded { get; set; } = false;
+    /// <summary>Number of synchro slots opened with "slot open" items (counted towards the free allowance).</summary>
+    public int SynchroSlotsFromItems { get; set; } = 0;
     public int SynchroDeviceLevel { get; set; } = 200;
     public Dictionary<int, RecycleRoomResearchProgress> ResearchProgress { get; set; } = [];
 
@@ -61,6 +116,11 @@ public class User
     public WeeklyResetableData WeeklyResetableData { get; set; } = new();
     public List<DbItemData> Items { get; set; } = [];
     public List<CharacterModel> Characters { get; set; } = [];
+    // Character detail preferences, keyed by the owned character's serial number.
+    // Keep explicit false values so disabling a switch also survives a restart.
+    public Dictionary<long, bool> CharacterInfoToggles { get; set; } = [];
+    public Dictionary<long, bool> CharacterBackgroundToggles { get; set; } = [];
+    public Dictionary<long, bool> FavoriteItemWallpaperToggles { get; set; } = [];
     public List<EquipmentAwakeningData> EquipmentAwakenings { get; set; } = [];
     public long[] RepresentationTeamDataNew { get; set; } = [];
     public Dictionary<int, ClearedTutorialData> ClearedTutorialDataNew { get; set; } = [];
@@ -75,6 +135,7 @@ public class User
     public NetWallpaperJukebox[] WallpaperJukeboxList { get; set; } = [];
     public List<int> LobbyDecoBackgroundList { get; set; } = [];
     public List<int> LiveWallpaperList { get; set; } = [];
+    public List<int> SdLobbyList { get; set; } = [];
 
     //角色时装
     public List<int> CostumeList { get; set; } = [];
@@ -90,6 +151,10 @@ public class User
     public Dictionary<long, NetUserMailData> MailDatas { get; set; } = [];       
 
     public Dictionary<int, NetUserTeamData> UserTeams { get; set; } = [];
+    // Null marks an old save whose arena cube equipment has not been copied yet.
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public Dictionary<long, List<long>>? ArenaHarmonyCubeAssignments { get; set; }
+    public Dictionary<int, SupportCharacterBattle> SupportCharacterBattles { get; set; } = [];
     public Dictionary<int, bool> MainQuestData { get; set; } = [];
     public Dictionary<int, bool> SubQuestData { get; set; } = [];
     public int InfraCoreExp { get; set; } = 0;
@@ -132,6 +197,12 @@ public class User
     [Obsolete]
     public List<TriggerModel> Triggers { get; set; } = [];
     public int LastTriggerId { get; set; } = 1;
+    [Newtonsoft.Json.JsonProperty(DefaultValueHandling = Newtonsoft.Json.DefaultValueHandling.Ignore)]
+    public int TriggerSyncClockVersion { get; set; }
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public TriggerClockSyncReceipt? TriggerSyncClockReceipt { get; set; }
+    public List<CounselMissionReceipt> CounselMissionReceipts { get; set; } = [];
+    public bool ShouldSerializeCounselMissionReceipts() => CounselMissionReceipts.Count != 0;
     public List<int> CompletedAchievements { get; set; } = [];
     public List<NetMessage> MessengerData { get; set; } = [];
     // Manual admin repairs only.  Keeping the original message makes a repair reversible.
@@ -146,6 +217,8 @@ public class User
     public Dictionary<int, LoginEventData> LoginEventInfo { get; set; } = [];
     public Dictionary<int, EventMissionData> EventMissionInfo { get; set; } = []; // key: eventId
     public Dictionary<int, EventShopBuyCountData> EventShopBuyCountInfo { get; set; } = []; // key: eventId
+    public Dictionary<int, EventBoxGachaData> EventBoxGachaInfo { get; set; } = []; // key: eventId
+    public List<InAppShopBuyRecord> InAppShopBuyRecords { get; set; } = [];
 
     // Archive unlock state. These are persisted in db.json with the rest of the user.
     public List<int> UnlockedArchiveRecordIds { get; set; } = [];
@@ -182,7 +255,15 @@ public class User
     public List<NetSelectableDispatchData> SelectableDispatchData { get; set; } = [];
     public DispatchData UserDispatchData { get; set; } = new();
 
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public GuildData Guild { get; set; } = new();
+
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public InterceptionProgress? Interception { get; set; }
+
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public List<SavedShootingRangeBattle> ShootingRangeBattles { get; set; } = [];
+    public bool ShouldSerializeShootingRangeBattles() => ShootingRangeBattles.Count != 0;
 
     //解放
     public Dictionary<int, NetLiberateData> LiberateDatas { get; set; } = [];
@@ -222,6 +303,7 @@ public class User
     
     public TriggerModelNew AddTrigger(Trigger type, int value, int conditionId = 0, bool logToConsole = true)
     {
+        if (RewardMutationScope.TryCapture(this, type, value, conditionId, out var captured)) return captured;
         using var ctx = GameContext.CreateNew();
         TriggerModelNew t = new()
         {
@@ -324,19 +406,26 @@ public class User
 
     public long GetCurrencyVal(CurrencyType type)
     {
-        if (Currency.TryGetValue(type, out long value))
-            return value;
-        else
+        lock (this)
         {
+            if (Currency.TryGetValue(type, out long value)) return value;
             Currency.Add(type, 0);
             return 0;
         }
     }
     public void AddCurrency(CurrencyType type, long val)
     {
-        if (!Currency.TryAdd(type, val)) Currency[type] += val;
+        lock (this)
+        {
+            if (!Currency.TryAdd(type, val)) Currency[type] += val;
+        }
     }
     public bool SubtractCurrency(CurrencyType type, long val)
+    {
+        lock (this) return SubtractCurrencyLocked(type, val);
+    }
+
+    private bool SubtractCurrencyLocked(CurrencyType type, long val)
     {
         if (type == CurrencyType.FreeCash)
         {
@@ -609,6 +698,14 @@ public class User
 
     public void ResetDataIfNeeded()
     {
+        lock (this) ResetDataIfNeededLocked();
+    }
+
+    internal static int? GetDailyCounselLimit(InfraCoreGradeRecord? grade) =>
+        grade?.FunctionList?.ElementAtOrDefault(2) is { } bonus ? 3 + bonus.Function : null;
+
+    private void ResetDataIfNeededLocked()
+    {
         bool needsSave = false;
         if (InfraCoreExp > 0)
         {
@@ -629,6 +726,7 @@ public class User
             Logging.WriteLine("Resetting weekly user data...", LogType.Warning);
 
             LastWeeklyReset = DateTime.UtcNow;
+            WeeklyResetableData = new();
             var currentSeasonData = ResetableData.SimRoomData.CurrentSeasonData;
             currentSeasonData.LatestOption = new();
             ResetableData = new()
@@ -668,7 +766,7 @@ public class User
 
             DispatchResetCount = 0;
             ResetableData.DispatchCount = GetDispatchCount() + infracore.FunctionList[1].Function;
-            ResetableData.DailyCounselCount[1] = 3 + infracore.FunctionList[2].Function;
+            ResetableData.DailyCounselCount[1] = GetDailyCounselLimit(infracore) ?? 3;
             GachaDailyFreePulls.Clear();
             DailyDiscountUsed = false;
 

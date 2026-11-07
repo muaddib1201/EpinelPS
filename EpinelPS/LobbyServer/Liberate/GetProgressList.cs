@@ -1,4 +1,4 @@
-﻿namespace EpinelPS.LobbyServer.Liberate;
+namespace EpinelPS.LobbyServer.Liberate;
 
 [GameRequest("/liberate/getprogresslist")]
 public class GetProgressList : LobbyMessage
@@ -9,19 +9,22 @@ public class GetProgressList : LobbyMessage
         User user = GetUser();
 
         ResGetLiberateProgressList response = new();
-        foreach (var item in user.LiberateDatas)
-        {
-            NetLiberateProgressData netLiberate = new NetLiberateProgressData
-            {
-                CharacterId = item.Value.CharacterId,
-                IsCompleted = item.Value.IsCompleted,
-                ProgressPoint = item.Value.ProgressPoint,
-                RewardedCount = item.Value.RewardedCount,
-                Step = item.Value.Step
-            };
-            response.LiberateProgressData.Add(netLiberate);
-        }
 
+        lock (user)
+        {
+            foreach (var item in user.LiberateDatas)
+            {
+                NetLiberateProgressData netLiberate = new NetLiberateProgressData
+                {
+                    CharacterId = item.Value.CharacterId,
+                    IsCompleted = item.Value.IsCompleted,
+                    ProgressPoint = item.Value.ProgressPoint,
+                    RewardedCount = item.Value.RewardedCount,
+                    Step = item.Value.Step
+                };
+                response.LiberateProgressData.Add(netLiberate);
+            }
+        }
         await WriteDataAsync(response);
     }
 }

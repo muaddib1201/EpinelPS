@@ -1,5 +1,6 @@
 ﻿using EpinelPS.Data;
 using EpinelPS.Database;
+using EpinelPS.LobbyServer.Mission;
 using EpinelPS.LobbyServer.Pass;
 using EpinelPS.Utils;
 
@@ -12,14 +13,32 @@ public class ObtainDispatchReward : LobbyMessage
     {
         ReqObtainDispatchReward req = await ReadData<ReqObtainDispatchReward>();
 
-        ResObtainDispatchReward response = new();
         User user = GetUser();
-        NetRewardData rewardData = new();
-        List<NetUserDispatchData> dispatchDatas = user.UserDispatchData.dispatchDatas;
+        var response = MissionProgressDelivery.Apply(user, () => Obtain(user, req));
+        await WriteDataAsync(response);
+    }
 
-        foreach (var item in req.TidList)
+    private static ResObtainDispatchReward Obtain(User user, ReqObtainDispatchReward req)
+    {
+        ResObtainDispatchReward response = new();
+        NetRewardData rewardData = new();
+        List<NetUserDispatchData> dispatchDatas = user.UserDispatchData.dispatchDatas ??= [];
+        var completed = new List<DispatchRecord>();
+        long now = DateTime.UtcNow.Ticks;
+
+        foreach (var item in req.TidList.Distinct())
         {
-            DispatchRecord? dispatch = GameData.Instance.DispatchTable.Values.Where(c => c.Id == item).FirstOrDefault();
+            if (!GameData.Instance.DispatchTable.TryGetValue(item, out var dispatch))
+                throw new BadHttpRequestException("Unknown dispatch.", 400);
+            var running = dispatchDatas.FirstOrDefault(d => d.Tid == item);
+            if (running == null && user.DispatchClearList.Contains(item)) continue;
+            if (running == null || running.IsRun != 1 || running.EndAt <= 0 || running.EndAt > now)
+                throw new BadHttpRequestException("Dispatch is not complete.", 400);
+            completed.Add(dispatch);
+        }
+        foreach (var dispatch in completed)
+        {
+            int item = dispatch.Id;
             int rewardid = dispatch.RewardId;
             PassHelper.RewardsForUser(user, ref rewardData, rewardid);
             user.AddUnique(user.DispatchClearList, item);
@@ -37,8 +56,7 @@ public class ObtainDispatchReward : LobbyMessage
         response.DispatchList.AddRange(dispatchDatas);
         response.SelectableDispatchList.AddRange(dispatchtable);
 
-        JsonDb.Save();
-        await WriteDataAsync(response);
+        return response;
     }
 
 }

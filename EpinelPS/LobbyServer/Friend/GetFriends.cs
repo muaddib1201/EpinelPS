@@ -6,9 +6,7 @@ public class GetFriends : LobbyMessage
     protected override async Task HandleAsync()
     {
         ReqGetFriendData req = await ReadData<ReqGetFriendData>();
-        ResGetFriendData response = new();
-
-
+        ResGetFriendData response = FriendshipService.Get(GetUser(), GameContext, DateTime.UtcNow);
         await WriteDataAsync(response);
     }
 }

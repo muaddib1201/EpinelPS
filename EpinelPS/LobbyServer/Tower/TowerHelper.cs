@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using EpinelPS.Data;
+using EpinelPS.Database;
 using EpinelPS.Utils;
 
 namespace EpinelPS.LobbyServer.Tower;
@@ -19,11 +20,27 @@ public class TowerHelper
         [CorporationTowerType.ALL] = Trigger.TowerBasicClear,
     };
 
+    /// <summary>Daily clear limit from TowerInfoTable; 0 means unlimited (Tribe Tower).</summary>
+    public static int GetClearLimit(CorporationTowerType type) =>
+        GameData.Instance.TowerInfoTable.TryGetValue(type, out TowerInfoRecord? info) ? info.ClearLimit : 0;
+
     private static int GetMaxFloor(CorporationTowerType type) => GameData.Instance.towerTable.Values
             .Where(t => t.Type == type)
             .Select(t => t.Floor)
             .DefaultIfEmpty(0)
             .Max();
+
+    private static HashSet<int> GetClearedFloorIds(User user, CorporationTowerType type)
+    {
+        // AddTrigger writes to SQLite. User.Triggers is the obsolete JSON list
+        // and does not receive new clears after the database migration.
+        using var db = GameContext.CreateNew();
+        Trigger trigger = TowerClearTriggers[type];
+        return db.Triggers
+            .Where(t => t.UserId == user.ID && t.Type == trigger && t.Value >= 1)
+            .Select(t => t.ConditionId)
+            .ToHashSet();
+    }
     
     public static NetRewardData CompleteTower(User user, int towerId)
     {
@@ -38,7 +55,8 @@ public class TowerHelper
         if (user.TowerProgress.TryGetValue(record.Type, out int progress) && progress >= maxFloor)
             throw new Exception($"tower {record.Type} already fully cleared (progress={progress}, max={maxFloor})");
 
-        if (user.Triggers.Any(x => x.ConditionId == towerId && x.Value == 1))
+        HashSet<int> clearedFloorIds = GetClearedFloorIds(user, record.Type);
+        if (clearedFloorIds.Contains(towerId))
             throw new Exception("floor already cleared");
 
         // Sequential progression: previous floor must be cleared (unless this is floor 1)
@@ -47,15 +65,20 @@ public class TowerHelper
             var prev = GameData.Instance.towerTable.Values
                 .FirstOrDefault(t => t.Type == record.Type && t.Floor == record.Floor - 1);
 
-            if (prev != null && !user.Triggers.Any(x => x.ConditionId == prev.Id && x.Value == 1))
+            if (prev != null && !clearedFloorIds.Contains(prev.Id))
                 throw new Exception($"previous floor {record.Floor - 1} not cleared");
         }
+
+        int clearLimit = GetClearLimit(record.Type);
+        user.ResetableData.TowerCount.TryGetValue(record.Type, out int clearedToday);
+        if (clearLimit > 0 && clearedToday >= clearLimit)
+            throw new Exception($"daily clear limit reached for {record.Type} ({clearedToday}/{clearLimit})");
 
         if (!user.TowerProgress.TryGetValue(record.Type, out int value) || value < record.Floor)
             user.TowerProgress[record.Type] = record.Floor;
 
-        if (record.Type is not CorporationTowerType.ALL)
-            user.ResetableData.TowerCount[record.Type] += 1;
+        if (clearLimit > 0)
+            user.ResetableData.TowerCount[record.Type] = clearedToday + 1;
 
         user.AddTrigger(TowerClearTriggers[record.Type], 1, towerId);
 
@@ -83,7 +106,8 @@ public class TowerHelper
         if (progress >= maxFloor)
             throw new Exception($"tower {record.Type} already fully cleared (progress={progress}, max={maxFloor})");
 
-        if (user.Triggers.Any(x => x.ConditionId == towerId && x.Value == 1))
+        HashSet<int> clearedFloorIds = GetClearedFloorIds(user, record.Type);
+        if (clearedFloorIds.Contains(towerId))
             throw new Exception("floor already cleared");
 
         NetRewardData totalReward = new NetRewardData();
@@ -96,7 +120,7 @@ public class TowerHelper
             .Where(t => t.Type == record.Type
                 && t.Floor >= startFloor
                 && t.Floor <= record.Floor
-                && !user.Triggers.Any(x => x.ConditionId == t.Id && x.Value == 1))
+                && !clearedFloorIds.Contains(t.Id))
             .OrderBy(t => t.Floor)
             .ToList();
 
@@ -123,8 +147,11 @@ public class TowerHelper
 
         user.TowerProgress[record.Type] = record.Floor;
 
-        if (record.Type is not CorporationTowerType.ALL)
-            user.ResetableData.TowerCount[record.Type] += totalFloorsCleared;
+        if (GetClearLimit(record.Type) > 0)
+        {
+            user.ResetableData.TowerCount.TryGetValue(record.Type, out int clearedToday);
+            user.ResetableData.TowerCount[record.Type] = clearedToday + totalFloorsCleared;
+        }
 
         Console.WriteLine($"Total floors cleared: {totalFloorsCleared}");
 

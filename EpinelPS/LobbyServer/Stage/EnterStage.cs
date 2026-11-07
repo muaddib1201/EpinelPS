@@ -1,5 +1,6 @@
 ﻿using EpinelPS.Data;
 using EpinelPS.Database;
+using EpinelPS.LobbyServer.Team;
 
 namespace EpinelPS.LobbyServer.Stage;
 
@@ -15,6 +16,8 @@ public class EnterStage : LobbyMessage
 
         CampaignStageRecord clearedStage = GameData.Instance.GetStageData(req.StageId) ?? throw new Exception("cleared stage cannot be null");
         string map = GameData.Instance.GetMapIdFromChapter(clearedStage.ChapterId, clearedStage.ChapterMod);
+
+        SupportCharacterHelper.BeginBattle(user, TeamType.Default, req.StageId, req.TeamNumber);
 
         if (clearedStage.StageCategory == StageCategory.Boss)
         {

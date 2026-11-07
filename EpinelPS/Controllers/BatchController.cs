@@ -1,9 +1,13 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
+using EpinelPS.Networking;
+using EpinelPS.Utils;
 using System.Collections.ObjectModel;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Buffers.Binary;
+using System.Security.Cryptography;
 using static System.Collections.Specialized.BitVector32;
 
 namespace EpinelPS.Controllers;
@@ -46,10 +50,11 @@ public class BatchController : ControllerBase
 
         MultipartResult result = new();
 
+        int partIndex = 0;
         foreach (var item in multipart.Contents)
         {
             var ms = new MemoryStream(); // stream is cleaned up later
-            await ExecutePartRequest(await item.ReadAsByteArrayAsync(), ms);
+            await ExecutePartRequest(await item.ReadAsByteArrayAsync(), ms, partIndex++);
 
             result.Add(new MultipartContent()
             {
@@ -78,7 +83,7 @@ public class BatchController : ControllerBase
 
         return (pieces[0].Trim(), pieces[1].Trim());
     }
-    private async Task ExecutePartRequest(byte[] bytes, MemoryStream responseStream)
+    private async Task ExecutePartRequest(byte[] bytes, MemoryStream responseStream, int partIndex)
     {
         int line = 0;
         string bodyStartStr = Encoding.UTF8.GetString(bytes);
@@ -141,6 +146,14 @@ public class BatchController : ControllerBase
             {
                 request.Headers.TryAddWithoutValidation(item.Name, item.Value);
             }
+        }
+        if (HttpContext.Items[nameof(PacketDecryptResponse.Nonce)] is byte[] { Length: > 0 } nonce)
+        {
+            // Retransmitting an encrypted batch must retain each part's packet identity.
+            byte[] index = new byte[4];
+            BinaryPrimitives.WriteInt32BigEndian(index, partIndex);
+            request.Headers.TryAddWithoutValidation(EncryptionMiddleware.BatchNonceHeader,
+                Convert.ToHexString(SHA256.HashData([.. nonce, .. index])));
         }
         ByteArrayContent content = new(body);
         content.Headers.TryAddWithoutValidation("Accept", "application/octet-stream+protobuf");

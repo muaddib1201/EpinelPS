@@ -9,11 +9,8 @@ public class ListSupportCharacterCount : LobbyMessage
 
         ResListSupportCharacterUsedCount response = new();
 
-        // TODO: Limit temportary participation
-        foreach (int item in req.TeamTypeList)
-        {
-            Console.WriteLine("support character used: " + item);
-        }
+        response.SupportCharacterUsedCountList.AddRange(
+            SupportCharacterHelper.GetUsedCounts(GetUser(), req.TeamTypeList));
         await WriteDataAsync(response);
     }
 }

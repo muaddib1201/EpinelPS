@@ -48,6 +48,7 @@ internal class Program
             await GameData.CreateAsync();
             foreach (var user in JsonDb.Instance.Users)
             {
+                if (user.ManagedNpc != null) continue;
                 if (user.LastNormalStageCleared >= 6000002)
                 {
                     ClearStage.EnsureDefaultCharacters(user);
@@ -98,6 +99,7 @@ internal class Program
             builder.Services.AddHttpContextAccessor();
             builder.Services.AddScoped<IUserService, UserService>();
             builder.Services.AddSingleton<MessengerAdminService>();
+            builder.Services.AddHostedService<ManagedNpcWorker>();
             builder.Services.AddDbContext<GameContext>(options =>
             {
                 switch (connectionType?.ToLowerInvariant())
@@ -148,6 +150,24 @@ internal class Program
             // The scope is disposed automatically after app.Run() returns.
             using IServiceScope gameContextScope = app.Services.CreateScope();
             GameContext.SetInstance(gameContextScope.ServiceProvider.GetRequiredService<GameContext>());
+            ManagedNpcService.Recover(gameContextScope.ServiceProvider.GetRequiredService<GameContext>());
+            ManagedNpcService.UpgradeBreakthroughs();
+            ManagedNpcService.UpgradeGrowth();
+            LobbyServer.Guild.GuildActivity.RecoverAll(DateTime.UtcNow);
+            LobbyServer.Mission.MissionProgressDelivery.RecoverAll(DateTime.UtcNow);
+            ManagedNpcService.UpgradeRosters(DateTime.UtcNow);
+            ManagedNpcService.UpgradeSocial(DateTime.UtcNow);
+            if (builder.Configuration.GetValue<int?>("managed-npc-target") is int npcTarget)
+                Console.WriteLine($"NPC population reconciliation: {ManagedNpcService.EnsurePopulation(gameContextScope.ServiceProvider.GetRequiredService<GameContext>(), npcTarget, DateTime.UtcNow)} new players.");
+            if (builder.Configuration.GetValue<bool>("seed-managed-npcs"))
+                Console.WriteLine($"NPC initial creation: {ManagedNpcService.EnsureInitial(gameContextScope.ServiceProvider.GetRequiredService<GameContext>(), DateTime.UtcNow)} new players.");
+            if (builder.Configuration.GetValue<ulong?>("managed-npc-friend-owner") is ulong friendOwner)
+                Console.WriteLine($"NPC friendship initialization: {ManagedNpcService.EnsureNpcFriends(friendOwner, DateTime.UtcNow)} friends.");
+            if (builder.Configuration.GetValue<bool>("managed-npc-prepare-only"))
+            {
+                Console.WriteLine("NPC roster preparation completed.");
+                return;
+            }
 
             app.UseDefaultFiles();
             app.UseStaticFiles();

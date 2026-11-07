@@ -1,4 +1,4 @@
-﻿using EpinelPS.Data;
+using EpinelPS.Data;
 using EpinelPS.Database;
 
 namespace EpinelPS.LobbyServer.Liberate;
@@ -12,49 +12,53 @@ public class ResetMission : LobbyMessage
         User user = GetUser();
         ResResetLiberateMission response = new();
 
-        if (user.LiberateDatas.TryGetValue(user.CurCharacterIdId, out var liberateData))
+        lock (user)
         {
-            // 直接获取 groupId，如果为 null 则提前返回或处理
-            NetLiberateMissionData? firstMission = liberateData.MissionData.FirstOrDefault(x => x.Id == req.MissionId);
-            LiberateMissionRecord? currentMission = GameData.Instance.LiberateMissionTable.Values
-                .FirstOrDefault(x => x.Id == firstMission.MissionTid);
-
-            LiberateMissionGroupRecord? resetgroup = GameData.Instance.LiberateMissionGroupTable.Values
-                .Where(x => x.DefaultMissionGroupId == currentMission.GroupId && x.MissionStep == liberateData.Step)
-                .FirstOrDefault();
-            List<int> missIds = new();
-
-            if (resetgroup == null)
+            if (user.LiberateDatas.TryGetValue(user.CurCharacterIdId, out var liberateData))
             {
-                missIds = GameData.Instance.LiberateMissionTable.Values
-                    .Where(x => x.GroupId == currentMission.GroupId)
-                    .Select(x => x.Id)
-                    .Distinct()
-                    .ToList();
-            }
-            else
-            {
-                missIds = GameData.Instance.LiberateMissionTable.Values
-                    .Where(x => x.GroupId == resetgroup.ResetMissionGroupId)
-                    .Select(x => x.Id)
-                    .Distinct()
-                    .ToList();
-            }
-            var randomId = missIds[Random.Shared.Next(missIds.Count)]; // 使用 Random.Shared 避免每次 new
+                // 直接获取 groupId，如果为 null 则提前返回或处理
+                NetLiberateMissionData? firstMission = liberateData.MissionData.FirstOrDefault(x => x.Id == req.MissionId);
+                LiberateMissionRecord? currentMission = GameData.Instance.LiberateMissionTable.Values
+                    .FirstOrDefault(x => x.Id == firstMission.MissionTid);
 
-            firstMission.MissionTid = randomId;
-            firstMission.MissionState = LiberateMissionState.Running;
-            firstMission.CreatedAt = DateTime.UtcNow.Ticks;
-            firstMission.ReceivedAt = DateTime.UtcNow.Ticks;
-            firstMission.TriggerStartAt = DateTime.UtcNow.Ticks;
-            firstMission.TriggerEndAt = DateTime.UtcNow.AddHours(24).Ticks;
+                LiberateMissionGroupRecord? resetgroup = GameData.Instance.LiberateMissionGroupTable.Values
+                    .Where(x => x.DefaultMissionGroupId == currentMission.GroupId && x.MissionStep == liberateData.Step)
+                    .FirstOrDefault();
+                List<int> missIds = new();
 
-            response.Data = liberateData;
-            response.Error = LiberateDataExpiredError.Success;
+                if (resetgroup == null)
+                {
+                    missIds = GameData.Instance.LiberateMissionTable.Values
+                        .Where(x => x.GroupId == currentMission.GroupId)
+                        .Select(x => x.Id)
+                        .Distinct()
+                        .ToList();
+                }
+                else
+                {
+                    missIds = GameData.Instance.LiberateMissionTable.Values
+                        .Where(x => x.GroupId == resetgroup.ResetMissionGroupId)
+                        .Select(x => x.Id)
+                        .Distinct()
+                        .ToList();
+                }
+                var randomId = missIds[Random.Shared.Next(missIds.Count)]; // 使用 Random.Shared 避免每次 new
+
+                firstMission.MissionTid = randomId;
+                firstMission.MissionState = LiberateMissionState.Running;
+                firstMission.CreatedAt = DateTime.UtcNow.Ticks;
+                firstMission.ReceivedAt = DateTime.UtcNow.Ticks;
+                firstMission.TriggerStartAt = DateTime.UtcNow.Ticks;
+                firstMission.TriggerEndAt = DateTime.UtcNow.AddHours(24).Ticks;
+
+                response.Data = liberateData;
+                response.Error = LiberateDataExpiredError.Success;
+            }
+
+            // TODO
+            JsonDb.Save();
+            response.Data = response.Data?.Clone();
         }
-
-        // TODO
-        JsonDb.Save();
         await WriteDataAsync(response);
     }
 }

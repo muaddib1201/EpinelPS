@@ -7,13 +7,13 @@ public class BuyJupiterProduct : LobbyMessage
     {
         ReqBuyJupiterProduct req = await ReadData<ReqBuyJupiterProduct>();
         User user = GetUser();
-        bool success = InAppPurchaseHelper.TrySimulatePurchase(user, req.ProductId, req.ExtraData, out _);
-        string referenceId = success ? $"dev-{Guid.NewGuid():N}" : string.Empty;
+        bool success = InAppPurchaseHelper.TrySimulatePurchase(user, req.ProductId, req.ExtraData, out _, out string referenceId);
 
+        // The PC client refuses to continue without a payment page, point it at the local fake one
         await WriteDataAsync(new ResBuyJupiterProduct
         {
             ReferenceId = referenceId,
-            RedirectUrl = string.Empty,
+            RedirectUrl = success ? $"http://127.0.0.1/jupiter/pay/{referenceId}" : string.Empty,
         });
     }
 }

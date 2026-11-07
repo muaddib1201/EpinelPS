@@ -1,5 +1,7 @@
 using EpinelPS.Data;
 
+using EpinelPS.LobbyServer.Arena;
+
 namespace EpinelPS.LobbyServer.Inventory;
 
 [GameRequest("/inventory/getharmonycube")]
@@ -41,6 +43,7 @@ public class GetHarmonyCube : LobbyMessage
         }
 
 
+        response.ArenaHarmonyCubes.AddRange(ArenaHarmonyCubeService.Get(user));
         await WriteDataAsync(response);
     }
 }

@@ -1,4 +1,6 @@
 ﻿using EpinelPS.Data;
+using EpinelPS.LobbyServer.Arena;
+
 namespace EpinelPS.LobbyServer.Inventory;
 
 [GameRequest("/inventory/get")]
@@ -42,6 +44,7 @@ public class GetInventoryData : LobbyMessage
         // TODO:  UserRedeems
         // Note: HarmonyCubes are now included in the Items list above
 
+        response.ArenaHarmonyCubes.AddRange(ArenaHarmonyCubeService.Get(user));
         await WriteDataAsync(response);
     }
 }

@@ -6,9 +6,10 @@ public class GetRetrivableProductList : LobbyMessage
     protected override async Task HandleAsync()
     {
         ReqGetInAppShopReceivableProductList x = await ReadData<ReqGetInAppShopReceivableProductList>();
+        User user = GetUser();
 
         ResGetInAppShopReceivableProductList response = new();
-        // TODO
+        response.DataList.AddRange(InAppPurchaseHelper.GetReceivableProducts(user.ID));
 
         await WriteDataAsync(response);
     }

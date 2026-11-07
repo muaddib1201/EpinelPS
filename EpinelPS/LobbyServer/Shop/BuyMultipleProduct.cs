@@ -1,5 +1,6 @@
 using EpinelPS.Data;
 using EpinelPS.Database;
+using EpinelPS.LobbyServer.Mission;
 using EpinelPS.Utils;
 
 namespace EpinelPS.LobbyServer.Shop;
@@ -11,6 +12,13 @@ public class BuyMultipleProduct : LobbyMessage
     {
         ReqShopBuyMultipleProduct req = await ReadData<ReqShopBuyMultipleProduct>();
         User user = GetUser();
+
+        var response = MissionProgressDelivery.Apply(user, () => Purchase(user, req));
+        await WriteDataAsync(response);
+    }
+
+    private ResShopBuyMultipleProduct Purchase(User user, ReqShopBuyMultipleProduct req)
+    {
 
         ResShopBuyMultipleProduct response = new()
         {
@@ -24,8 +32,7 @@ public class BuyMultipleProduct : LobbyMessage
                 out var currencies, out var costItems))
         {
             response.Result = ShopBuyProductResult.Expired;
-            await WriteDataAsync(response);
-            return;
+            return response;
         }
 
         response.Currencies.AddRange(currencies);
@@ -40,13 +47,29 @@ public class BuyMultipleProduct : LobbyMessage
             GrantProduct(user, ref response, purchase.Product, purchase.Quantity);
         }
 
-        JsonDb.Save();
-        await WriteDataAsync(response);
+        if (req.ShopCategory == (int)ShopCategoryType.ShopNormal)
+            user.AddTrigger(Trigger.MainShopBuy, purchased.Sum(p => p.Quantity));
+        return response;
     }
 
     private void GrantProduct(User user, ref ResShopBuyMultipleProduct response, ContentsShopProductRecord product, int quantity)
     {
-        int totalValue = product.GoodsValue * quantity;
+        int totalValue = checked(product.GoodsValue * quantity);
+        NetRewardData characterReward = new();
+        if (product.GoodsType == RewardType.Character ||
+            (product.GoodsType == RewardType.Item && CharacterRewardHelper.TryGrantSpareBody(user, product.GoodsId, totalValue, out characterReward)))
+        {
+            if (product.GoodsType == RewardType.Character)
+                RewardUtils.AddSingleObject(user, ref characterReward, product.GoodsId, RewardType.Character, totalValue);
+            response.Product.Character.AddRange(characterReward.Character);
+            response.Product.UserCharacters.AddRange(characterReward.UserCharacters);
+            response.Product.Item.AddRange(characterReward.Item);
+            response.Product.UserItems.AddRange(characterReward.UserItems);
+            response.Product.Currency.AddRange(characterReward.Currency);
+            foreach (var currency in characterReward.Currency)
+                response.Currencies.Add(new NetUserCurrencyData { Type = currency.Type, Value = currency.FinalValue });
+            return;
+        }
 
         if (product.GoodsType == RewardType.Currency)
         {
@@ -78,29 +101,6 @@ public class BuyMultipleProduct : LobbyMessage
                 user.Items.Add(newItem);
                 response.Product.Item.Add(NetUtils.ItemDataToNet(newItem, totalValue));
                 response.Product.UserItems.Add(NetUtils.UserItemDataToNet(newItem));
-            }
-        }
-        else if (product.GoodsType == RewardType.Character)
-        {
-            if (GameData.Instance.CharacterTable.TryGetValue(product.GoodsId, out var charRecord))
-            {
-                var userChar = user.GetCharacter(product.GoodsId);
-                if (userChar == null)
-                {
-                    userChar = new CharacterModel
-                    {
-                        Csn = user.GenerateUniqueCharacterId(),
-                        Grade = 1,
-                        Tid = charRecord.Id,
-                    };
-                    user.Characters.Add(userChar);
-                }
-                response.Product.Character.Add(new NetCharacterData
-                {
-                    Csn = userChar.Csn,
-                    Tid = userChar.Tid,
-                    PieceCount = totalValue,
-                });
             }
         }
         else if (product.GoodsType == RewardType.LiveWallpaper)

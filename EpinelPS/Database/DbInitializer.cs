@@ -18,7 +18,7 @@ public static class DbInitializer
         // migrate sdk users to sqlite DB
         foreach(var user in JsonDb.Instance.Users)
         {
-            if (!context.SdkUsers.Where(x => x.ID == user.ID).Any())
+            if (user.ManagedNpc == null && !context.SdkUsers.Where(x => x.ID == user.ID).Any())
             {
                 changed = true;
                 context.SdkUsers.Add(new SdkUser()
@@ -39,7 +39,7 @@ public static class DbInitializer
                 var gameUser = new GameUser()
                 {
                     ID = user.ID,
-                    Nickname = user.Nickname ?? "Guest",
+                    Nickname = user.ManagedNpc?.Name ?? user.Nickname ?? "Guest",
                     Description = user.Description ?? "",
                     LastAction = user.LastLogin
                 };

@@ -1,5 +1,6 @@
 using EpinelPS.Data;
 using EpinelPS.Database;
+using EpinelPS.LobbyServer.Mission;
 using EpinelPS.Utils;
 
 namespace EpinelPS.LobbyServer.Shop;
@@ -11,6 +12,13 @@ public class BuyProduct : LobbyMessage
     {
         ReqShopBuyProduct req = await ReadData<ReqShopBuyProduct>();
         User user = GetUser();
+
+        var response = MissionProgressDelivery.Apply(user, () => Purchase(user, req));
+        await WriteDataAsync(response);
+    }
+
+    private ResShopBuyProduct Purchase(User user, ReqShopBuyProduct req)
+    {
 
         ResShopBuyProduct response = new()
         {
@@ -25,8 +33,7 @@ public class BuyProduct : LobbyMessage
                 out var currencies, out var costItems))
         {
             response.Result = ShopBuyProductResult.Expired;
-            await WriteDataAsync(response);
-            return;
+            return response;
         }
 
         response.Currencies.AddRange(currencies);
@@ -34,15 +41,30 @@ public class BuyProduct : LobbyMessage
         var purchase = purchased[0];
         response.Product.BuyCount = purchase.BuyCount;
         GrantProduct(user, ref response, purchase.Product, purchase.Quantity);
-
-        JsonDb.Save();
-        await WriteDataAsync(response);
+        if (req.ShopCategory == (int)ShopCategoryType.ShopNormal)
+            user.AddTrigger(Trigger.MainShopBuy, purchase.Quantity);
+        return response;
     }
 
     private void GrantProduct(User user, ref ResShopBuyProduct response, ContentsShopProductRecord product, int quantity)
     {
         Console.WriteLine($"Bought: {product.GoodsType}");
-        int totalValue = product.GoodsValue * quantity;
+        int totalValue = checked(product.GoodsValue * quantity);
+        NetRewardData characterReward = new();
+        if (product.GoodsType == RewardType.Character ||
+            (product.GoodsType == RewardType.Item && CharacterRewardHelper.TryGrantSpareBody(user, product.GoodsId, totalValue, out characterReward)))
+        {
+            if (product.GoodsType == RewardType.Character)
+                RewardUtils.AddSingleObject(user, ref characterReward, product.GoodsId, RewardType.Character, totalValue);
+            response.Product.Character.AddRange(characterReward.Character);
+            response.Product.UserCharacters.AddRange(characterReward.UserCharacters);
+            response.Product.Item.AddRange(characterReward.Item);
+            response.Product.UserItems.AddRange(characterReward.UserItems);
+            response.Product.Currency.AddRange(characterReward.Currency);
+            foreach (var currency in characterReward.Currency)
+                response.Currencies.Add(new NetUserCurrencyData { Type = currency.Type, Value = currency.FinalValue });
+            return;
+        }
 
         if (product.GoodsType == RewardType.Currency)
         {
@@ -74,50 +96,6 @@ public class BuyProduct : LobbyMessage
                 user.Items.Add(newItem);
                 response.Product.Item.Add(NetUtils.ItemDataToNet(newItem, totalValue));
                 response.Product.UserItems.Add(NetUtils.UserItemDataToNet(newItem));
-            }
-        }
-        else if (product.GoodsType == RewardType.Character)
-        {
-            try
-            {
-                var reward = new NetRewardData();
-                RewardUtils.AddSingleObject(user, ref reward, product.GoodsId, RewardType.Character, quantity);
-                response.Product.Character.Add(reward.Character);
-                response.Product.UserCharacters.AddRange(reward.UserCharacters);
-
-                // For Spare bodies
-                if (reward.UserItems.Count > 0)
-                {
-                    foreach (var spareItem in reward.Item)
-                    {
-                        response.Item = new NetUserItemData
-                        {
-                            Isn = spareItem.Isn,
-                            Tid = spareItem.Tid,
-                            Count = spareItem.Count,
-                            Corporation = spareItem.Corporation
-                        };
-                        response.Product.Item.AddRange(reward.Item);
-                        response.Product.UserItems.AddRange(reward.UserItems);
-                        response.Result = ShopBuyProductResult.Success;
-                        Console.WriteLine("Got: {0}", spareItem.Tid);
-                    }
-                }
-                // In case user gets body labels
-                if (reward.Currency.Count > 0)
-                {
-                    foreach (var currency in reward.Currency)
-                    {
-                        response.Currencies.Add(new NetUserCurrencyData
-                        {
-                            Type = currency.Type,
-                            Value = user.GetCurrencyVal((CurrencyType)currency.Type),
-                        });
-                    }
-                }
-            } catch (Exception ex)
-            {
-                Console.WriteLine("Buy Unit Ex: {0}", ex.Message);
             }
         }
         else if (product.GoodsType == RewardType.LiveWallpaper)

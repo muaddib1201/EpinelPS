@@ -1,4 +1,4 @@
-﻿using EpinelPS.Data;
+using EpinelPS.Data;
 using EpinelPS.Database;
 using EpinelPS.Utils;
 
@@ -13,30 +13,34 @@ public class CompleteMission : LobbyMessage
         User user = GetUser();
         ResCompleteLiberateMission response = new();
 
-        LiberateMissionRecord? mission = GameData.Instance.LiberateMissionTable.Values
-            .Where(x => x.Id == req.MissionId).FirstOrDefault();
-
-        if (user.LiberateDatas.TryGetValue(user.CurCharacterIdId, out var liberateData))
+        lock (user)
         {
-            NetLiberateMissionData? missionState = liberateData.MissionData.FirstOrDefault(x => x.Id == req.MissionId);
-            if (missionState.CreatedAt.IsOlderThan24Hours())
-            {
-                missionState.MissionState = LiberateMissionState.Closed;
-                response.Data = liberateData;
-                response.Error = LiberateDataExpiredError.Expired;
-            }
-            else
-            {
-                missionState.MissionState = LiberateMissionState.Rewarded;
-                liberateData.ProgressPoint += mission.MissionPointValue;
-                liberateData.RewardedCount += 1;
-                response.Data = liberateData;
-                response.Error = LiberateDataExpiredError.Success;
-            }
-        }
+            LiberateMissionRecord? mission = GameData.Instance.LiberateMissionTable.Values
+                .Where(x => x.Id == req.MissionId).FirstOrDefault();
 
-        JsonDb.Save();
-        // TODO
+            if (user.LiberateDatas.TryGetValue(user.CurCharacterIdId, out var liberateData))
+            {
+                NetLiberateMissionData? missionState = liberateData.MissionData.FirstOrDefault(x => x.Id == req.MissionId);
+                if (missionState.CreatedAt.IsOlderThan24Hours())
+                {
+                    missionState.MissionState = LiberateMissionState.Closed;
+                    response.Data = liberateData;
+                    response.Error = LiberateDataExpiredError.Expired;
+                }
+                else
+                {
+                    missionState.MissionState = LiberateMissionState.Rewarded;
+                    liberateData.ProgressPoint += mission.MissionPointValue;
+                    liberateData.RewardedCount += 1;
+                    response.Data = liberateData;
+                    response.Error = LiberateDataExpiredError.Success;
+                }
+            }
+
+            JsonDb.Save();
+            // TODO
+            response.Data = response.Data?.Clone();
+        }
         await WriteDataAsync(response);
     }
 }

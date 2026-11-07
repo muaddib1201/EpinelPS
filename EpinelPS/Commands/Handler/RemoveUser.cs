@@ -26,10 +26,13 @@ public class RemoveUserHandler(IExecutionContext context) : BaseHandler<RemoveUs
             return new HandleResult(false, "User removal cancelled");
         }
 
-        JsonDb.Instance.Users.Remove(context.SelectedUser);
+        lock (JsonDb.SaveLock)
+        {
+        JsonDb.Instance.Users = JsonDb.Instance.Users.Where(u => u.ID != context.SelectedUser.ID).ToList();
         JsonDb.Save();
         var username = context.SelectedUser.Username;
         context.SelectedUser = null;
         return new HandleResult(true, $"User {username} removed successfully");
+        }
     }
 }

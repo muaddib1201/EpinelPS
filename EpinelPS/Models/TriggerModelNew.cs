@@ -19,7 +19,10 @@ public class TriggerModelNew
         return new()
         {
             ConditionId = ConditionId,
-            CreatedAt = CreatedAt,
+            // All trigger writers (including durable interception/challenge outboxes)
+            // retain UTC+9 wall-clock ticks. The wire protocol uses UTC, like ResetHour.
+            // Convert at this boundary so old records and outbox deduplication keys stay intact.
+            CreatedAt = CreatedAt == 0 ? 0 : CreatedAt - TimeSpan.TicksPerHour * 9,
             Seq = Id,
             Trigger = (int)Type,
             UserValue = Value

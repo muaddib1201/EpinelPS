@@ -40,7 +40,7 @@ public class EventHelper
             AddEvents(ref response, challengeEvents);
         }
         // add daily mission events
-        List<NetEventData> dailyMissionEvents = GetDailyMissionEventData(eventManagers);
+        List<NetEventData> dailyMissionEvents = GetDailyMissionEventData(user, eventManagers);
         log.Debug($"Found {dailyMissionEvents.Count} associated daily mission events: {JsonConvert.SerializeObject(dailyMissionEvents)}");
         AddEvents(ref response, dailyMissionEvents);
     }
@@ -76,7 +76,7 @@ public class EventHelper
             AddJoinedEvents(ref response, challengeEvents);
         }
         // add daily mission events
-        List<NetEventData> dailyMissionEvents = GetDailyMissionEventData(eventManagers);
+        List<NetEventData> dailyMissionEvents = GetDailyMissionEventData(user, eventManagers);
         log.Debug($"Found {dailyMissionEvents.Count} associated daily mission events: {JsonConvert.SerializeObject(dailyMissionEvents)}");
         AddJoinedEvents(ref response, dailyMissionEvents);
     }
@@ -240,6 +240,9 @@ public class EventHelper
         return lobbyPrivateBanners;
     }
 
+    internal static DateTime GetEventStart(int eventId, DateTime nowUtc) =>
+        JsonDb.Instance.ChallengeEventStartUtc.GetValueOrDefault(eventId, nowUtc.AddDays(-21));
+
     private static void AddEvents(ref ResGetEventList response, List<NetEventData> eventDatas)
     {
         foreach (var eventData in eventDatas)
@@ -248,7 +251,7 @@ public class EventHelper
             // Avoid adding duplicate events
             if (!response.EventList.Any(e => e.Id == eventData.Id))
             {
-                if (eventData.EventStartDate == 0) eventData.EventStartDate = DateTime.UtcNow.AddDays(-21).Ticks;
+                if (eventData.EventStartDate == 0) eventData.EventStartDate = GetEventStart(eventData.Id, DateTime.UtcNow).Ticks;
                 if (eventData.EventVisibleDate == 0) eventData.EventVisibleDate = DateTime.UtcNow.AddDays(-21).Ticks;
                 if (eventData.EventDisableDate == 0) eventData.EventDisableDate = DateTime.UtcNow.AddDays(30).Ticks;
                 if (eventData.EventEndDate == 0) eventData.EventEndDate = DateTime.UtcNow.AddDays(30).Ticks;
@@ -271,7 +274,7 @@ public class EventHelper
             // Avoid adding duplicate events
             if (!response.EventWithJoinData.Any(e => e.EventData.Id == eventData.Id))
             {
-                if (eventData.EventStartDate == 0) eventData.EventStartDate = DateTime.UtcNow.AddDays(-21).Ticks;
+                if (eventData.EventStartDate == 0) eventData.EventStartDate = GetEventStart(eventData.Id, DateTime.UtcNow).Ticks;
                 if (eventData.EventVisibleDate == 0) eventData.EventVisibleDate = DateTime.UtcNow.AddDays(-21).Ticks;
                 if (eventData.EventDisableDate == 0) eventData.EventDisableDate = DateTime.UtcNow.AddDays(30).Ticks;
                 if (eventData.EventEndDate == 0) eventData.EventEndDate = DateTime.UtcNow.AddDays(30).Ticks;
@@ -289,9 +292,13 @@ public class EventHelper
         }
     }
 
-    private static List<NetEventData> GetDailyMissionEventData(List<EventManagerRecord> eventManagers)
+    private static List<NetEventData> GetDailyMissionEventData(User user, List<EventManagerRecord> eventManagers)
     {
         List<NetEventData> events = [];
+
+        // The start date must stay fixed: the client drops claimed missions created before it,
+        // which made claimed rewards claimable again whenever the event list was refreshed
+        long startDate = GetDailyMissionEventStartDate(user);
 
         var dailyEventIds = GameData.Instance.DailyMissionEventSettingTable.Values.Select(de => de.EventId).ToList();
         log.Debug($"Daily Mission Event IDs: {JsonConvert.SerializeObject(dailyEventIds)}");
@@ -310,13 +317,23 @@ public class EventHelper
             {
                 Id = dailyEvent.Id,
                 EventSystemType = (int)dailyEvent.EventSystemType,
-                EventStartDate = DateTime.UtcNow.Ticks,
-                EventVisibleDate = DateTime.UtcNow.Ticks,
+                EventStartDate = startDate,
+                EventVisibleDate = startDate,
                 EventDisableDate = DateTime.UtcNow.AddDays(30).Ticks,
                 EventEndDate = DateTime.UtcNow.AddDays(30).Ticks
             });
         }
         return events;
+    }
+
+    private static long GetDailyMissionEventStartDate(User user)
+    {
+        using var ctx = GameContext.CreateNew();
+        long registerTime = ctx.SdkUsers.Find(user.ID)?.RegisterTime ?? 0;
+        DateTime registered = registerTime > 0 ? DateTimeOffset.FromUnixTimeSeconds(registerTime).UtcDateTime : DateTime.UtcNow;
+
+        // Same offset as the default start date of the other events
+        return registered.AddDays(-21).Ticks;
     }
 
 }

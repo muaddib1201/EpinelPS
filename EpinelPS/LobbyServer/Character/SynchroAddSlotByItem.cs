@@ -1,4 +1,4 @@
-﻿using EpinelPS.Database;
+using EpinelPS.Database;
 
 namespace EpinelPS.LobbyServer.Character;
 
@@ -14,21 +14,15 @@ public class SynchroAddSlotByItem : LobbyMessage
         User user = GetUser();
         ResSynchroAddSlot response = new();
 
-        NetSynchroSlot newSlot = new()
+        SynchroSlot slot = SynchroAddSlot.AppendSlot(user);
+        user.SynchroSlotsFromItems++;
+
+        response.Slot = new NetSynchroSlot()
         {
-            Csn = 0,
-            Slot = user.SynchroSlots.Last().Slot + 1, // any upper bound?
-            AvailableRegisterAt = 0
+            Csn = slot.CharacterSerialNumber,
+            Slot = slot.Slot,
+            AvailableRegisterAt = slot.AvailableAt
         };
-
-        user.SynchroSlots.Add(new SynchroSlot()
-        {
-            Slot = newSlot.Slot,
-            CharacterSerialNumber = newSlot.Csn,
-            AvailableAt = newSlot.AvailableRegisterAt
-        });
-
-        response.Slot = newSlot;
 
         JsonDb.Save();
 

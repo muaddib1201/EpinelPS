@@ -12,7 +12,9 @@ public class FormulaUtils
         CharacterRecord? charRecord = GameData.Instance.CharacterTable.Values.FirstOrDefault(c => c.Id == character.Tid);
         if (charRecord == null) return 0;
 
-        CharacterStatRecord? statRecord = GameData.Instance.characterStatTable.Values.FirstOrDefault(s => charRecord.StatEnhanceId == s.Group + (character.Level - 1));
+        int level = user.GetCharacterLevel(character.Csn, character.Level);
+        CharacterStatRecord? statRecord = GameData.Instance.characterStatTable.Values
+            .FirstOrDefault(s => s.Group == charRecord.StatEnhanceId && s.Level == level);
         if (statRecord == null) return 0;
 
         float coreMult = 1f + character.Grade * 0.02f;

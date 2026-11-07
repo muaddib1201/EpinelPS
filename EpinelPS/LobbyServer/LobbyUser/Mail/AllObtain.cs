@@ -12,36 +12,9 @@ public class AllObtain : LobbyMessage
     {
         ReqAllObtainMail req = await ReadData<ReqAllObtainMail>();
         User user = GetUser();
-        ResAllObtainMail response = new();
-        NetRewardData ret = new();
-
-        long timenow = DateTime.Now.Ticks;
-        List<long>? keysToObtain = user.MailDatas.Where(x => x.Value.State == 1).Select(x => x.Key).ToList();
-
-        foreach (var key in keysToObtain)
-        {
-            NetUserMailData? maildata = user.MailDatas[key];
-
-            maildata.State = 2;
-            response.SucceedMails.Add(new EpinelPS.Mail() { Msn = key,Type = maildata.Type});
-
-            if (maildata.HasReward)
-            {
-                foreach (var item in maildata.Items)
-                {
-                    if (item.ExpiredAt >= timenow)
-                    {
-                        RewardUtils.AddSingleObject(user, ref ret, item.RewardId, (RewardType)item.RewardType, item.RewardValue);
-                    }
-                }
-            }
-
-        }
-
-        response.Reward = ret;
-        
-        // TODO
-        JsonDb.Save();
+        var result = MailRewardClaims.Claim(user, null);
+        ResAllObtainMail response = new() { Reward = result.Reward,
+            SucceedMails = { result.Claimed.Select(m => new EpinelPS.Mail { Msn = m.Msn, Type = m.Type }) } };
         await WriteDataAsync(response);
     }
 }

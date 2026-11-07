@@ -48,18 +48,43 @@
                                         <span asp-validation-for="IsAdmin" class="text-danger"></span>
                                     </div>
 
-                                    <div class="adminui-checkbox mb-2">
-                                        <input asp-for="sickpulls" class="adminui-checkbox-input" data-i18n-title="users.modify.disableGachaHint" />
-                                        <label asp-for="sickpulls" class="adminui-checkbox-label" data-i18n="users.modify.disableGacha" data-i18n-title="users.modify.disableGachaHint">禁用抽卡系统</label>
-                                        <span asp-validation-for="sickpulls" class="text-danger"></span>
-                                    </div>
-
                                     <div class="adminui-checkbox">
                                         <input asp-for="IsBanned" class="adminui-checkbox-input" />
                                         <label asp-for="IsBanned" class="adminui-checkbox-label" data-i18n="users.modify.isBanned">禁止登录</label>
                                         <span asp-validation-for="IsBanned" class="text-danger"></span>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-md-12">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <label class="form-label mb-0" data-i18n="users.modify.gachaRates">自定义抽卡概率 (%)</label>
+                                    <button type="button" class="btn btn-sm btn-outline-light" onclick="clearGachaRates()" data-i18n="users.modify.gachaRatesClear">清空（使用官方概率）</button>
+                                </div>
+                                <div class="row g-2">
+                                    <div class="col-4">
+                                        <div class="input-group">
+                                            <span class="input-group-text">SSR</span>
+                                            <input asp-for="GachaRateSsr" type="number" step="0.01" min="0" max="100" class="form-control gacha-rate-input" />
+                                        </div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="input-group">
+                                            <span class="input-group-text">SR</span>
+                                            <input asp-for="GachaRateSr" type="number" step="0.01" min="0" max="100" class="form-control gacha-rate-input" />
+                                        </div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="input-group">
+                                            <span class="input-group-text">R</span>
+                                            <input asp-for="GachaRateR" type="number" step="0.01" min="0" max="100" class="form-control gacha-rate-input" />
+                                        </div>
+                                    </div>
+                                </div>
+                                <small id="gachaRateSum" class="d-block mt-2"></small>
+                                <small class="d-block mt-1 gacha-rate-hint" data-i18n="users.modify.gachaRatesHint">全部留空 = 使用官方概率；填写时三项之和须为 100。官方常驻池参考：SSR 4 / SR 43 / R 53</small>
                             </div>
                         </div>
 
@@ -124,7 +149,40 @@
                             <button class="btn btn-accent" onclick="runSimpleCmdWithPr('set-all-bond-level', '@Model.ID', 'Enter bond level (1-30)')">
                                 <i class="fas fa-heart me-2"></i> <span data-i18n="users.modify.setBondLevel">设置角色好感度</span>
                             </button>
+                            <form asp-action="ResetCounsel" asp-route-id="@Model.ID" method="post" id="counselResetForm">
+                                <button type="submit" class="btn btn-accent">
+                                    <i class="fas fa-redo me-2"></i> <span data-i18n="users.modify.resetCounsel">重置咨询次数</span>
+                                </button>
+                            </form>
+                            <form asp-controller="Liberate" asp-action="ResetLiberate" asp-route-id="@Model.ID" method="post" id="liberateResetForm">
+                                <button type="submit" class="btn btn-accent">
+                                    <i class="fas fa-redo me-2"></i> <span data-i18n="users.modify.resetLiberate">重置解放次数</span>
+                                </button>
+                            </form>
                         </div>
+                        <small id="counselResetStatus" class="d-block mt-2" role="status"></small>
+                        <small class="d-block mt-2 text-muted" data-i18n="users.modify.liberateResetHint">刷新当前解放对象的每日次数和任务，保留已累积点数与阶段。</small>
+                        <small id="liberateResetStatus" class="d-block mt-2" role="status"></small>
+                        <form asp-controller="Counsel" asp-action="Unlock" asp-route-id="@Model.ID" method="post"
+                              id="counselUnlockForm" class="mt-3"
+                              data-options-url="@Url.Action("Options", "Counsel", new { id = Model.ID })">
+                            <h5 data-i18n="users.modify.counselUnlockTitle">解锁指定咨询</h5>
+                            <p class="small text-muted" data-i18n="users.modify.counselUnlockHint">补入所选咨询的收集记录后，可在游戏的咨询日志中回看。</p>
+                            <div class="row g-2">
+                                <div class="col-sm-6">
+                                    <label for="counselUnlockCharacter" class="form-label" data-i18n="users.modify.counselUnlockCharacter">角色</label>
+                                    <select name="nameCode" id="counselUnlockCharacter" class="form-select" required disabled></select>
+                                </div>
+                                <div class="col-sm-6">
+                                    <label for="counselUnlockEntry" class="form-label" data-i18n="users.modify.counselUnlockEntry">咨询序号</label>
+                                    <select name="counselTid" id="counselUnlockEntry" class="form-select" required disabled></select>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-accent mt-2" disabled>
+                                <i class="fas fa-unlock me-2"></i><span data-i18n="users.modify.counselUnlockButton">解锁所选咨询</span>
+                            </button>
+                            <small id="counselUnlockStatus" class="d-block mt-2" role="status"></small>
+                        </form>
                     </div>
 
                     <div class="cheats-section mb-4">
@@ -410,10 +468,177 @@
     .adminui-checkbox-input:checked + .adminui-checkbox-label:after {
         opacity: 1;
     }
+
+    /* 自定义抽卡概率 */
+    .gacha-rate-hint {
+        opacity: 0.7;
+    }
+
+    .gacha-rate-ok {
+        color: var(--adminui-accent);
+    }
+
+    .gacha-rate-bad {
+        color: #dc3545;
+    }
 </style>
 
 <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const form = document.getElementById('counselUnlockForm');
+        const character = document.getElementById('counselUnlockCharacter');
+        const entry = document.getElementById('counselUnlockEntry');
+        const button = form.querySelector('button');
+        const status = document.getElementById('counselUnlockStatus');
+        let version = 0;
+        let busy = false;
+        const t = (key, values) => i18n.t('users.modify.' + key, values);
+
+        function updateButton() {
+            button.disabled = busy || !entry.value || entry.selectedOptions[0]?.dataset.unlocked === 'true';
+        }
+        async function loadOptions(keepEntry) {
+            const current = ++version;
+            busy = true;
+            button.disabled = true;
+            entry.disabled = true;
+            status.textContent = '';
+            try {
+                const url = new URL(form.dataset.optionsUrl, window.location.origin);
+                if (character.value) url.searchParams.set('nameCode', character.value);
+                url.searchParams.set('lang', i18n.currentLang || 'zh');
+                const response = await fetch(url);
+                if (!response.ok) throw new Error();
+                const data = await response.json();
+                if (current !== version) return;
+                const selectedCharacter = character.value;
+                character.replaceChildren();
+                for (const item of data.characters) character.add(new Option(item.name, item.nameCode));
+                if (selectedCharacter) character.value = selectedCharacter;
+                character.disabled = !character.options.length;
+                if (!selectedCharacter && character.value) return await loadOptions();
+                entry.replaceChildren();
+                for (const item of data.dialogues) {
+                    const label = String(item.number).padStart(2, '0') + ' · ' +
+                        t(item.unlocked ? 'counselUnlocked' : 'counselLocked');
+                    const option = new Option(label, item.id);
+                    option.dataset.unlocked = String(item.unlocked);
+                    entry.add(option);
+                }
+                const preferred = keepEntry && data.dialogues.find(item => String(item.id) === String(keepEntry));
+                entry.value = String((preferred || data.dialogues.find(item => !item.unlocked) || data.dialogues[0])?.id || '');
+                entry.disabled = !entry.options.length;
+                if (!character.options.length) status.textContent = t('counselUnlockEmpty');
+            } catch {
+                if (current === version) { entry.replaceChildren(); status.textContent = t('counselUnlockFailed'); }
+            } finally {
+                if (current === version) { busy = false; updateButton(); }
+            }
+        }
+        character.addEventListener('change', () => loadOptions());
+        entry.addEventListener('change', updateButton);
+        form.addEventListener('submit', async event => {
+            event.preventDefault();
+            if (busy || button.disabled) return;
+            const selected = entry.value;
+            const body = new FormData(form);
+            busy = true;
+            button.disabled = true;
+            character.disabled = true;
+            entry.disabled = true;
+            status.textContent = '';
+            try {
+                const response = await fetch(form.action, { method: 'POST', body });
+                if (!response.ok) throw new Error();
+                const result = await response.json();
+                await loadOptions(selected);
+                status.textContent = t('counselUnlockDone', { count: result.collected, total: result.total });
+            } catch {
+                status.textContent = t('counselUnlockFailed');
+            } finally {
+                busy = false;
+                character.disabled = !character.options.length;
+                entry.disabled = !entry.options.length;
+                updateButton();
+            }
+        });
+        window.addEventListener('adminui:i18n-ready', () => loadOptions(entry.value));
+        window.addEventListener('adminui:languageChanged', () => loadOptions(entry.value));
+        loadOptions();
+    });
+
+    document.getElementById('counselResetForm').addEventListener('submit', async function (event) {
+        event.preventDefault();
+        const button = this.querySelector('button');
+        const status = document.getElementById('counselResetStatus');
+        button.disabled = true;
+        status.textContent = '';
+        try {
+            const response = await fetch(this.action, { method: 'POST', body: new FormData(this) });
+            if (!response.ok) throw new Error();
+            const { remaining } = await response.json();
+            status.textContent = i18n.t('users.modify.counselResetDone', { count: remaining });
+        } catch {
+            status.textContent = i18n.t('users.modify.counselResetFailed');
+        } finally {
+            button.disabled = false;
+        }
+    });
+
+    document.getElementById('liberateResetForm').addEventListener('submit', async function (event) {
+        event.preventDefault();
+        const button = this.querySelector('button');
+        const status = document.getElementById('liberateResetStatus');
+        button.disabled = true;
+        status.textContent = '';
+        try {
+            const response = await fetch(this.action, { method: 'POST', body: new FormData(this) });
+            const result = await response.json();
+            if (!response.ok) {
+                const key = result.error === 'no-active-liberation' ? 'liberateResetNoActive' :
+                    result.error === 'liberation-completed' ? 'liberateResetCompleted' : 'liberateResetFailed';
+                status.textContent = i18n.t('users.modify.' + key);
+                return;
+            }
+            status.textContent = i18n.t('users.modify.liberateResetDone', { count: result.missionCount });
+        } catch {
+            status.textContent = i18n.t('users.modify.liberateResetFailed');
+        } finally {
+            button.disabled = false;
+        }
+    });
+
+    function clearGachaRates() {
+        document.querySelectorAll('.gacha-rate-input').forEach(i => i.value = '');
+        updateGachaRateSum();
+    }
+
+    // Live total under the rate inputs: empty = official, otherwise must be 100
+    function updateGachaRateSum() {
+        const inputs = [...document.querySelectorAll('.gacha-rate-input')];
+        const sumEl = document.getElementById('gachaRateSum');
+        if (!sumEl) return;
+
+        const filled = inputs.filter(i => i.value.trim() !== '');
+        if (filled.length === 0) {
+            sumEl.textContent = i18n.t('users.modify.gachaRatesOfficial');
+            sumEl.className = 'd-block mt-2 gacha-rate-ok';
+            return;
+        }
+
+        const sum = inputs.reduce((s, i) => s + (parseFloat(i.value) || 0), 0);
+        const ok = filled.length === inputs.length && Math.abs(sum - 100) < 0.001;
+        sumEl.textContent = i18n.t('users.modify.gachaRatesSum', { sum: Math.round(sum * 100) / 100 });
+        sumEl.className = 'd-block mt-2 ' + (ok ? 'gacha-rate-ok' : 'gacha-rate-bad');
+    }
+
+    document.querySelectorAll('.gacha-rate-input').forEach(i => i.addEventListener('input', updateGachaRateSum));
+    window.addEventListener('adminui:i18n-ready', updateGachaRateSum);
+    window.addEventListener('adminui:languageChanged', updateGachaRateSum);
+
     document.addEventListener('DOMContentLoaded', function() {
+        updateGachaRateSum();
+
         // Restore scroll position
         const savedScroll = localStorage.getItem('scrollPosition');
         if (savedScroll) {

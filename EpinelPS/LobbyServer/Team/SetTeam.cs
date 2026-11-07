@@ -12,6 +12,15 @@ public class SetTeam : LobbyMessage
         ReqSetTeam req = await ReadData<ReqSetTeam>();
         User user = GetUser();
 
+        if (req.Type is 3 or 4 or 12 or 13)
+        {
+            ResSetTeam arenaResponse;
+            lock (user)
+            lock (JsonDb.SaveLock) arenaResponse = Arena.ArenaTeams.Save(user, req);
+            await WriteDataAsync(arenaResponse);
+            return;
+        }
+
         // TODO is this right
         ResSetTeam response = new()
         {

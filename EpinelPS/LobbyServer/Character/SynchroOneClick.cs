@@ -31,7 +31,8 @@ public class SynchroOneClick : LobbyMessage
             bool valid = true;
             for (int i = character.Level; i < targetLv; i++)
             {
-                if (!data.TryGetValue(i, out var levelUpData)) { valid = false; break; }
+                // row N of CharacterLevelTable is the cost of reaching level N
+                if (!data.TryGetValue(i + 1, out var levelUpData)) { valid = false; break; }
                 requiredCredit += levelUpData.Gold;
                 requiredBattleData += levelUpData.CharacterExp;
                 requiredCoreDust += levelUpData.CharacterExp2;

@@ -20,6 +20,12 @@ public class GetGacha : LobbyMessage
             response.Gacha.Add(new NetUserGachaData() { GachaType = 3, PlayCount = 1 });
         }
 
+        // New commander special recruit (type 4) can only be played once
+        if (user.GachaBannerMaxPulls.GetValueOrDefault(4) > 0)
+        {
+            response.Gacha.Add(new NetUserGachaData() { GachaType = 4, PlayCount = 1 });
+        }
+
         response.Gacha.Add(new NetUserGachaData() { GachaType = 9, PlayCount = 0 }); //type 9 = pickup gacha
         response.GachaEventData.Add(new NetGachaEvent() { FreeCount = 1, GachaTypeId = 9 });
         response.MultipleCustom.AddRange(user.CharacterWishlist.Select(id => new NetGachaCustomData() { Type = 9, Tid = id.CharacterId })); // Fill the user wishlist

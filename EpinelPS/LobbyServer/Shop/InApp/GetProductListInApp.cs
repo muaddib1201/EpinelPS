@@ -8,8 +8,10 @@ public class GetProductList : LobbyMessage
     protected override async Task HandleAsync()
     {
         _ = await ReadData<ReqGetInAppShopData>();
+        User user = GetUser();
 
         ResGetInAppShopData response = new();
+        response.BuyDataList.AddRange(InAppPurchaseHelper.GetBuyDataList(user));
         var now = DateTime.UtcNow;
         // CostumeShop's manager (currently 40005) is marked IsHideIfNotValid
         // in the static data. That flag means "hide when there are no valid

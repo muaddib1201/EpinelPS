@@ -1,5 +1,5 @@
-using EpinelPS.Database;
-using EpinelPS.Utils;
+using EpinelPS.Data;
+using EpinelPS.LobbyServer.Mission;
 
 namespace EpinelPS.LobbyServer.Simroom;
 
@@ -8,70 +8,50 @@ public class SelectBuff : LobbyMessage
 {
     protected override async Task HandleAsync()
     {
-        // {"location":{"chapter":3,"stage":4,"order":3},"event":111011152,"buffToAdd":1030504}
         ReqSelectSimRoomBuff req = await ReadData<ReqSelectSimRoomBuff>();
         User user = GetUser();
+        var response = MissionProgressDelivery.Apply(user, () => Settle(user, req));
+        await WriteDataAsync(response);
+    }
 
+    private static ResSelectSimRoomBuff Settle(User user, ReqSelectSimRoomBuff req)
+    {
         ResSelectSimRoomBuff response = new()
         {
             Result = SimRoomResult.Success
         };
 
-        // Update User SimRoomData Buffs
-        try
-        {
-            var buffs = user.ResetableData.SimRoomData.Buffs;
-            if (req.BuffToDelete > 0)
-            {
-                if (buffs.Contains(req.BuffToDelete)) buffs.Remove(req.BuffToDelete);
-            }
-
-            if (req.BuffToAdd > 0)
-            {
-                if (!buffs.Contains(req.BuffToDelete)) buffs.Add(req.BuffToAdd);
-            }
-            user.ResetableData.SimRoomData.Buffs = buffs;
-        }
-        catch (Exception e)
-        {
-            Logging.Warn($"Update User SimRoomData Buffs Exception: {e.Message}");
-        }
-
-        // NetRewardData Reward
-        // NetRewardData RewardByRewardUpEvent
-        // NetRewardData RewardByOverclock
-
         var location = req.Location;
-        if (location is not null)
+        if (location == null) throw new BadHttpRequestException("Simulation event location is missing.", 400);
+        var sim = user.ResetableData.SimRoomData;
+        var events = sim.Events;
+        var battle = events.FirstOrDefault(e => e.Location.Chapter == location.Chapter && e.Location.Stage == location.Stage && e.Location.Order == location.Order);
+        if (battle == null || battle.EventCase != (int)NetSimRoomEvent.EventOneofCase.Battle || battle.Battle.Id != req.Event)
+            throw new BadHttpRequestException("Unknown simulation battle.", 400);
+        // Replaying a successful selection cannot add the buff, rewards or clear twice.
+        if (battle.Battle.Progress == (int)SimRoomBattleEventProgress.RewardReceived) return response;
+        if (battle.Battle.Progress != (int)SimRoomBattleEventProgress.RewardWaiting)
+            throw new BadHttpRequestException("Simulation battle has not been completed.", 400);
+        if (req.BuffToAdd > 0 && !battle.Battle.BuffOptions.Contains(req.BuffToAdd))
+            throw new BadHttpRequestException("Invalid simulation buff selection.", 400);
+
+        if (req.BuffToDelete > 0) sim.Buffs.Remove(req.BuffToDelete);
+        if (req.BuffToAdd > 0 && !sim.Buffs.Contains(req.BuffToAdd)) sim.Buffs.Add(req.BuffToAdd);
+        battle.Selected = true;
+        battle.Battle.Progress = (int)SimRoomBattleEventProgress.RewardReceived;
+
+        var chapter = GameData.Instance.SimulationRoomChapterTable.Values.FirstOrDefault(c => c.DifficultyId == sim.CurrentDifficulty && c.Chapter == location.Chapter);
+        if (chapter != null && location.Stage == chapter.StageValue &&
+            GameData.Instance.SimulationRoomBattleEventTable.TryGetValue(battle.Battle.Id, out var definition) && definition.EventType == SimulationRoomEvent.BossBattle)
         {
-            var events = user.ResetableData.SimRoomData.Events;
-            var simRoomEventIndex = events.FindIndex(x => x.Location.Chapter == location.Chapter && x.Location.Stage == location.Stage && x.Location.Order == location.Order);
-            if (simRoomEventIndex > -1)
-            {
-                // Update User SimRoomData Events
-                SimRoomHelper.UpdateUserSimRoomEvent(user, simRoomEventIndex, events, battleProgress: (int)SimRoomBattleEventProgress.RewardReceived);
-
-                // Reward
-                var sorted = events.OrderBy(x => x.Location.Stage).ThenBy(x => x.Location.Order).ToList(); // Sort by Stage, Order
-                var last = sorted[^1]; // Get last event
-                if (last.Location.Chapter == location.Chapter && last.Location.Stage == location.Stage && last.Location.Order == location.Order)
-                {
-                    var difficulty = user.ResetableData.SimRoomData.CurrentDifficulty;
-                    var reward = SimRoomHelper.SimRoomReceivedReward(user, difficulty, location.Chapter);
-                    if (reward is not null) response.Reward = reward;
-
-                    var overclockReward = SimRoomHelper.SimRoomOverclockReceivedReward(user);
-                    if (overclockReward is not null) response.RewardByOverclock = overclockReward;
-
-                    // Update User OverclockHighScoreData
-                    SimRoomHelper.UpdateOverclockHighScoreData(user, req.Location);
-                }
-            }
-
-            JsonDb.Save();
+            var reward = SimRoomHelper.SimRoomReceivedReward(user, sim.CurrentDifficulty, location.Chapter);
+            if (reward != null) response.Reward = reward;
+            var overclockReward = SimRoomHelper.SimRoomOverclockReceivedReward(user);
+            if (overclockReward != null) response.RewardByOverclock = overclockReward;
+            SimRoomHelper.UpdateOverclockHighScoreData(user, location);
+            SimRoomHelper.RecordClear(user);
         }
-
-        await WriteDataAsync(response);
+        return response;
     }
 
 

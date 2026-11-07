@@ -9,7 +9,10 @@ public class ModUserModel
     public string Nickname { get; set; } = "";
     public string Description { get; set; } = "";
     public bool IsAdmin { get; set; }
-    public bool sickpulls { get; set; }
+    // Custom gacha rates in percent, all empty = official rates
+    public double? GachaRateSsr { get; set; }
+    public double? GachaRateSr { get; set; }
+    public double? GachaRateR { get; set; }
     public bool IsBanned { get; set; }
     public ulong ID { get; set; }
     public List<CharacterGearModel> OverloadedGear { get; set; } = [];

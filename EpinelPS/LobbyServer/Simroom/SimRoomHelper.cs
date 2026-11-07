@@ -159,8 +159,6 @@ public static class SimRoomHelper
             }
         }
         user.AddTrigger(Trigger.SimulationRoomStart, value: 1);
-        user.AddTrigger(Trigger.SimulationRoomClearCount1Only, value: 1);
-        user.AddTrigger(Trigger.SimulationRoomClearWithoutCondition, value: 1);
         user.ResetableData.SimRoomData.Events = events;
         JsonDb.Save();
         return netSimRooms;
@@ -179,6 +177,9 @@ public static class SimRoomHelper
         if (simRoomEventIndex > -1)
         {
             var simRoomEvent = events[simRoomEventIndex];
+            // A repeated clear must preserve its original choices and never reopen a received reward.
+            if (simRoomEvent.Battle.Progress != (int)SimRoomBattleEventProgress.NotCleared)
+                return [.. simRoomEvent.Battle.BuffOptions];
             if (GameData.Instance.SimulationRoomBuffPreviewTable.TryGetValue(simRoomEvent.Battle.BuffPreviewId, out var buffPreview))
             {
                 log.Debug($"SimRoomBuffPreview: {JsonConvert.SerializeObject(buffPreview)}");
@@ -605,6 +606,12 @@ public static class SimRoomHelper
         }
 
         return [.. existingHpsDict.Values];
+    }
+
+    internal static void RecordClear(User user)
+    {
+        user.AddTrigger(Trigger.SimulationRoomClearCount1Only, 1);
+        user.AddTrigger(Trigger.SimulationRoomClearWithoutCondition, 1);
     }
 
     /// <summary>

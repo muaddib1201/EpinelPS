@@ -1,55 +1,61 @@
-﻿using System.Text.Json;
 using EpinelPS.Data;
+using EpinelPS.Database;
 
 namespace EpinelPS.LobbyServer.Tower;
 
 [GameRequest("/tower/gettowerdata")]
 public class GetTowerData : LobbyMessage
 {
+    private const long TicksPerHour = 36_000_000_000;
+    private const long OpenDuration = 863_990_000_000; // 23:59:59
+
+    /// <summary>
+    /// Builds the open schedule of a tower from TowerInfoTable.
+    /// The table lists game days (0 = Sunday). A game day begins at the daily reset
+    /// (ResetHourUtcTime, 20:00 UTC on the official server) of the previous UTC weekday,
+    /// and the client evaluates DayOfWeek schedules in UTC, so each day is shifted back by one.
+    /// </summary>
+    public static NetSchedule BuildSchedule(TowerInfoRecord info)
+    {
+        List<int> days = info.DayOfWeek ?? [];
+        if (days.Distinct().Count() >= 7)
+            return new NetSchedule { AllTime = new() };
+
+        NetDayOfWeekSchedule schedule = new()
+        {
+            StartTime = JsonDb.Instance.ResetHourUtcTime * TicksPerHour,
+            Duration = OpenDuration
+        };
+        schedule.DayOfWeeks.AddRange(days.Select(d => ((d % 7) + 6) % 7).Distinct().OrderBy(d => d));
+        return new NetSchedule { DayOfWeek = schedule };
+    }
+
     protected override async Task HandleAsync()
     {
         ReqGetTowerData req = await ReadData<ReqGetTowerData>();
         ResGetTowerData response = new();
         User user = GetUser();
 
-        Dictionary<CorporationTowerType, int>? towers = user.ResetableData.TowerCount;
-        if (towers.Count == 0)
+        Dictionary<CorporationTowerType, int> counts = user.ResetableData.TowerCount ?? [];
+        user.TowerProgress.Remove(0);
+
+        foreach (TowerInfoRecord info in GameData.Instance.TowerInfoTable.Values.OrderBy(i => (int)i.Id))
         {
-            towers = Enum.GetValues<CorporationTowerType>()
-            .Cast<CorporationTowerType>()
-            .ToDictionary(t => t, t => 0);
+            NetTowerData data = new() { Type = (int)info.Id };
+
+            if (info.ClearLimit > 0)
+            {
+                counts.TryGetValue(info.Id, out int used);
+                data.RemainCount = Math.Max(0, info.ClearLimit - used);
+            }
+
+            data.Schedules.Add(BuildSchedule(info));
+
+            if (user.TowerProgress.TryGetValue(info.Id, out int floor))
+                data.Floor = floor;
+
+            response.Data.Add(data);
         }
-
-        // Tower Schedules
-        var towerSchedules = new Dictionary<CorporationTowerType, NetSchedule>
-        {
-            [CorporationTowerType.ELYSION] = new() { DayOfWeek = new() { DayOfWeeks = { 1, 4, 6 }, StartTime = 720000000000, Duration = 863990000000 } },
-            [CorporationTowerType.MISSILIS] = new() { DayOfWeek = new() { DayOfWeeks = { 2, 5, 6 }, StartTime = 720000000000, Duration = 863990000000 } },
-            [CorporationTowerType.TETRA] = new() { DayOfWeek = new() { DayOfWeeks = { 0, 3, 6 }, StartTime = 720000000000, Duration = 863990000000 } },
-            [CorporationTowerType.OVERSPEC] = new() { DayOfWeek = new() { DayOfWeeks = { 2, 6 }, StartTime = 720000000000, Duration = 863990000000 } },
-            [CorporationTowerType.ALL] = new() { AllTime = new() }
-        };
-
-        // Tower Data
-        List<NetTowerData> towerData = [];
-        foreach (var towerType in Enum.GetValues<CorporationTowerType>())
-        {
-            towers.TryGetValue(towerType, out int count);
-
-            towerData.Add(towerType == CorporationTowerType.ALL
-                ? new NetTowerData { Type = (int)towerType }
-                : new NetTowerData { Type = (int)towerType, RemainCount = 3 - count });
-
-            towerData.Last().Schedules.Add(towerSchedules[towerType]);
-        }
-
-        if (user.TowerProgress.ContainsKey(0)) user.TowerProgress.Remove(0);
-        foreach (var towerProgress in user.TowerProgress)
-        {
-            towerData.FirstOrDefault(x => x.Type == ((int)towerProgress.Key))?.Floor = towerProgress.Value;
-        }
-        System.Console.WriteLine(JsonSerializer.Serialize(towerData));
-        response.Data.AddRange(towerData);
 
         await WriteDataAsync(response);
     }

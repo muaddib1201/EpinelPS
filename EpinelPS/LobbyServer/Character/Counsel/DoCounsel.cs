@@ -10,7 +10,34 @@ public class DoCounsel : LobbyMessage
     {
         ReqCharacterCounsel req = await ReadData<ReqCharacterCounsel>();
         User user = GetUser();
+        int gainExp = await GetAffinityGainAsync(req);
 
+        ResCharacterCounsel response;
+        lock (user)
+        lock (JsonDb.SaveLock)
+        {
+            response = CounselMissionDelivery.Apply(user, req, ctx?.Items["Nonce"] as byte[], () => ApplyCounsel(user, req, gainExp));
+        }
+        await WriteDataAsync(response);
+    }
+
+    private static async Task<int> GetAffinityGainAsync(ReqCharacterCounsel req)
+    {
+        var gameData = GameData.Instance;
+        if (string.IsNullOrEmpty(req.SelectTid) ||
+            !gameData.AttractiveCounselTable.TryGetValue(req.CounselTid, out var counsel) ||
+            counsel.NameCode != req.NameCode || string.IsNullOrEmpty(counsel.CounselGroupId))
+            return 100;
+
+        var dialogs = await gameData.LoadZip<AttractiveCounselDialogRecord>(
+            $"AttractiveCounselDialogTable.{counsel.CounselGroupId}.json", new Progress<double>());
+        var answer = dialogs.FirstOrDefault(row => row.Id == req.SelectTid);
+        // Unrecognized or non-scoring rows retain the legacy baseline, never the bonus.
+        return answer?.AttractivePoint == AttractiveCounselDialogRecordAttractive_point._120 ? 120 : 100;
+    }
+
+    private ResCharacterCounsel ApplyCounsel(User user, ReqCharacterCounsel req, int gainExp)
+    {
         ResCharacterCounsel response = new();
 
         foreach (KeyValuePair<CurrencyType, long> currency in user.Currency)
@@ -31,7 +58,7 @@ public class DoCounsel : LobbyMessage
             currentBondInfo.CanCounselToday = true; // Always allow counseling
             if (currentBondInfo.Lv < user.GetMaxAttractiveLevel(req.NameCode))
             {
-                currentBondInfo.Exp += 100;
+                currentBondInfo.Exp += gainExp;
                 UpdateAttractiveLevel(currentBondInfo);
             }
 
@@ -42,7 +69,7 @@ public class DoCounsel : LobbyMessage
                 user.AddTrigger(Trigger.CharacterAttractiveLevelMax, currentBondInfo.Lv, req.NameCode);
             }
 
-            response.Attractive = currentBondInfo;
+            response.Attractive = currentBondInfo.Clone();
             response.Exp = new NetIncreaseExpData
             {
                 NameCode = currentBondInfo.NameCode,
@@ -50,7 +77,7 @@ public class DoCounsel : LobbyMessage
                 BeforeExp = beforeExp,
                 CurrentLv = currentBondInfo.Lv,
                 CurrentExp = currentBondInfo.Exp,
-                GainExp = 100
+                GainExp = gainExp
             };
         }
         else
@@ -58,7 +85,7 @@ public class DoCounsel : LobbyMessage
             NetUserAttractiveData data = new()
             {
                 NameCode = req.NameCode,
-                Exp = 100,
+                Exp = gainExp,
                 CounseledCount = 1,
                 IsFavorites = false,
                 CanCounselToday = true,
@@ -67,21 +94,19 @@ public class DoCounsel : LobbyMessage
             data.CounselDialogCompleteIds.Add(req.CounselTid);
             UpdateAttractiveLevel(data);
             user.BondInfo.Add(data);
-            response.Attractive = data;
+            response.Attractive = data.Clone();
             response.Exp = new NetIncreaseExpData
             {
                 NameCode = data.NameCode,
                 BeforeLv = 1,
                 BeforeExp = 0,
-                CurrentLv = 1,
-                CurrentExp = 100,
-                GainExp = 100
+                CurrentLv = data.Lv,
+                CurrentExp = data.Exp,
+                GainExp = gainExp
             };
         }
 
-        JsonDb.Save();
-
-        await WriteDataAsync(response);
+        return response;
     }
 
     private void UpdateAttractiveLevel(NetUserAttractiveData attractiveData)

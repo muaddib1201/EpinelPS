@@ -16,6 +16,11 @@ public class SoloRaidHelper
     /// </summary>
     public static int OpenSoloRaid(User user, int raidId, int raidLevel, SoloRaidType type = SoloRaidType.Normal)
     {
+        lock (JsonDb.SaveLock) return OpenSoloRaidCore(user, raidId, raidLevel, type);
+    }
+
+    private static int OpenSoloRaidCore(User user, int raidId, int raidLevel, SoloRaidType type)
+    {
         if (raidId == 0) raidId = GetRaidId();
 
         // Check if the raid manager exists, if not, exit
@@ -75,6 +80,11 @@ public class SoloRaidHelper
     }
 
     public static void CloseSoloRaid(User user, int raidId, int raidLevel, SoloRaidType type = SoloRaidType.Normal)
+    {
+        lock (JsonDb.SaveLock) CloseSoloRaidCore(user, raidId, raidLevel, type);
+    }
+
+    private static void CloseSoloRaidCore(User user, int raidId, int raidLevel, SoloRaidType type)
     {
         Logging.WriteLine($"CloseSoloRaid: raidId: {raidId}, raidLevel: {raidLevel}, type: {type}");
         if (raidId == 0) raidId = GetRaidId();
@@ -297,18 +307,62 @@ public class SoloRaidHelper
 
     public static void GetSoloRaidRanking(User user, ref ResGetSoloRaidRanking response)
     {
-        // ResGetSoloRaidRanking Fields:
-        //  RepeatedField<NetSoloRaidRankingData> Rankings
-        //  NetSoloRaidRankingData User
-        //  long TotalUserCount
-        //  SoloRaidBanResult BanResult
-        // NetSoloRaidRankingData Fields:
-        //  long Ranking
-        //  long Damage
-        //  NetWholeUserData User
-        //  long ReportBattleId
-        //  Google.Protobuf.WellKnownTypes.Timestamp ReportBattleDate
-        //  
+        // The battle mutations below share this lock so a query sees a complete result.
+        lock (JsonDb.SaveLock)
+        {
+            int raidId = GetRaidId();
+            var ranked = JsonDb.Instance.Users.Where(u => !u.IsBanned)
+                .Select(u => (User: u, Damage: CompletedTrialDamage(u, raidId)))
+                .Where(r => r.Damage > 0)
+                .OrderByDescending(r => r.Damage).ThenBy(r => r.User.ID).ToList();
+
+            response.Rankings.Clear();
+            for (int i = 0; i < ranked.Count; i++)
+            {
+                var entry = ranked[i];
+                response.Rankings.Add(new NetSoloRaidRankingData
+                {
+                    Ranking = i + 1,
+                    Damage = entry.Damage,
+                    User = RankingProfile(entry.User),
+                });
+            }
+            response.TotalUserCount = ranked.Count;
+            response.BanResult = user.IsBanned ? SoloRaidBanResult.Banned : SoloRaidBanResult.Success;
+            response.User = response.Rankings.FirstOrDefault(r => r.User.Usn == (long)user.ID)?.Clone()
+                ?? new NetSoloRaidRankingData { User = RankingProfile(user) };
+        }
+
+        static long CompletedTrialDamage(User user, int raidId)
+        {
+            // GetSoloRaidData resets daily attempts; a ranking query must only read records.
+            if (!user.SoloRaidData.TryGetValue(raidId, out var raid)) return 0;
+            return raid.SoloRaidLevels.Where(r => r.RaidLevel == 8 && r.Type == SoloRaidType.Trial &&
+                r.IsClear && !r.IsOpen && r.TotalDamage > 0).Select(r => r.TotalDamage).DefaultIfEmpty(0).Max();
+        }
+
+        static NetWholeUserData RankingProfile(User user)
+        {
+            // The shared profile helper refreshes guild activity as a side effect.
+            // Read the saved guild name directly so opening a leaderboard cannot change it.
+            using var db = GameContext.CreateNew();
+            string guildName = user.Guild.guildId is { } guildId && JsonDb.Instance.Guilds.TryGetValue(guildId, out var guild)
+                ? guild.Data.Name : "";
+            return new NetWholeUserData
+            {
+                Usn = (long)user.ID,
+                Nickname = db.Users.Find(user.ID)?.Nickname ?? "Player",
+                Lv = user.userPointData.UserLevel,
+                Frame = user.ProfileFrame,
+                Icon = user.ProfileIconId,
+                IconPrism = user.ProfileIconIsPrism,
+                UserTitleId = user.TitleId,
+                UserTitleDisplayData = new(),
+                GuildName = guildName,
+                LastActionAt = user.ManagedNpc?.LastActionUtc.Ticks ?? DateTimeOffset.UtcNow.Ticks,
+                Server = 1001,
+            };
+        }
     }
     public static void FastBattle(User user, ref ResFastBattleSoloRaid response, int raidId, int raidLevel, int clearCount)
     {
@@ -340,6 +394,13 @@ public class SoloRaidHelper
     public static (int rewardId, int FirstRewardId, SoloRaidLevelData levelData)
         SetDamage(User user, int raidLevel, long damage, int waveId,
             RepeatedField<NetAntiCheatCharacter> characters, SoloRaidType type = SoloRaidType.Normal)
+    {
+        lock (JsonDb.SaveLock) return SetDamageCore(user, raidLevel, damage, waveId, characters, type);
+    }
+
+    private static (int rewardId, int FirstRewardId, SoloRaidLevelData levelData)
+        SetDamageCore(User user, int raidLevel, long damage, int waveId,
+            RepeatedField<NetAntiCheatCharacter> characters, SoloRaidType type)
     {
         int rewardId = 0;
         int FirstRewardId = 0;
@@ -417,13 +478,16 @@ public class SoloRaidHelper
 
         levelData.Logs.Add(logData);
 
-        // If the level is not open, remove the old level data
-        if (!levelData.IsOpen && oldLevel is not null)
+        // Finishing five teams must retain the best result and its original squads.
+        // Still return this run's levelData so the settlement shows the actual run damage.
+        bool keepTrialBest = type == SoloRaidType.Trial && !levelData.IsOpen &&
+            oldLevel is not null && oldLevel.TotalDamage >= levelData.TotalDamage;
+        if (!levelData.IsOpen && oldLevel is not null && !keepTrialBest)
         {
             raidData.SoloRaidLevels.Remove(oldLevel);
         }
         // If the level is not open and join count is 5, do not add to levels
-        if (!(levelData.RaidJoinCount == 5 && levelData.IsOpen))
+        if (!keepTrialBest && !(levelData.RaidJoinCount == 5 && levelData.IsOpen))
         {
             raidData.SoloRaidLevels.Add(levelData);
         }

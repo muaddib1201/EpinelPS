@@ -1,6 +1,8 @@
 using EpinelPS.Data;
 using EpinelPS.Database;
 using EpinelPS.Interfaces;
+using EpinelPS.LobbyServer.Arena;
+using EpinelPS.LobbyServer.Guild;
 using EpinelPS.Utils;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
@@ -25,6 +27,10 @@ public class LobbyController(IUserService UserService, GameContext db) : Control
         User? user = UserService.GetUser();
         if (user == null) return Problem(type: NetUtils.InvalidSessionErrorType);
 
+        // Send one consistent full snapshot after settling unusable legacy spare bodies.
+        if (CharacterRewardHelper.ConvertExistingExcess(user) > 0)
+            JsonDb.Save();
+
         var userDB = db.Users.Find(user.ID);
 
         TimeSpan battleTime = DateTime.UtcNow - user.BattleTime;
@@ -39,6 +45,7 @@ public class LobbyController(IUserService UserService, GameContext db) : Control
         ResEnterLobbyServer response = new()
         {
             User = LobbyHandler.CreateNetUserDataFromUser(user),
+            Gsn = GuildDirectory.Membership(user)?.Gsn ?? 0,
             ResetHour = JsonDb.Instance.ResetHourUtcTime,
             Nickname = userDB.Nickname,
             SynchroLv = 1,
@@ -66,6 +73,7 @@ public class LobbyController(IUserService UserService, GameContext db) : Control
         {
             response.Items.Add(item);
         }
+        response.ArenaHarmonyCubes.AddRange(ArenaHarmonyCubeService.Get(user));
 
         // Add squad data if there are characters
         if (user.Characters.Count > 0)
@@ -132,6 +140,7 @@ public class LobbyController(IUserService UserService, GameContext db) : Control
         response.TimeRewardBuffs.AddRange(NetUtils.GetOutpostTimeReward(user));
 
         response.OwnedLobbyDecoBackgroundIdList.AddRange(user.LobbyDecoBackgroundList);
+        response.OwnedSdLobbyIdList.AddRange(user.SdLobbyList);
 
         response.ClearLessons.AddRange(user.CompletedTacticAcademyLessons);
 

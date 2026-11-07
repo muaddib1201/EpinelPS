@@ -45,6 +45,12 @@ public static class EventShopHelper
 
         if (MultipleResponse.Product.AutoCharge.Count > 0) response.Product.AutoCharge.AddRange(MultipleResponse.Product.AutoCharge);
 
+        if (MultipleResponse.Product.UserTitleList.Count > 0) response.Product.UserTitleList.AddRange(MultipleResponse.Product.UserTitleList);
+
+        if (MultipleResponse.Product.SdLobbyIdList.Count > 0) response.Product.SdLobbyIdList.AddRange(MultipleResponse.Product.SdLobbyIdList);
+
+        if (MultipleResponse.Product.LiveWallPapers.Count > 0) response.Product.LiveWallPapers.AddRange(MultipleResponse.Product.LiveWallPapers);
+
         // user.AddTrigger(Trigger.MainShopBuy, req.Quantity);
 
         // Save changes to the database
@@ -128,7 +134,15 @@ public static class EventShopHelper
             }
             else if (shopProduct.GoodsType == RewardType.UserTitle)
             {
+                if (!user.TitleList.Contains(shopProduct.GoodsId))
+                    user.TitleList.Add(shopProduct.GoodsId);
                 response.Product.UserTitleList.Add(shopProduct.GoodsId);
+            }
+            else if (shopProduct.GoodsType == RewardType.SDLobby)
+            {
+                if (!user.SdLobbyList.Contains(shopProduct.GoodsId))
+                    user.SdLobbyList.Add(shopProduct.GoodsId);
+                response.Product.SdLobbyIdList.Add(shopProduct.GoodsId);
             }
             else if (shopProduct.GoodsType == RewardType.LiveWallpaper)
             {
@@ -210,22 +224,15 @@ public static class EventShopHelper
     {
         if (eventId <= 0) return 0;
 
-        if (GameData.Instance.eventManagers.TryGetValue(eventId, out var eventRecord))
-        {
-            if (eventRecord.Id is not 0)
-            {
-                return Convert.ToInt32(eventRecord.Id);
-            }
-        }
-        log.Warn($"EventManager not found for EventId: {eventId}");
+        if (GameData.Instance.eventManagers.TryGetValue(eventId, out var eventRecord) &&
+            int.TryParse(eventRecord.EventShortcutId, out int shopId) && shopId > 0)
+            return shopId;
+
+        log.Warn($"No valid shop mapping for event {eventId}");
         return 0;
     }
 
-    /// <summary>
-    /// Initialize Shop Data
-    /// </summary>
-    /// <param name="shopId">Shop ID</param>
-    /// <returns>Shop Data</returns>
+    /// <summary>Lists the products of the shop referenced by the event.</summary>
     public static NetEventShopProductData InitShopData(User user, int eventId)
     {
         NetEventShopProductData shop = new();
@@ -235,11 +242,9 @@ public static class EventShopHelper
 
         try
         {
-            var tableShop = GameData.Instance.ContentsShopTable.Values
-            .First(x => (x.BundleId % 1000) == (shopId % 1000));
-            if (tableShop == null && tableShop.Id == 0)
+            if (!GameData.Instance.ContentsShopTable.TryGetValue(shopId, out var tableShop) || tableShop?.Id != shopId)
             {
-                Logging.WriteLine($"Invalid shopId: {shopId}", LogType.Warning);
+                Logging.WriteLine($"Shop {shopId} mapped by event {eventId} was not found", LogType.Warning);
                 return shop;
             }
 
@@ -337,73 +342,31 @@ public static class EventShopHelper
 
     public static void AddCharacterByCharacterTid(User user, ref ResEventShopMultipleBuyProduct response, int characterTid, int goodsValue, int quantity, int order)
     {
-        // Get character data from GameData.Instance.CharacterTable
-        if (!GameData.Instance.CharacterTable.TryGetValue(characterTid, out var characterRecord))
-        {
-            return; // Character data not found, return
-        }
-        // Check if character already exists in user.Characters
-        var userCharacter = user.GetCharacter(characterTid);
-        bool isAddNewCharacter = userCharacter == null;
-        if (isAddNewCharacter)
-        {
-            // Add new character to user.Characters
-            userCharacter = new CharacterModel()
-            {
-                Csn = user.GenerateUniqueCharacterId(),
-                Grade = 1,
-                Tid = characterRecord.Id,
-            };
-            user.Characters.Add(userCharacter);
-            response.Product.UserCharacters.Add(ToNetUserCharacter(userCharacter));
-        }
-        NetCharacterData netCharacter = new() { Csn = userCharacter.Csn, Tid = userCharacter.Tid };
+        if (!GameData.Instance.CharacterTable.TryGetValue(characterTid, out var character))
+            throw new InvalidOperationException($"Unknown character reward {characterTid}");
+        ApplyCharacterReward(user, ref response,
+            CharacterRewardHelper.GrantCharacter(user, character, checked(goodsValue * quantity)));
+    }
 
-        // Calculate character material num
-        int characterMaterialNum = isAddNewCharacter ? goodsValue * quantity - 1 : goodsValue * quantity;
-        if (characterMaterialNum > 0)
-        {
-            var currentOriginalRare = characterRecord.OriginalRare;
-            // Get max core num
-            int maxCoreNum = currentOriginalRare == OriginalRareType.SSR ? 11 : currentOriginalRare == OriginalRareType.SR ? 3 : 1;
-
-            // Get current core num
-            int currentCoreNum = currentOriginalRare == OriginalRareType.SSR ? userCharacter.Grade : currentOriginalRare == OriginalRareType.SR ? userCharacter.Grade % 100 : 1;
-            // If current core num is greater than max core num, set current core num to max core num
-            if (currentCoreNum > maxCoreNum) currentCoreNum = maxCoreNum;
-            int currentMaterialNum = user.Items.FirstOrDefault(x => x.ItemType == characterRecord.PieceId)?.Count ?? 0;
-            bool isAddMaterial = currentCoreNum < maxCoreNum;
-            int addMaterialNum = characterMaterialNum - currentMaterialNum;
-            int addCurrencyNum = 0;
-            bool isAddCurrency = currentCoreNum + addMaterialNum > maxCoreNum;
-            if (isAddCurrency)
-            {
-                int MaterialCurrencyNum = currentOriginalRare == OriginalRareType.SSR ? 6000 : currentOriginalRare == OriginalRareType.SR ? 200 : 150;
-                addCurrencyNum = (currentCoreNum + addMaterialNum - maxCoreNum) * MaterialCurrencyNum;
-                addMaterialNum = maxCoreNum - currentCoreNum;
-            }
-            Dictionary<CurrencyType, long> currency = [];
-            if (addCurrencyNum > 0)
-            {
-                netCharacter.CurrencyValue = addCurrencyNum;
-                user.AddCurrency(CurrencyType.DissolutionPoint, addCurrencyNum);
-                currency.Add(CurrencyType.DissolutionPoint, addCurrencyNum);
-            }
-            List<DbItemData> items = [];
-            List<DbItemData> userItems = [];
-            if (addMaterialNum > 0)
-            {
-                netCharacter.PieceCount = addMaterialNum;
-                AddItemById(user, ref response, characterRecord.PieceId, RewardType.Item, goodsValue, addMaterialNum, order);
-            }
-            response.Product.Character.Add(netCharacter);
-        }
-
+    private static void ApplyCharacterReward(User user, ref ResEventShopMultipleBuyProduct response, NetRewardData reward)
+    {
+        response.Product.Character.AddRange(reward.Character);
+        response.Product.UserCharacters.AddRange(reward.UserCharacters);
+        response.Product.Item.AddRange(reward.Item);
+        response.Product.UserItems.AddRange(reward.UserItems);
+        response.Product.Currency.AddRange(reward.Currency);
+        foreach (var currency in reward.Currency)
+            response.Currencies.Add(new NetUserCurrencyData { Type = currency.Type, Value = currency.FinalValue });
     }
 
     public static void AddItemById(User user, ref ResEventShopMultipleBuyProduct response,
         int itemId, RewardType itemType, int goodsValue, int quantity, int order)
     {
+        if (CharacterRewardHelper.TryGrantSpareBody(user, itemId, checked(goodsValue * quantity), out var spareReward))
+        {
+            ApplyCharacterReward(user, ref response, spareReward);
+            return;
+        }
         var userItemIndex = user.Items.FindIndex(i => i.ItemType == itemId);
         var isEquip = GameData.Instance.ItemEquipTable.TryGetValue(itemId, out var equip);
         if (userItemIndex >= 0)

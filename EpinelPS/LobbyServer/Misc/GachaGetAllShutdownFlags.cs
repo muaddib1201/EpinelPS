@@ -13,6 +13,8 @@ public class GachaGetAllShutdownFlags : LobbyMessage
         ResGachaGetAllShutdownFlags response = new();
         if (user.GetGachaCountForType(GachaPremiumType.GachaTutorial) > 0)
             response.Unavailables.Add(3);
+        if (user.GachaBannerMaxPulls.GetValueOrDefault(4) > 0)
+            response.Unavailables.Add(4);
               
         // TODO: Validate response from real server and pull info from user info
         await WriteDataAsync(response);

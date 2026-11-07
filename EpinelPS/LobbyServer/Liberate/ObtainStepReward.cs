@@ -1,4 +1,4 @@
-﻿using EpinelPS.Data;
+using EpinelPS.Data;
 using EpinelPS.Database;
 using EpinelPS.Utils;
 
@@ -13,34 +13,38 @@ public class ObtainStepReward : LobbyMessage
         User user = GetUser();
         ResObtainLiberateStepReward response = new();
 
-        NetRewardData ret = new();
-        if (user.LiberateDatas.TryGetValue(user.CurCharacterIdId, out var liberateData))
+        lock (user)
         {
-            LiberateCharacterRecord? liberatechar = GameData.Instance.LiberateCharacterTable.Values
-            .Where(x => x.Id == user.CurCharacterIdId).FirstOrDefault();
-
-            LiberateMissionGroupRecord? group = GameData.Instance.LiberateMissionGroupTable.Values
-                .Where(x => x.MissionStepGroup == liberatechar.MissionStepGroup && x.MissionStep == liberateData.Step)
-                .FirstOrDefault();
-
-            ret = RewardUtils.RegisterRewardsForUser(user, group.RewardId);
-
-            if (liberateData.Step < 5)
+            NetRewardData ret = new();
+            if (user.LiberateDatas.TryGetValue(user.CurCharacterIdId, out var liberateData))
             {
-                liberateData.Step += 1;
-                liberateData.ProgressPoint = 0;
+                LiberateCharacterRecord? liberatechar = GameData.Instance.LiberateCharacterTable.Values
+                .Where(x => x.Id == user.CurCharacterIdId).FirstOrDefault();
+
+                LiberateMissionGroupRecord? group = GameData.Instance.LiberateMissionGroupTable.Values
+                    .Where(x => x.MissionStepGroup == liberatechar.MissionStepGroup && x.MissionStep == liberateData.Step)
+                    .FirstOrDefault();
+
+                ret = RewardUtils.RegisterRewardsForUser(user, group.RewardId);
+
+                if (liberateData.Step < 5)
+                {
+                    liberateData.Step += 1;
+                    liberateData.ProgressPoint = 0;
+                }
+                else
+                {
+                    liberateData.IsCompleted = true;
+                }
+                response.Data = liberateData;
+                response.Error = LiberateDataExpiredError.Success;
+                response.Reward = ret;
             }
-            else
-            {
-                liberateData.IsCompleted = true;
-            }
-            response.Data = liberateData;
-            response.Error = LiberateDataExpiredError.Success;
-            response.Reward = ret;
+
+            // TODO
+            JsonDb.Save();
+            response.Data = response.Data?.Clone();
         }
-
-        // TODO
-        JsonDb.Save();
         await WriteDataAsync(response);
     }
 }

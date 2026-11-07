@@ -13,23 +13,17 @@ public class ObtainEpReward : LobbyMessage
         ResObtainAttractiveReward response = new();
         User user = GetUser();
 
-        // look up ID from name code and level
-        KeyValuePair<int, AttractiveLevelRewardRecord> levelUpRecord = GameData.Instance.AttractiveLevelReward.Where(x => x.Value.AttractiveLevel == req.Lv && x.Value.NameCode == req.NameCode).FirstOrDefault();
-
-        foreach (NetUserAttractiveData item in user.BondInfo)
+        var episode = GameData.Instance.AttractiveLevelReward.Values.FirstOrDefault(row =>
+            row.NameCode == req.NameCode && row.AttractiveLevel == req.Lv);
+        lock (user)
+        lock (JsonDb.SaveLock)
         {
-            if (item.NameCode == req.NameCode)
+            var bond = user.BondInfo.FirstOrDefault(item => item.NameCode == req.NameCode);
+            if (episode != null && bond != null && bond.Lv >= req.Lv && !bond.ObtainedRewardLevels.Contains(req.Lv))
             {
-                if (!item.ObtainedRewardLevels.Contains(levelUpRecord.Value.Id))
-                {
-                    item.ObtainedRewardLevels.Add(levelUpRecord.Value.Id);
-
-                    RewardRecord reward = GameData.Instance.GetRewardTableEntry(levelUpRecord.Value.RewardId) ?? throw new Exception("failed to get reward");
-                    response.Reward = RewardUtils.RegisterRewardsForUser(user, reward);
-
-                    JsonDb.Save();
-                }
-                break;
+                response.Reward = RewardUtils.RegisterRewardsForUser(user, episode.RewardId);
+                bond.ObtainedRewardLevels.Add(req.Lv);
+                JsonDb.Save();
             }
         }
 

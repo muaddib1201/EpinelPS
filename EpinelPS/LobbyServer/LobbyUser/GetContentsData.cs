@@ -1,5 +1,6 @@
 ﻿using EpinelPS.Data;
 using EpinelPS.Utils;
+using EpinelPS.LobbyServer.Guild;
 
 namespace EpinelPS.LobbyServer.LobbyUser;
 
@@ -13,7 +14,7 @@ public class GetContentsData : LobbyMessage
 
         // this request returns a list of "special" stages that mark when something is unlocked, ex: the shop or interception
 
-        ResGetContentsOpenData response = new();
+        ResGetContentsOpenData response = new() { GuildLevel = GuildDirectory.Membership(user)?.Grade ?? 0 };
 
         List<int> stages = [];
 

@@ -1,5 +1,4 @@
-using EpinelPS.Database;
-using EpinelPS.Utils;
+using EpinelPS.LobbyServer.Mission;
 
 namespace EpinelPS.LobbyServer.Simroom;
 
@@ -11,30 +10,20 @@ public class SimpleModeSkipAll : LobbyMessage
         await ReadData<ReqSkipAllSimRoomSimpleMode>();
         var user = GetUser();
 
-        // ResSkipAllSimRoomSimpleMode Fields
-        //  SimRoomResult Result
-        //  NetRewardData Reward
-        //  NetRewardData RewardByRewardUpEvent
-
-        ResSkipAllSimRoomSimpleMode response = new()
+        var response = MissionProgressDelivery.Apply(user, () =>
         {
-            Result = SimRoomResult.Success
-        };
-
-        // Reward
-        try
-        {
+            user.ResetDataIfNeeded();
+            ResSkipAllSimRoomSimpleMode result = new() { Result = SimRoomResult.Success };
             user.ResetableData.SimRoomData.CurrentDifficulty = 5;
             user.ResetableData.SimRoomData.CurrentChapter = 3;
             var reward = SimRoomHelper.SimRoomReceivedReward(user, 5, 3); // 5 = difficulty, 3 = stage
-            if (reward is not null) response.Reward = reward;
-        }
-        catch (Exception ex)
-        {
-            Logging.WriteLine($"SkipAllSimpleMode Reward Exception: {ex.Message}", LogType.Error);
-        }
-
-        JsonDb.Save();
+            if (reward is not null)
+            {
+                result.Reward = reward;
+                SimRoomHelper.RecordClear(user);
+            }
+            return result;
+        });
         await WriteDataAsync(response);
     }
 }

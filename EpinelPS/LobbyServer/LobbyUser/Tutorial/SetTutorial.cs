@@ -1,5 +1,4 @@
 ﻿using EpinelPS.Data;
-using EpinelPS.Database;
 
 namespace EpinelPS.LobbyServer.LobbyUser.Tutorial;
 
@@ -12,21 +11,7 @@ public class SetTutorial : LobbyMessage
         User user = GetUser();
 
         var cleared = GameData.Instance.GetTutorialDataById(req.LastClearedTid);
-        var tutorial = new ClearedTutorialData()
-        {
-            Id = cleared.Id,
-            VersionGroup = cleared.VersionGroup
-        };
-
-        if (!user.ClearedTutorialDataNew.ContainsKey(cleared.GroupId))
-        {
-            user.ClearedTutorialDataNew.Add(cleared.GroupId, tutorial);
-        }
-        else
-        {
-            user.ClearedTutorialDataNew[cleared.GroupId] = tutorial;
-        }
-        JsonDb.Save();
+        TutorialProgress.Record(user, cleared);
 
         ResSetTutorial response = new();
         await WriteDataAsync(response);

@@ -1,4 +1,4 @@
-﻿using EpinelPS.Data;
+using EpinelPS.Data;
 using EpinelPS.Database;
 using Google.Protobuf.Collections;
 using Microsoft.AspNetCore.Mvc;
@@ -189,10 +189,8 @@ public class NetUtils
                 result.JukeboxBgm.Add(item);
             }
 
-            foreach (NetCharacterData? c in reward.Character)
-            {
-                Logging.WriteLine("MergeRewards - TODO Character", LogType.Error);
-            }
+            result.Character.AddRange(reward.Character);
+            result.UserCharacters.AddRange(reward.UserCharacters);
 
             if (reward.InfraCoreExp != null)
                 result.InfraCoreExp = reward.InfraCoreExp;

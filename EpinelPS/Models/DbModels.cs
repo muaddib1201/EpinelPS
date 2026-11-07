@@ -85,6 +85,30 @@ public class EventData
     public int LastStage { get; set; } = 0; // Default value for LastStage
     public int LastDay { get; set; } = 0;
     public int FreeTicket { get; set; } = 0;
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public ChallengeStageData? Challenge { get; set; }
+}
+public class ChallengeStageData
+{
+    public ChallengeBattle? Battle { get; set; }
+    public PendingChallengeClear? PendingClear { get; set; }
+    public List<string> RecentRequests { get; set; } = [];
+    public string? LastQuickRequest { get; set; }
+    public byte[]? LastQuickResponse { get; set; }
+}
+public class ChallengeBattle
+{
+    public int StageId { get; set; }
+    public int TeamNumber { get; set; }
+    public int? Result { get; set; }
+    public string? ResultRequestKey { get; set; }
+    public byte[]? Response { get; set; }
+}
+public class PendingChallengeClear
+{
+    public int StageId { get; set; }
+    public int Count { get; set; }
+    public long CreatedAt { get; set; }
 }
 public class EventCollectData
 {
@@ -152,6 +176,21 @@ public class EventShopBuyCountData
 {
     public int EventId { get; set; } = 0;
     public List<EventShopProductData> datas { get; set; } = [];
+}
+
+public class InAppShopBuyRecord
+{
+    public int ProductType { get; set; } // EpinelPS.Data.ProductType
+    public int ShopTid { get; set; }
+    public int ListTid { get; set; }
+    public int BuyCount { get; set; }
+    public DateTime LastBuyAt { get; set; } // utc, used to reset daily/weekly/monthly limits
+}
+
+public class EventBoxGachaData
+{
+    public int GachaCount { get; set; } = 0;
+    public List<int> RewardOrders { get; set; } = []; // orders already drawn from the box
 }
 
 public class NormalShopState
@@ -271,6 +310,7 @@ public class SimRoomCharacterHp
 
 public class ResetableData
 {
+    public Dictionary<int, Dictionary<int, int>> SupportCharacterUsedCounts { get; set; } = [];
     public int WipeoutCount { get; set; } = 0;
     public bool ClearedSimulationRoom { get; set; } = false;
     public int InterceptionTickets { get; set; } = 3;
@@ -280,8 +320,18 @@ public class ResetableData
 
     public Dictionary<CorporationTowerType, int> TowerCount { get; set; } = System.Enum.GetValues<CorporationTowerType>().ToDictionary(t => t, _ => 0);
     public Dictionary<int, int> DailyCounselCount { get; set; } = [];
+    [Newtonsoft.Json.JsonProperty(DefaultValueHandling = Newtonsoft.Json.DefaultValueHandling.Ignore)]
+    public bool CounselRefilledToday { get; set; }
     public int DispatchCount { get; set; } = 0;
 
+    internal int GetAvailableCounselCount() => DailyCounselCount.GetValueOrDefault(1, 3);
+
+    internal void ConsumeRefilledCounsel()
+    {
+        // Only accounts explicitly refilled today track consumption across client refreshes.
+        if (CounselRefilledToday && DailyCounselCount.TryGetValue(1, out var remaining) && remaining > 0)
+            DailyCounselCount[1] = remaining - 1;
+    }
 }
 public class WeeklyResetableData
 {
@@ -588,9 +638,50 @@ public class DispatchData
 
 public class GuildData
 {
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public Dictionary<int, int>? ActivityByDay { get; set; }
     public int? guildId { get; set; }
     public long? LeaveAt { get; set; }
-       
+    [Newtonsoft.Json.JsonProperty(DefaultValueHandling = Newtonsoft.Json.DefaultValueHandling.Ignore)]
+    public int MemberType { get; set; }
+    [Newtonsoft.Json.JsonProperty(DefaultValueHandling = Newtonsoft.Json.DefaultValueHandling.Ignore)]
+    public long JoinedAt { get; set; }
+}
+
+public class SavedGuild
+{
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public Dictionary<int, long>? ActivityByDay { get; set; }
+    [Newtonsoft.Json.JsonProperty(DefaultValueHandling = Newtonsoft.Json.DefaultValueHandling.Ignore)]
+    public bool ManagedNpcGuild { get; set; }
+    [Newtonsoft.Json.JsonProperty(DefaultValueHandling = Newtonsoft.Json.DefaultValueHandling.Ignore)]
+    public int NpcActivityDay { get; set; }
+    public NetGuildData Data { get; set; } = new();
+    public NetGuildLog CreationLog { get; set; } = new();
+    public List<SavedGuildJournalEntry> Journal { get; set; } = [];
+    public bool ShouldSerializeJournal() => Journal.Count != 0;
+    public List<GuildExperienceAdjustment> ExperienceAdjustments { get; set; } = [];
+    public bool ShouldSerializeExperienceAdjustments() => ExperienceAdjustments.Count != 0;
+    public string? CreationRequestKey { get; set; }
+    public byte[]? CreationReceipt { get; set; }
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public Dictionary<int, Dictionary<ulong, long>> ShootingRangeScores { get; set; } = [];
+    public bool ShouldSerializeShootingRangeScores() => ShootingRangeScores.Count != 0;
+}
+
+public class SavedGuildJournalEntry
+{
+    public ulong MemberId { get; set; }
+    public long JoinedAt { get; set; }
+    public NetGuildLog Log { get; set; } = new();
+}
+
+public class GuildExperienceAdjustment
+{
+    public string OperationId { get; set; } = "";
+    public long Amount { get; set; }
+    public long CreatedAt { get; set; }
+    public string Reason { get; set; } = "";
 }
 
 public class StellarBladeDatas

@@ -128,12 +128,10 @@ public static class PassHelper
                 while (newXp >= newLevelExp)
                 {
                     newLevel++;
+                    user.AddTrigger(Trigger.UserLevel, newLevel, 0);
                     newGems += 30;
                     newXp -= newLevelExp;
-                    if (user.Currency.ContainsKey(CurrencyType.FreeCash))
-                        user.Currency[CurrencyType.FreeCash] += 30;
-                    else
-                        user.Currency.Add(CurrencyType.FreeCash, 30);
+                    user.AddCurrency(CurrencyType.FreeCash, 30);
 
                     newLevelExp = GameData.Instance.GetUserMinXpForLevel(newLevel);
                 }
@@ -287,13 +285,6 @@ public static class PassHelper
         passPoint = 0;
         currencie = new();
 
-        if (user.Currency.TryGetValue(CurrencyType.ChargeCash, out long value) && value < rankPrice)
-        {
-            Logging.WriteLine($"User {user.ID} does not have enough ChargeCash to buy rank. Required: {rankPrice}, Available: {value}");
-            currencie = new() { Type = (int)CurrencyType.ChargeCash, Value = value };
-            return;
-        }
-
         SeasonPassRecord? season = GameData.Instance.SeasonPassTable.Values.Where(sp => sp.PassId == passId && sp.PassRank == targetPassRank).FirstOrDefault();
         if (season == null)
         {
@@ -301,7 +292,11 @@ public static class PassHelper
             return;
         }
 
-        user.Currency[CurrencyType.ChargeCash] -= rankPrice;
+        if (!user.SubtractCurrency(CurrencyType.ChargeCash, rankPrice))
+        {
+            currencie = new() { Type = (int)CurrencyType.ChargeCash, Value = user.GetCurrencyVal(CurrencyType.ChargeCash) };
+            return;
+        }
         passPoint = season.ConditionValue;
         currencie = new() { Type = (int)CurrencyType.ChargeCash, Value = user.Currency[CurrencyType.ChargeCash] };
         if (user.UserPassInfo.TryGetValue(passId, out PassData? passData))

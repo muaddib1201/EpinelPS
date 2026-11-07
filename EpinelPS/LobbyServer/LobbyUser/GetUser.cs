@@ -1,5 +1,6 @@
 ﻿using EpinelPS.Data;
 using EpinelPS.Database;
+using EpinelPS.LobbyServer.Guild;
 using EpinelPS.Utils;
 
 namespace EpinelPS.LobbyServer.LobbyUser;
@@ -17,7 +18,9 @@ public class GetUser : LobbyMessage
         long battleTimeMs = (long)(battleTime.TotalNanoseconds / 100);
 
 
-        response.User = LobbyHandler.CreateNetUserDataFromUser(user);
+        var now = (ctx!.RequestServices.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow().UtcDateTime;
+        response.User = LobbyHandler.CreateNetUserDataFromUser(user, now);
+        response.Gsn = GuildDirectory.Membership(user)?.Gsn ?? 0;
         response.ResetHour = JsonDb.Instance.ResetHourUtcTime;
         response.OutpostBattleTime = new NetOutpostBattleTime() { MaxBattleTime = 864000000000, MaxOverBattleTime = 12096000000000, BattleTime = battleTimeMs };
         response.OutpostBattleLevel = user.OutpostBattleLevel;
@@ -33,17 +36,6 @@ public class GetUser : LobbyMessage
         response.LastClearedStoryStageId = user.LastStoryStageCleared;
         response.LastClearedHardMainStageId = user.LastHardStageCleared;
         response.LastClearedMod = user.LastClearedDifficulty;
-
-        // Restore completed tutorials. GroupID is the first 4 digits of the Table ID.
-        foreach (KeyValuePair<int, ClearedTutorialData> item in user.ClearedTutorialDataNew)
-        {
-            response.User.Tutorials.Add(new NetTutorialData()
-            {
-                GroupId = item.Key,
-                LastClearedTid = item.Value.Id,
-                LastClearedVersion = item.Value.VersionGroup
-            });
-        }
 
         response.CommanderRoomJukeboxBgm = new NetJukeboxBgm() { JukeboxTableId = user.CommanderMusic.TableId, Type = NetJukeboxBgmType.JukeboxTableId, Location = NetJukeboxLocation.CommanderRoom };
         response.LobbyJukeboxBgm = new NetJukeboxBgm() { JukeboxTableId = user.LobbyMusic.TableId, Type = NetJukeboxBgmType.JukeboxTableId, Location = NetJukeboxLocation.Lobby };

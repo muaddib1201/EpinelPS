@@ -11,6 +11,17 @@ public class QuickCounsel : LobbyMessage
         ReqCharacterQuickCounsel req = await ReadData<ReqCharacterQuickCounsel>();
         User user = GetUser();
 
+        ResCharacterQuickCounsel response;
+        lock (user)
+        lock (JsonDb.SaveLock)
+        {
+            response = CounselMissionDelivery.Apply(user, req, ctx?.Items["Nonce"] as byte[], () => ApplyQuickCounsel(user, req));
+        }
+        await WriteDataAsync(response);
+    }
+
+    private ResCharacterQuickCounsel ApplyQuickCounsel(User user, ReqCharacterQuickCounsel req)
+    {
         ResCharacterQuickCounsel response = new();
 
         foreach (KeyValuePair<CurrencyType, long> currency in user.Currency)
@@ -33,7 +44,7 @@ public class QuickCounsel : LobbyMessage
                 UpdateAttractiveLevel(bondInfo);
             }
 
-            response.Attractive = bondInfo;
+            response.Attractive = bondInfo.Clone();
             response.Exp = new NetIncreaseExpData
             {
                 NameCode = bondInfo.NameCode,
@@ -57,7 +68,7 @@ public class QuickCounsel : LobbyMessage
             };
             UpdateAttractiveLevel(data);
             user.BondInfo.Add(data);
-            response.Attractive = data;
+            response.Attractive = data.Clone();
             response.Exp = new NetIncreaseExpData
             {
                 NameCode = data.NameCode,
@@ -69,9 +80,7 @@ public class QuickCounsel : LobbyMessage
             };
         }
 
-        JsonDb.Save();
-
-        await WriteDataAsync(response);
+        return response;
     }
 
     private void UpdateAttractiveLevel(NetUserAttractiveData attractiveData)

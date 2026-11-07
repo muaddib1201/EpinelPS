@@ -8,16 +8,16 @@ public class GetCharacterAttractiveList : LobbyMessage
         ReqGetAttractiveList req = await ReadData<ReqGetAttractiveList>();
         User user = GetUser();
 
-        ResGetAttractiveList response = new()
-        {
-            CounselAvailableCount = user.ResetableData.DailyCounselCount.GetValueOrDefault(1, 3)
-        };
+        ResGetAttractiveList response = new();
 
-        foreach (NetUserAttractiveData item in user.BondInfo)
+        lock (user)
         {
-            response.Attractives.Add(item);
-            item.CanCounselToday = true;
-
+            response.CounselAvailableCount = user.ResetableData.GetAvailableCounselCount();
+            foreach (NetUserAttractiveData item in user.BondInfo)
+            {
+                item.CanCounselToday = true;
+                response.Attractives.Add(item.Clone());
+            }
         }
 
         // TODO: Validate response from real server and pull info from user info

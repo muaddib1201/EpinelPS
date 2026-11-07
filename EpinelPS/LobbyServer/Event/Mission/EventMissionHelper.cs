@@ -59,6 +59,7 @@ public static class EventMissionHelper
                 EventId = eventId
             };
             clearData.EventMissionClearList.AddRange(GetCleared(user, eventId));
+            clearDatas.Add(clearData);
         }
 
         return clearDatas;

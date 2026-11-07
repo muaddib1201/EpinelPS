@@ -30,6 +30,15 @@ public class GameData
 
     public readonly Dictionary<string, FieldMapRecord> MapData = [];
 
+    [LoadRecord("ArenaTable.json", "Id")]
+    public readonly Dictionary<int, ArenaRecord> Arenas = [];
+    [LoadRecord("ArenaRewardTable.json", "MinRank")]
+    public readonly Dictionary<int, ArenaRewardRecord> ArenaRewards = [];
+    [LoadRecord("TierTable.json", "Id")]
+    public readonly Dictionary<int, TierRecord> ArenaTiers = [];
+    [LoadRecord("TimeStackRewardTable.json", "Id")]
+    public readonly Dictionary<int, TimeStackRewardRecord> ArenaTimeRewards = [];
+
     //ArchiveEvent
     [LoadRecord("ArchiveEventDungeonTable.json", "Id")]
     public readonly Dictionary<int, ArchiveEventDungeonRecord> ArchiveEventDungeonreRecordRaws = [];
@@ -85,11 +94,34 @@ public class GameData
     [LoadRecord("ContentsOpenTable.json", "Id")]
     public readonly Dictionary<ContentsOpen, ContentsOpenRecord> ContentsOpenTable = [];
 
+    [LoadRecord("ConfigGameTable.json", "Id")]
+    public readonly Dictionary<string, ConfigGameRecord> GameSettings = [];
+
+    [LoadRecord("GuildEmblemTable.json", "Id")]
+    public readonly Dictionary<int, GuildEmblemRecord> GuildEmblems = [];
+
+    [LoadRecord("GuildTable.json", "Grade")]
+    public readonly Dictionary<int, GuildRecord> GuildLevels = [];
+
+    [LoadRecord("ShootingRangeTable.json", "Id")]
+    public readonly Dictionary<int, ShootingRangeRecord> ShootingRanges = [];
+
     [LoadRecord("CharacterCostumeTable.json", "Id")]
     public readonly Dictionary<int, CharacterCostumeRecord> CharacterCostumeTable = [];
 
     [LoadRecord("CharacterTable.json", "Id")]
     public readonly Dictionary<int, CharacterRecord> CharacterTable = [];
+
+    [LoadRecord("CharacterSkillTable.json", "Id")]
+    public readonly Dictionary<int, CharacterSkillRecord> CharacterSkills = [];
+    [LoadRecord("CharacterShotTable.json", "Id")]
+    public readonly Dictionary<int, CharacterShotRecord> CharacterShots = [];
+
+    [LoadRecord("SupportContentsTable.json", "Id")]
+    public readonly Dictionary<int, SupportContentsRecord> SupportContentsTable = [];
+
+    [LoadRecord("SupportCharacterGroupTable.json", "Id")]
+    public readonly Dictionary<int, SupportCharacterGroupRecord> SupportCharacterGroupTable = [];
 
     [LoadRecord("ContentsTutorialTable.json", "Id")]
     public readonly Dictionary<int, ContentsTutorialRecord> TutorialTable = [];
@@ -166,6 +198,24 @@ public class GameData
     [LoadRecord("EventManagerTable.json", "Id")]
     public readonly Dictionary<int, EventManagerRecord> eventManagers = [];
 
+    [LoadRecord("EventBoxGachaTable.json", "Id")]
+    public readonly Dictionary<int, EventBoxGachaRecord> EventBoxGachaTable = [];
+
+    [LoadRecord("EventBoxGachaPriceTable.json", "Id")]
+    public readonly Dictionary<int, EventBoxGachaPriceRecord> EventBoxGachaPriceTable = [];
+
+    [LoadRecord("EventBoxGachaProbTable.json", "Id")]
+    public readonly Dictionary<int, EventBoxGachaProbRecord> EventBoxGachaProbTable = [];
+
+    [LoadRecord("EventBoxGachaRewardTable.json", "Id")]
+    public readonly Dictionary<int, EventBoxGachaRewardRecord> EventBoxGachaRewardTable = [];
+
+    [LoadRecord("EventInAppShopTable.json", "Id")]
+    public readonly Dictionary<int, EventInAppShopRecord> EventInAppShopTable = [];
+
+    [LoadRecord("EventInAppShopProductTable.json", "Id")]
+    public readonly Dictionary<int, EventInAppShopProductRecord> EventInAppShopProductTable = [];
+
     [LoadRecord("LiveWallpaperTable.json", "Id")]
     public readonly Dictionary<int, LiveWallpaperRecord> LiveWallpaperTable = [];
 
@@ -230,6 +280,9 @@ public class GameData
     [LoadRecord("TowerTable.json", "Id")]
     public readonly Dictionary<int, TowerRecord> towerTable = [];
 
+    [LoadRecord("TowerInfoTable.json", "Id")]
+    public readonly Dictionary<CorporationTowerType, TowerInfoRecord> TowerInfoTable = [];
+
     [LoadRecord("TriggerTable.json", "Id")]
     public readonly Dictionary<int, TriggerRecord> TriggerTable = [];
 
@@ -238,6 +291,9 @@ public class GameData
 
     [LoadRecord("AttractiveCounselCharacterTable.json", "NameCode")]
     public readonly Dictionary<int, AttractiveCounselCharacterRecord_Raw> AttractiveCounselCharacterTable = [];
+
+    [LoadRecord("AttractiveCounselTable.json", "Id")]
+    public readonly Dictionary<int, AttractiveCounselRecord> AttractiveCounselTable = [];
 
     [LoadRecord("AttractiveLevelRewardTable.json", "Id")]
     public readonly Dictionary<int, AttractiveLevelRewardRecord> AttractiveLevelReward = [];

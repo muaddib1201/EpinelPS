@@ -1,4 +1,4 @@
-﻿using EpinelPS.Data;
+using EpinelPS.Data;
 using EpinelPS.Database;
 using EpinelPS.Utils;
 
@@ -23,7 +23,12 @@ public class LevelUp : LobbyMessage
                 int requiredCoreDust = 0;
                 for (int i = item.Level; i < req.Lv; i++)
                 {
-                    CharacterLevelRecord levelUpData = data[i];
+                    // row N of CharacterLevelTable is the cost of reaching level N
+                    if (!data.TryGetValue(i + 1, out CharacterLevelRecord? levelUpData))
+                    {
+                        Logging.WriteLine($"no level data for level {i + 1}", LogType.Warning);
+                        return;
+                    }
                     requiredCredit += levelUpData.Gold;
                     requiredBattleData += levelUpData.CharacterExp;
                     requiredCoreDust += levelUpData.CharacterExp2;
@@ -74,6 +79,8 @@ public class LevelUp : LobbyMessage
         }
 
         user.AddTrigger(Trigger.CharacterLevelUpCount, 1);
+        if (user.Characters.Count > 0)
+            user.AddTrigger(Trigger.CharacterLevelMax, user.Characters.Max(c => c.Level));
         JsonDb.Save();
 
         await WriteDataAsync(response);
