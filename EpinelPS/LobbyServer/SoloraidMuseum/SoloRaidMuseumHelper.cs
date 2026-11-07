@@ -76,12 +76,13 @@ internal static class SoloRaidMuseumHelper
             // StageReadyPage.UpdateUI requires UserRanking for the open button.
             // Ranking missions also require exact 50/30/15/5/1 entries below.
             var challenge = data.Challenge;
-            var rankerRankings = GetPastRankings(user, stage).ToList();
+            var rankerRankings = MuseumHistoryArchive.GetRankings(stage.Id).ToList();
+            var personalRank = MuseumHistoryArchive.PersonalRank(stage.Id, challenge.BestDamage);
             Logging.WriteLine(
                 $"[SoloRaidMuseum] groupdata stage={stage.Id}, selectedMode={data.StageMode}, " +
                 $"challenge(inProgress={data.Challenge.IsInProgress},join={data.Challenge.StageJoinCount},damage={data.Challenge.TotalDamage},teams={data.Challenge.OpenTeams.Count}), " +
                 $"nolimit(inProgress={data.NoLimit.IsInProgress},join={data.NoLimit.StageJoinCount},damage={data.NoLimit.TotalDamage},teams={data.NoLimit.OpenTeams.Count}), " +
-                $"activeTeams={teams.Count}, userRanking(rank={pastRankingRank(challenge.BestDamage, rankerRankings)},damage={challenge.BestDamage}), " +
+                $"activeTeams={teams.Count}, userRanking(rank={personalRank},damage={challenge.BestDamage}), " +
                 $"rankers=[{string.Join(',', rankerRankings.Select(x => $"{x.Ranking}:{x.Damage}:past={(x.PastUserData != null)}:current={(x.CurrentUserData != null)}"))}]",
                 LogType.Info);
             NetSoloRaidMuseumStagePastRanking pastRanking = new()
@@ -89,19 +90,17 @@ internal static class SoloRaidMuseumHelper
                 StageId = stage.Id,
                 UserRanking = new NetSoloRaidMuseumUserRankingData
                 {
-                    Ranking = 0,
+                    Ranking = personalRank,
                     Damage = challenge.BestDamage,
                     CurrentUserData = LobbyHandler.CreateWholeUserDataFromDbUser(user),
                 },
-                TotalUserCount = Math.Max(50, rankerRankings.Count),
+                TotalUserCount = MuseumHistoryArchive.ParticipantCount(stage.Id),
             };
             pastRanking.RankerRankingList.AddRange(rankerRankings);
             response.PastRankingList.Add(pastRanking);
         }
         return response;
 
-        static long pastRankingRank(long damage, IReadOnlyCollection<NetSoloRaidMuseumRankerRankingData> rankers) =>
-            rankers.FirstOrDefault(x => x.Damage == damage)?.Ranking ?? 0;
     }
 
     public static ResGetSoloRaidMuseumMission GetMissions(User user, int stageId)
@@ -340,58 +339,6 @@ internal static class SoloRaidMuseumHelper
             // Account-owned character serial numbers must use the default value 0.
             fallback.Slots.Add(new NetTeamSlot { Slot = i + 1, Value = characters[i].Csn, ValueType = 0 });
         return fallback.Slots.Count > 0 ? [fallback] : [];
-    }
-
-    private static IEnumerable<NetSoloRaidMuseumRankerRankingData> GetPastRankings(
-        User currentUser, MuseumStageRecord_Raw stage)
-    {
-        // Rank missions do not use the raw leaderboard damage as their target.
-        // The client converts ranker damage through the common-stage HP group;
-        // provide the same deterministic CommonHP + Trial target values used by
-        // the official client model so mission display and claim validation agree.
-        var rankMissions = GameData.Instance.MuseumMissionTable.Values
-            .Where(x => x.StageId == stage.Id &&
-                        x.ModeType == MuseumStageModeType.Challenge &&
-                        x.ConditionType == MuseumMissionConditionType.GetTotalDamageRanker)
-            .OrderBy(x => x.Order)
-            .ToList();
-        var trialTargets = GameData.Instance.MuseumMissionTable.Values
-            .Where(x => x.StageId == stage.Id &&
-                        x.ModeType == MuseumStageModeType.Challenge &&
-                        x.ConditionType == MuseumMissionConditionType.GetTotalDamage)
-            .OrderBy(x => x.ConditionValue)
-            .TakeLast(rankMissions.Count)
-            .Select(x => x.ConditionValue)
-            .ToList();
-        var commonHp = GameData.Instance.MuseumCommonStageHpGroupTable.Values
-            .Where(x => x.Group == stage.SoloRaidStageHpGroup)
-            .Sum(x => x.HpValue);
-        Logging.WriteLine($"[SoloRaidMuseum] ranking stage={stage.Id}, rankers={rankMissions.Count}, commonHp={commonHp}", LogType.Debug);
-        var currentUserData = LobbyHandler.CreateWholeUserDataFromDbUser(currentUser);
-
-        for (var i = 0; i < rankMissions.Count; i++)
-        {
-            yield return new NetSoloRaidMuseumRankerRankingData
-            {
-                Ranking = rankMissions[i].ConditionValue,
-                Damage = commonHp + trialTargets.ElementAtOrDefault(i),
-                PastUserData = CreatePastUserData(currentUserData),
-                CurrentUserData = currentUserData,
-            };
-        }
-    }
-
-    private static NetPastWholeUserData CreatePastUserData(NetWholeUserData current)
-    {
-        return new NetPastWholeUserData
-        {
-            Usn = current.Usn,
-            Nickname = current.Nickname,
-            Icon = current.Icon,
-            IconPrism = current.IconPrism,
-            Frame = current.Frame,
-            UserTitleId = current.UserTitleId,
-        };
     }
 
     public static bool RefreshNoLimitUnlock(SoloRaidMuseumStageData stage)

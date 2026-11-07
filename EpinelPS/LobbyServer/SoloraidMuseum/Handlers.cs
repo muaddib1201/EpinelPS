@@ -51,8 +51,10 @@ public class GetRankerSquad : LobbyMessage
 {
     protected override async Task HandleAsync()
     {
-        await ReadData<ReqGetSoloRaidMuseumRankerSquad>();
-        await WriteDataAsync(new ResGetSoloRaidMuseumRankerSquad());
+        var req = await ReadData<ReqGetSoloRaidMuseumRankerSquad>();
+        ResGetSoloRaidMuseumRankerSquad response = new();
+        response.SquadList.AddRange(MuseumHistoryArchive.GetSquads(req.StageId, req.TargetUsn));
+        await WriteDataAsync(response);
     }
 }
 

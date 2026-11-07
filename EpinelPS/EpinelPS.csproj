@@ -51,6 +51,7 @@
 
 	<ItemGroup>
 		<Protobuf Include="Protos\*.*" GrpcServices="Server" />
+		<EmbeddedResource Include="LobbyServer\SoloraidMuseum\MuseumNpcHistory.json" />
 	</ItemGroup>
 
 	<ItemGroup>

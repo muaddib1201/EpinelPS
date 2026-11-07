@@ -50,6 +50,7 @@ await Test("historical profiles are independent NPC archives for every stage", a
     foreach (var stage in stages)
     {
         var history = await History(self, stage.GroupId, stage.Id);
+        Check(history.TotalUserCount == 50, "complete benchmark participant count missing");
         Check(history.RankerRankingList.Select(r => r.Ranking).SequenceEqual(new long[] { 50, 30, 15, 5, 1 }), "rank mission tiers missing");
         Check(history.RankerRankingList.Select(r => r.PastUserData.Usn).Distinct().Count() == 5, "historical identities reused");
         foreach (var row in history.RankerRankingList)
@@ -77,6 +78,8 @@ await Test("historical damage and all five squads agree on every stage and rank"
             var characters = squads.SquadList.SelectMany(s => s.Team).ToArray();
             Check(characters.All(c => data.CharacterTable.ContainsKey(c.Tid) && c.Lv > 0 && c.Combat > 0), "invalid historical character details");
             Check(characters.Select(c => data.CharacterTable[c.Tid].NameCode).Distinct().Count() == 25, "character reused across five teams");
+            Check(data.UserIconTable.ContainsKey(row.PastUserData.Icon), "invalid archive portrait");
+            Check(squads.SquadList.All(s => new[] { BurstStep.Step1, BurstStep.Step2, BurstStep.Step3 }.All(b => s.Team.Any(c => data.CharacterTable[c.Tid].UseBurstSkill == b))), "historical squad lacks a burst phase");
         }
     }
 });
@@ -88,6 +91,9 @@ await Test("archive does not depend on the viewer and mutations cannot change la
     a.RankerRankingList[0].PastUserData.Nickname = "mutated";
     Player().ProfileIconId = 1; Player().TitleId = 99;
     Check((await History(self, 1, 101)).RankerRankingList[0].ToByteString().Equals(original), "history references a mutable viewer profile");
+    var squads = await Squad(self, 101, b.RankerRankingList[0].PastUserData.Usn);
+    var snapshot = squads.ToByteString(); squads.SquadList[0].Team[0].Lv = 1;
+    Check((await Squad(other, 101, b.RankerRankingList[0].PastUserData.Usn)).ToByteString().Equals(snapshot), "squad response can mutate the archive");
 });
 await Test("unknown targets never expose player squads", async () =>
 {
@@ -99,16 +105,22 @@ await Test("unknown targets never expose player squads", async () =>
 await Test("personal best rank and details use only the account's saved completed result", async () =>
 {
     Player().SoloRaidMuseumData[101] = new SoloRaidMuseumStageData { StageId = 101,
-        Challenge = new SoloRaidMuseumModeData { BestDamage = 800_000_000, TotalDamage = 9_000_000_000,
+        Challenge = new SoloRaidMuseumModeData { BestDamage = 719_000_000, TotalDamage = 9_000_000_000,
             StageJoinCount = 1, IsInProgress = true,
-            Logs = [new SoloRaidMuseumLogData { TeamNumber = 1, Damage = 800_000_000,
+            Logs = [new SoloRaidMuseumLogData { TeamNumber = 1, Damage = 719_000_000,
                 Team = [new TeamCharacterData { Slot = 1, Tid = 10101, Lv = 200, Combat = 12345 }] }],
             CurrentLogs = [new SoloRaidMuseumLogData { TeamNumber = 1, Damage = 9_000_000_000 }] } };
     var history = await History(self, 1, 101);
-    Check(history.UserRanking.Damage == 800_000_000 && history.UserRanking.Ranking == 15, "personal best rank not calculated from archive tiers");
+    Check(history.UserRanking.Damage == 719_000_000 && history.UserRanking.Ranking == 15, "personal best rank not calculated from archive tiers");
     Check((await History(other, 1, 101)).UserRanking.Damage == 0, "another viewer's score leaked");
     var own = await Send<ResGetSoloRaidMuseumMyPastSquad>(self, "/soloraidmuseum/get/mypastsquad", new ReqGetSoloRaidMuseumMyPastSquad { StageId = 101 });
-    Check(own.SquadList.Single().Damage == 800_000_000 && own.SquadList[0].Team.Single().Combat == 12345, "in-progress squad replaced saved best");
+    Check(own.SquadList.Single().Damage == 719_000_000 && own.SquadList[0].Team.Single().Combat == 12345, "in-progress squad replaced saved best");
+    foreach (var (damage, rank) in new (long, long)[] { (0, 0), (1, 51), (488_000_000, 50), (800_000_000, 8), (971_000_000, 1), (9_000_000_000, 1) })
+    {
+        Player().SoloRaidMuseumData[101].Challenge.BestDamage = damage;
+        var row = (await History(self, 1, 101)).UserRanking;
+        Check(row.Damage == damage && row.Ranking == rank, $"personal rank boundary failed at {damage}");
+    }
 });
 Console.WriteLine($"SoloRaidMuseum: {passed} PASS, {failed} FAIL");
 return failed == 0 ? 0 : 1;
