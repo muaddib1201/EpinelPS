@@ -14,3 +14,5 @@
 实施决定：保留 `src/EpinelPS` 作为旧会话入口和参考副本；Git 中的 `nikke/integration` 是新会话起点。原生 worktree 按会话建立；测试使用各工作树内部 `.nikke/test-root`，维持既有测试的目录层级。
 
 调整：应用原生 create_worktree 调用长时间无响应，停止等待后确认既无附件也无 Git worktree。改用 Git 后备方式在项目 `.worktrees/<会话>/src/EpinelPS` 创建工作树；该层级直接兼容现有测试，无需改变业务代码或测试目录推导。测试静态数据复制到 `.worktrees/<会话>/Server and Server selector`，不连接线上目录。
+
+审查修正：资源或数据发布可能不改变 exe，因此封存和部署同时比较持久化 generation；安装开始前推进序号，失败也使旧清单失效。Python 父进程可能被终止，因此使用可由安装进程继承的独占句柄，使写入者存活期间锁不会释放；启动游戏服务器前清除继承标记，避免长期锁住。

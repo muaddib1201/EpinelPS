@@ -17,6 +17,14 @@ import uuid
 HERE = Path(__file__).resolve().parent
 EMPTY_IGNORE = HERE/'empty-gitignore'
 EMPTY_IGNORE.touch(exist_ok=True)
+if os.name=='nt':
+    from ctypes import wintypes
+    KERNEL32=ctypes.WinDLL('kernel32',use_last_error=True)
+    KERNEL32.CreateFileW.argtypes=[wintypes.LPCWSTR,wintypes.DWORD,wintypes.DWORD,ctypes.c_void_p,
+        wintypes.DWORD,wintypes.DWORD,wintypes.HANDLE]
+    KERNEL32.CreateFileW.restype=wintypes.HANDLE
+    KERNEL32.CloseHandle.argtypes=[wintypes.HANDLE]
+    KERNEL32.CloseHandle.restype=wintypes.BOOL
 
 class WorkflowError(RuntimeError):
     pass
@@ -56,39 +64,42 @@ class FileLock:
 
     def __enter__(self):
         self.path.parent.mkdir(parents=True,exist_ok=True)
-        self.handle=self.path.open('a+b')
-        self.handle.seek(0,os.SEEK_END)
-        if self.handle.tell()==0:
-            self.handle.write(b'0');self.handle.flush()
+        if os.name!='nt':
+            self.handle=self.path.open('a+b')
         deadline=time.monotonic()+self.timeout
         while True:
             try:
-                self.handle.seek(0)
                 if os.name=='nt':
-                    import msvcrt
-                    msvcrt.locking(self.handle.fileno(),msvcrt.LK_NBLCK,1)
+                    # Share-mode exclusion remains active for inherited handles, even if the parent dies.
+                    handle=KERNEL32.CreateFileW(str(self.path),0xC0000000,0,None,4,0x80,None)
+                    if handle==ctypes.c_void_p(-1).value:
+                        code=ctypes.get_last_error()
+                        if code not in (32,33):
+                            raise WorkflowError(f'Cannot open operation lock ({code}): {self.path}')
+                        raise OSError(code,'File is already open exclusively')
+                    self.handle=handle
                 else:
                     import fcntl
                     fcntl.flock(self.handle.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
                 return self
             except OSError as exc:
                 if time.monotonic()>=deadline:
-                    self.handle.close();self.handle=None
+                    if self.handle is not None and os.name!='nt':
+                        self.handle.close()
+                    self.handle=None
                     raise WorkflowError(f'Operation locked by another session: {self.path}') from exc
                 time.sleep(0.1)
 
     def __exit__(self,*args):
         if self.handle is not None:
             try:
-                self.handle.seek(0)
                 if os.name=='nt':
-                    import msvcrt
-                    msvcrt.locking(self.handle.fileno(),msvcrt.LK_UNLCK,1)
+                    KERNEL32.CloseHandle(self.handle)
                 else:
-                    import fcntl
-                    fcntl.flock(self.handle.fileno(),fcntl.LOCK_UN)
+                    # Closing only our descriptor preserves an inherited child's flock.
+                    self.handle.close()
             finally:
-                self.handle.close();self.handle=None
+                self.handle=None
 
 class Workflow:
     def __init__(self,settings=None):
@@ -304,7 +315,16 @@ class Workflow:
             if sha(within(folder/relative,folder))!=expected_hash:
                 raise WorkflowError('Published payload hash changed: '+relative)
 
+    def generation(self):
+        path=self.state/'deployment-generation.json'
+        return read_json(path)['generation'] if path.exists() else 'baseline'
+
     def seal(self,repo,build_file,tests_file,installer):
+        with FileLock(self.state/'deployment.lock'):
+            with FileLock(self.state/'integration.lock'):
+                return self._seal_locked(repo,build_file,tests_file,installer)
+
+    def _seal_locked(self,repo,build_file,tests_file,installer):
         repo=Path(repo).resolve()
         identity=self.source_identity(repo)
         if identity['commit']!=self.revision(self.ref):
@@ -324,6 +344,7 @@ class Workflow:
             raise WorkflowError('Expected a reviewed PowerShell installer with backup, rollback and health checks')
         manifest={'schemaVersion':1,'utc':now(),'sourceDirectory':str(repo),**identity,
             'expectedInstalledSha256':sha(self.live/'EpinelPS.exe'),'candidate':str(candidate),
+            'expectedDeploymentGeneration':self.generation(),
             'candidateSha256':sha(candidate),'installer':str(installer),'installerSha256':sha(installer),
             'payloadRoot':build['payloadRoot'],'payload':build['payload'],
             'evidence':[{'path':str(p),'sha256':sha(p)} for p in [build_file,tests_file]]}
@@ -343,6 +364,8 @@ class Workflow:
             raise WorkflowError('Release source identity changed')
         if sha(self.live/'EpinelPS.exe')!=manifest['expectedInstalledSha256']:
             raise WorkflowError('The installed release changed; rebuild/review this package before deployment')
+        if manifest.get('expectedDeploymentGeneration')!=self.generation():
+            raise WorkflowError('Deployment generation changed; recheck and seal against the new installed state')
         for name in ['candidate','installer']:
             artifact=within(manifest[name],repo)
             if sha(artifact)!=manifest[name+'Sha256']:
@@ -353,22 +376,45 @@ class Workflow:
         self.verify_payload(manifest,repo)
         return manifest
 
+    def run_installer(self,installer,output,locks):
+        command=[self.config.get('powershell','pwsh'),'-NoProfile','-NonInteractive','-File',
+            str(HERE/'run-installer.ps1'),'-Installer',str(installer)]
+        options={'cwd':Path(installer).parent,'stdout':output,'stderr':subprocess.STDOUT}
+        if os.name=='nt':
+            handles=[lock.handle for lock in locks]
+            command+=['-LockHandles',','.join(str(handle) for handle in handles)]
+            startup=subprocess.STARTUPINFO()
+            startup.lpAttributeList={'handle_list':handles}
+            options.update(startupinfo=startup,close_fds=True,creationflags=subprocess.CREATE_NO_WINDOW)
+            for handle in handles:
+                os.set_handle_inheritable(handle,True)
+            try:
+                process=subprocess.Popen(command,**options)
+            finally:
+                for handle in handles:
+                    os.set_handle_inheritable(handle,False)
+        else:
+            options['pass_fds']=tuple(lock.handle.fileno() for lock in locks)
+            process=subprocess.Popen(command,**options)
+        return process.wait()
+
     def deploy(self,path):
         # Keep integration stable throughout deployment; every publisher uses the same two locks.
-        with FileLock(self.state/'deployment.lock'):
-            with FileLock(self.state/'integration.lock'):
+        with FileLock(self.state/'deployment.lock') as deployment_lock:
+            with FileLock(self.state/'integration.lock') as integration_lock:
                 manifest=self.validate_release(path)
+                generation=uuid.uuid4().hex
+                # A failed or resource-only installer also invalidates every pre-existing manifest.
+                write_json(self.state/'deployment-generation.json',{'generation':generation,'utc':now()})
                 operation={'status':'installing','manifest':str(Path(path).resolve()),'startedUtc':now(),
-                    'pid':os.getpid(),'commit':manifest['commit']}
+                    'pid':os.getpid(),'commit':manifest['commit'],'generation':generation}
                 write_json(self.state/'deployment-status.json',operation)
                 log=self.state/('deployment-'+uuid.uuid4().hex+'.log')
                 try:
-                    shell=self.config.get('powershell','pwsh')
                     with log.open('w',encoding='utf-8') as output:
-                        result=subprocess.run([shell,'-NoProfile','-NonInteractive','-File',manifest['installer']],
-                            cwd=Path(manifest['installer']).parent,stdout=output,stderr=subprocess.STDOUT)
-                    if result.returncode:
-                        raise WorkflowError(f'Installer failed ({result.returncode}); see {log}')
+                        code=self.run_installer(manifest['installer'],output,[deployment_lock,integration_lock])
+                    if code:
+                        raise WorkflowError(f'Installer failed ({code}); see {log}')
                     if sha(self.live/'EpinelPS.exe')!=manifest['candidateSha256']:
                         raise WorkflowError('Installer exited without installing the sealed candidate')
                     operation.update(status='installed',completedUtc=now(),installedSha256=sha(self.live/'EpinelPS.exe'),log=str(log))
@@ -382,6 +428,7 @@ class Workflow:
     def status(self):
         return {'integrationRef':self.ref,'integrationCommit':self.revision(self.ref),
             'installedSha256':sha(self.live/'EpinelPS.exe'),
+            'deploymentGeneration':self.generation(),
             'sessions':[read_json(p) for p in (self.state/'sessions').glob('*.json')],
             'deployment':read_json(self.state/'deployment-status.json') if (self.state/'deployment-status.json').exists() else None}
 

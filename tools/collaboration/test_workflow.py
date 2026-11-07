@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = Path(__file__).resolve().parent
@@ -156,6 +157,33 @@ class WorkflowTests(unittest.TestCase):
         with workflow.FileLock(self.w.state/'deployment.lock',timeout=0):
             pass
 
+    def test_same_executable_deployment_still_invalidates_queued_releases(self):
+        repo,installer,manifest=self.release()
+        data=json.loads(Path(manifest).read_text())
+        candidate=Path(data['candidate'])
+        candidate.write_bytes((self.live/'EpinelPS.exe').read_bytes())
+        build_file=Path(data['evidence'][0]['path'])
+        tests_file=Path(data['evidence'][1]['path'])
+        proof=json.loads(build_file.read_text())
+        proof['candidateSha256']=sha(candidate)
+        proof['payload']=[{'relative':p.name,'sha256':sha(p)} for p in candidate.parent.iterdir()]
+        build_file.write_text(json.dumps(proof))
+        sealed=self.w.seal(repo,build_file,tests_file,installer)
+        self.w.deploy(sealed)
+        with self.assertRaisesRegex(workflow.WorkflowError,'generation'):
+            self.w.deploy(sealed)
+
+    def test_failed_installer_invalidates_prepared_releases(self):
+        repo,installer,manifest=self.release()
+        installer.write_text('exit 7\n')
+        data=json.loads(Path(manifest).read_text())
+        data['installerSha256']=sha(installer)
+        Path(manifest).write_text(json.dumps(data))
+        with self.assertRaisesRegex(workflow.WorkflowError,'(?i)installer'):
+            self.w.deploy(manifest)
+        with self.assertRaisesRegex(workflow.WorkflowError,'generation'):
+            self.w.deploy(manifest)
+
     def test_nonconflicting_commits_are_merged_without_resetting_source(self):
         a=Path(self.w.start('alpha',initialize=False)['sourceDirectory'])
         b=Path(self.w.start('beta',initialize=False)['sourceDirectory'])
@@ -194,6 +222,55 @@ class WorkflowTests(unittest.TestCase):
         a=first.communicate(timeout=25);b=second.communicate(timeout=25)
         self.assertEqual(sorted([first.returncode,second.returncode]),[0,1],(a,b))
         self.assertEqual((self.live/'EpinelPS.exe').read_bytes(),b'combined replacement')
+
+    def test_installer_keeps_lock_after_its_python_parent_is_terminated(self):
+        repo,installer,manifest=self.release()
+        ready=installer.parent/'writer-ready.txt'
+        done=installer.parent/'writer-done.txt'
+        q=lambda p:str(p).replace("'","''")
+        installer.write_text("[IO.File]::WriteAllText('"+q(ready)+"','ready')\nStart-Sleep -Milliseconds 1800\n"+
+            installer.read_text()+"\n[IO.File]::WriteAllText('"+q(done)+"','done')\n")
+        data=json.loads(Path(manifest).read_text())
+        data['installerSha256']=sha(installer)
+        Path(manifest).write_text(json.dumps(data))
+        command=[sys.executable,str(HERE/'nikke_workflow.py'),'--settings',str(self.settings),'deploy','--manifest',str(manifest)]
+        parent=subprocess.Popen(command,cwd=HERE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        deadline=time.monotonic()+15
+        while not ready.exists() and time.monotonic()<deadline:
+            time.sleep(0.05)
+        self.assertTrue(ready.exists(),'Installer did not start')
+        parent.kill();parent.wait(timeout=5)
+        try:
+            with self.assertRaisesRegex(workflow.WorkflowError,'locked'):
+                with workflow.FileLock(self.w.state/'deployment.lock',timeout=0):
+                    pass
+        finally:
+            while not done.exists() and time.monotonic()<deadline:
+                time.sleep(0.05)
+            with workflow.FileLock(self.w.state/'deployment.lock',timeout=5):
+                pass
+        self.assertTrue(done.exists(),'Installer did not finish after parent exit')
+
+    def test_installer_does_not_pass_its_locks_to_a_background_server(self):
+        repo,installer,manifest=self.release()
+        done=installer.parent/'background-done.txt'
+        sleeper=installer.parent/'background.py'
+        sleeper.write_text('import time\nfrom pathlib import Path\ntime.sleep(2)\nPath('+repr(str(done))+').write_text("done")\n')
+        q=lambda p:str(p).replace("'","''")
+        installer.write_text("$background = Start-Process -FilePath '"+q(sys.executable)+"' -ArgumentList '\""+q(sleeper)+"\"' -WindowStyle Hidden -PassThru\n"+installer.read_text())
+        data=json.loads(Path(manifest).read_text())
+        data['installerSha256']=sha(installer)
+        Path(manifest).write_text(json.dumps(data))
+        try:
+            self.w.deploy(manifest)
+            self.assertFalse(done.exists(),'Background process ended before lock inheritance could be checked')
+            with workflow.FileLock(self.w.state/'deployment.lock',timeout=0):
+                pass
+        finally:
+            deadline=time.monotonic()+10
+            while not done.exists() and time.monotonic()<deadline:
+                time.sleep(0.05)
+        self.assertTrue(done.exists())
 
 if __name__=='__main__':
     unittest.main(verbosity=2)
