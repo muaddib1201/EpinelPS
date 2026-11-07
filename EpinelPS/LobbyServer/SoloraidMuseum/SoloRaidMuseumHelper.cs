@@ -100,7 +100,6 @@ internal static class SoloRaidMuseumHelper
             response.PastRankingList.Add(pastRanking);
         }
         return response;
-
     }
 
     public static ResGetSoloRaidMuseumMission GetMissions(User user, int stageId)
@@ -282,7 +281,9 @@ internal static class SoloRaidMuseumHelper
         var logs = current && mode.CurrentLogs.Count > 0 ? mode.CurrentLogs : mode.Logs;
         return logs.Select(x =>
         {
-            var snapshot = x.Team.Count > 0 ? x.Team : CreateTeamSnapshot(user, stage, x.TeamNumber);
+            // A missing legacy snapshot is unavailable history. Reconstructing
+            // it from today's roster silently changes the recorded squad.
+            var snapshot = x.Team;
             return new NetSoloRaidMuseumLog
             {
                 Damage = x.Damage,

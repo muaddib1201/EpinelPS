@@ -13,6 +13,8 @@ using Paseto;
 using Paseto.Builder;
 
 const ulong self = 9701, other = 9702;
+if (args.Contains("--probe-live-readonly")) return await MuseumLiveProbe.Run();
+if (args.Contains("--archive-fingerprint")) { Console.WriteLine(MuseumLiveProbe.ArchiveFingerprint()); return 0; }
 var root = new DirectoryInfo(Environment.GetEnvironmentVariable("NIKKE_WORKSPACE_ROOT") ?? AppContext.BaseDirectory);
 while (root != null && !Directory.Exists(Path.Combine(root.FullName, "Server and Server selector"))) root = root.Parent;
 if (root == null) throw new Exception("Session workspace not found");
@@ -67,6 +69,10 @@ await Test("historical damage and all five squads agree on every stage and rank"
             Check(squads.SquadList.Select(s => s.TeamNumber).SequenceEqual(new[] { 1, 2, 3, 4, 5 }), "squad order missing");
             Check(squads.SquadList.All(s => s.Damage > 0 && s.Team.Count == 5), "incomplete squad or damage");
             Check(squads.SquadList.Sum(s => s.Damage) == row.Damage - hp, "rank and squad damage disagree");
+            var rankMissions = data.MuseumMissionTable.Values.Where(m => m.StageId == stage.Id && m.ModeType == MuseumStageModeType.Challenge && m.ConditionType == MuseumMissionConditionType.GetTotalDamageRanker).OrderBy(m => m.Order).ToArray();
+            var target = data.MuseumMissionTable.Values.Where(m => m.StageId == stage.Id && m.ModeType == MuseumStageModeType.Challenge && m.ConditionType == MuseumMissionConditionType.GetTotalDamage).OrderBy(m => m.ConditionValue).TakeLast(rankMissions.Length).ToArray();
+            int rankIndex = Array.FindIndex(rankMissions, m => m.ConditionValue == row.Ranking);
+            Check(rankIndex >= 0 && row.Damage - hp == target[rankIndex].ConditionValue, "archive changed the ranking mission target");
             Check(row.Damage > previous, "rank damage is not increasing"); previous = row.Damage;
             var characters = squads.SquadList.SelectMany(s => s.Team).ToArray();
             Check(characters.All(c => data.CharacterTable.ContainsKey(c.Tid) && c.Lv > 0 && c.Combat > 0), "invalid historical character details");
@@ -123,6 +129,19 @@ await Test("legacy personal history never borrows today's roster when its snapsh
     Player().SoloRaidMuseumData[101].Challenge.Logs[0].Team.Clear();
     var own = await Send<ResGetSoloRaidMuseumMyPastSquad>(self, "/soloraidmuseum/get/mypastsquad", new ReqGetSoloRaidMuseumMyPastSquad { StageId = 101 });
     Check(own.SquadList.Single().Team.Count == 0, "legacy personal history borrowed the current roster");
+    Player().Characters[0].Level = 1;
+    var best = await Send<ResGetSoloRaidMuseumChallengeBestLog>(self, "/soloraidmuseum/challenge/get/bestlog", new ReqGetSoloRaidMuseumChallengeBestLog { StageId = 101 });
+    Check(best.LogList.Single().Team.Count == 0 && best.LogList[0].Damage == own.SquadList[0].Damage, "legacy best-log snapshot changes with current roster edits");
+});
+await Test("fixed archive survives a fresh process with the embedded resource", async () =>
+{
+    var start = new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!)
+        { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+    start.ArgumentList.Add("--archive-fingerprint");
+    using var child = System.Diagnostics.Process.Start(start)!;
+    var output = child.StandardOutput.ReadToEndAsync();
+    await child.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(30)).Token);
+    Check(child.ExitCode == 0 && (await output).Trim() == MuseumLiveProbe.ArchiveFingerprint(), "archive changed or resource missing after restart");
 });
 Console.WriteLine($"SoloRaidMuseum: {passed} PASS, {failed} FAIL");
 return failed == 0 ? 0 : 1;
