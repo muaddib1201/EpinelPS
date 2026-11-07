@@ -43,7 +43,7 @@ Console.WriteLine("STATIC_STAGES " + JsonConvert.SerializeObject(stages.Select(s
     CommonHp = data.MuseumCommonStageHpGroupTable.Values.Where(h => h.Group == s.SoloRaidStageHpGroup).Sum(h => h.HpValue),
     Targets = data.MuseumMissionTable.Values.Where(m => m.StageId == s.Id && m.ModeType == MuseumStageModeType.Challenge && m.ConditionType == MuseumMissionConditionType.GetTotalDamage).OrderBy(m => m.ConditionValue).Select(m => m.ConditionValue),
     Level = data.MuseumStageModeTable.Values.First(m => m.StageId == s.Id && m.ModeType == MuseumStageModeType.Challenge).CharacterLv })));
-Console.WriteLine("STATIC_CHARACTERS " + JsonConvert.SerializeObject(data.CharacterTable.Values.Where(c => c.IsVisible && c.OriginalRare == OriginalRareType.SSR).Select(c => new { c.Id, c.NameCode, c.Name, c.UseBurstSkill }).ToArray()));
+Console.WriteLine("STATIC_CHARACTERS " + JsonConvert.SerializeObject(data.CharacterTable.Values.Where(c => c.IsVisible && c.OriginalRare == OriginalRareType.SSR).Select(c => new { c.Id, c.NameCode, c.NameLocalkey, c.UseBurstSkill }).ToArray()));
 
 await Test("historical profiles are independent NPC archives for every stage", async () =>
 {
