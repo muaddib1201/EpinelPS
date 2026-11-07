@@ -38,13 +38,6 @@ using var services = new ServiceCollection().AddDbContext<GameContext>(o => o.Us
 int passed = 0, failed = 0;
 var stages = data.MuseumStageTable.Values.OrderBy(s => s.Id).ToArray();
 
-// Static input inspection stays in the session's test log, never touches a live save.
-Console.WriteLine("STATIC_STAGES " + JsonConvert.SerializeObject(stages.Select(s => new { s.Id, s.GroupId,
-    CommonHp = data.MuseumCommonStageHpGroupTable.Values.Where(h => h.Group == s.SoloRaidStageHpGroup).Sum(h => h.HpValue),
-    Targets = data.MuseumMissionTable.Values.Where(m => m.StageId == s.Id && m.ModeType == MuseumStageModeType.Challenge && m.ConditionType == MuseumMissionConditionType.GetTotalDamage).OrderBy(m => m.ConditionValue).Select(m => m.ConditionValue),
-    Level = data.MuseumStageModeTable.Values.First(m => m.StageId == s.Id && m.ModeType == MuseumStageModeType.Challenge).CharacterLv })));
-Console.WriteLine("STATIC_CHARACTERS " + JsonConvert.SerializeObject(data.CharacterTable.Values.Where(c => c.IsVisible && c.OriginalRare == OriginalRareType.SSR).Select(c => new { c.Id, c.NameCode, c.NameLocalkey, c.UseBurstSkill }).ToArray()));
-
 await Test("historical profiles are independent NPC archives for every stage", async () =>
 {
     foreach (var stage in stages)
@@ -121,6 +114,15 @@ await Test("personal best rank and details use only the account's saved complete
         var row = (await History(self, 1, 101)).UserRanking;
         Check(row.Damage == damage && row.Ranking == rank, $"personal rank boundary failed at {damage}");
     }
+});
+await Test("legacy personal history never borrows today's roster when its snapshot is missing", async () =>
+{
+    Player().Characters = [new CharacterModel { Csn = 123, Tid = data.CharacterTable.Keys.First(), Level = 400 }];
+    Player().SoloRaidMuseumData[101].Teams = [new NetTeamData { TeamNumber = 1,
+        Slots = { new NetTeamSlot { Slot = 1, Value = 123 } } }];
+    Player().SoloRaidMuseumData[101].Challenge.Logs[0].Team.Clear();
+    var own = await Send<ResGetSoloRaidMuseumMyPastSquad>(self, "/soloraidmuseum/get/mypastsquad", new ReqGetSoloRaidMuseumMyPastSquad { StageId = 101 });
+    Check(own.SquadList.Single().Team.Count == 0, "legacy personal history borrowed the current roster");
 });
 Console.WriteLine($"SoloRaidMuseum: {passed} PASS, {failed} FAIL");
 return failed == 0 ? 0 : 1;
