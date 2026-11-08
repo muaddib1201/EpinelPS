@@ -639,7 +639,7 @@ public class User
 
     private bool ShouldResetUser()
     {
-        var nowLocal = DateTime.UtcNow;
+        var nowLocal = RewardMutationScope.UtcNow;
 
         // Compute the last reset threshold (most recent 2 PM before or at nowLocal)
         DateTime todayResetTime = new(
@@ -660,7 +660,7 @@ public class User
 
     private bool ShouldResetWeekly()
     {
-        var nowLocal = DateTime.UtcNow;
+        var nowLocal = RewardMutationScope.UtcNow;
 
         // Calculate the most recent Tuesday reset time
         DayOfWeek currentDay = nowLocal.DayOfWeek;
@@ -693,7 +693,7 @@ public class User
 
         Logging.WriteLine("Resetting user...", LogType.Warning);
 
-        LastReset = DateTime.UtcNow;
+        LastReset = RewardMutationScope.UtcNow;
         ResetableData = new();
         JsonDb.Save();
     }*/
@@ -727,7 +727,7 @@ public class User
         {
             Logging.WriteLine("Resetting weekly user data...", LogType.Warning);
 
-            LastWeeklyReset = DateTime.UtcNow;
+            LastWeeklyReset = RewardMutationScope.UtcNow;
             WeeklyResetableData = new();
             var currentSeasonData = ResetableData.SimRoomData.CurrentSeasonData;
             currentSeasonData.LatestOption = new();
@@ -754,7 +754,7 @@ public class User
         {
             Logging.WriteLine("Resetting daily user data...", LogType.Warning);
 
-            LastReset = DateTime.UtcNow;
+            LastReset = RewardMutationScope.UtcNow;
             ResetableData = new()
             {
                 SimRoomData = new()

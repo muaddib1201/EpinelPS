@@ -28,6 +28,16 @@ public class ManagedNpcState
     public long TotalStages { get; set; }
     public long TotalActions { get; set; }
     public List<NpcActionRecord> Actions { get; set; } = [];
+    public NpcDailyRoutineState? DailyRoutine { get; set; }
+}
+
+public class NpcDailyRoutineState
+{
+    public int Day { get; set; }
+    public int CompletedPhases { get; set; }
+    public DateTime StartedUtc { get; set; }
+    public DateTime LastCompletedUtc { get; set; }
+    public DateTime NextPhaseUtc { get; set; }
 }
 
 public class NpcActionRecord
