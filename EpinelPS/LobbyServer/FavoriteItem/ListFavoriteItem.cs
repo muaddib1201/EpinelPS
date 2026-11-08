@@ -1,4 +1,4 @@
-﻿namespace EpinelPS.LobbyServer.FavoriteItem;
+namespace EpinelPS.LobbyServer.FavoriteItem;
 
 [GameRequest("/favoriteitem/list")]
 public class ListFavoriteItem : LobbyMessage
@@ -11,9 +11,12 @@ public class ListFavoriteItem : LobbyMessage
         ResListFavoriteItem response = new();
 
         // Add all user's favorite items to the response
-        foreach (NetUserFavoriteItemData favoriteItem in user.FavoriteItems)
+        lock (user)
         {
-            response.FavoriteItems.Add(favoriteItem);
+            foreach (NetUserFavoriteItemData favoriteItem in user.FavoriteItems)
+            {
+                response.FavoriteItems.Add(favoriteItem.Clone());
+            }
         }
 
         await WriteDataAsync(response);
