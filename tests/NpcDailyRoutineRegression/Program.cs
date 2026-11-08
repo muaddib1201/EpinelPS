@@ -84,6 +84,8 @@ try
     foreach (var character in opponent.Characters) character.Level = 1;
     int legacyDay = int.Parse(now.AddHours(-State().ResetHourUtcTime).ToString("yyyyMMdd"));
     Npc().ManagedNpc!.Day = legacyDay; Npc().ManagedNpc!.ActivityToday = 30;
+    Npc().Guild.ActivityByDay = null;
+    Npc().GuildContributionByDay.Clear();
     var legacyGuild = State().Guilds[Npc().Guild.guildId!.Value];
     legacyGuild.ActivityByDay = null; legacyGuild.NpcActivityDay = legacyDay;
     legacyGuild.Data.ActivityPoint = legacyGuild.Data.ActivityPointDaily = legacyGuild.Data.Exp = 30;
