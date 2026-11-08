@@ -42,10 +42,12 @@ try
         var saved = Snapshot();
         ManagedNpcService.Tick(now.AddMinutes(12));
         Check(Snapshot() == saved, "restart at the committed timestamp must not repeat resources or actions");
-        ManagedNpcService.Tick(now.AddMinutes(30));
-        Check(Completed() == 5, "restart resumes only the remaining three phases");
+        ManagedNpcService.Tick(now.AddMinutes(18));
+        Check(Completed() == 3, "restart resumes the next due phase");
         Check(Npc().GetCurrencyVal(CurrencyType.CharPremiumTicket) == 0 && Npc().GetGachaCountForType(GachaPremiumType.GachaPremium) == 1,
             "recruiting consumes the owned ticket and records the actual pull");
+        ManagedNpcService.Tick(now.AddMinutes(30));
+        Check(Completed() == 5, "restart resumes only the remaining three phases");
         Check(JsonConvert.SerializeObject(data.RewardDataRecords) == File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "reward-tables-before.json")),
             "multi-chapter simulation rewards never mutate shared static tables");
         Check(Npc().ResetableData.DailyMissionPoints >= 100 && Npc().ResetableData.CompletedDailyMissions.Contains(10017),
