@@ -1,0 +1,27 @@
+# Collection composition repair
+
+> Execute inline using the existing session worktree, TDD, and the project workflow.
+
+**Goal:** Restore `/favoriteitem/compose`, which currently returns EmptyHandler responses, using this client's static-data rules.
+
+**Architecture:** A focused FavoriteItem handler validates selected instance IDs, resolves homogeneous collection rarity, reads `FavoriteItem{R,SR}ComposeNeedCount` and `FavoriteItem{R,SR}ComposeReward`, awards the configured rewards and persists the change under the existing user and save locks. Rejected requests change nothing; a failed save restores inventory in place.
+
+**Tech stack:** C#/.NET 10, existing protobuf messages, GameData, JsonDb and reward utilities.
+
+**Spec:** User's confirmed missing-interface bug and request to repair it; `ConfigGameTable` sets R=4 and SR=3. No grants or repairs to the live player's inventory are required.
+
+## Constraints and review focus
+
+- All source, tests and evidence stay in this session's registered worktree; use the unified integrate/sync/test/publish/seal/deploy workflow.
+- Reject duplicate, foreign, missing, equipped, enhanced, mixed-rarity and invalid collection IDs before any mutation.
+- Support multiple full groups in one client request; draw each configured reward independently.
+- Prevent concurrent/retried use of the same materials and preserve unrelated player state.
+- Use both client reward representations and unique instance IDs; persist results through reload.
+- Validate configuration before removal and restore existing object identities and counts on save failure.
+- Deploy only with the game exited, backups, rollback and health verification.
+
+## Tasks
+
+1. [x] Add `tests/CollectionComposeRegression` with synthetic players and real dispatcher requests. Missing route reproduced in `.nikke/checks/20261108-122339-239219`; expanded checks reproduced 45 failures in `20261108-122841-353202`. Static rules: R=4, reward 3899901 -> auto-open box 9490101; SR=3, reward 3899902 -> auto-open box 9490102 -> item 9210003. R pool: six SR collections at 250/10000 each, purple maintenance x10 at 3000/10000, blue maintenance x20 at 5500/10000.
+2. [x] Implemented the configured atomic handler. Targeted suite passed 45 checks in `.nikke/checks/20261108-123034-296143`. Independent review identified old equip/enhance/exchange routes bypassing the inventory locks; eight new cross-route checks failed before synchronizing those writers and list/library readers. All 53 checks passed in `.nikke/checks/20261108-123706-953751`. Review correction retains the old endpoint behavior and clones response snapshots inside the lock.
+3. [ ] Integrate, sync and run all regression suites. Publish the integrated source. Prepare and seal `.nikke/install.ps1`, validate the sealed release and deploy under the shared lock when the game has exited. Verify health and preservation of the current live save; retain evidence in `.nikke`.

@@ -12,29 +12,36 @@ public class EquipFavoriteItem : LobbyMessage
 
         ResEquipFavoriteItem response = new();
 
-        NetUserFavoriteItemData? favoriteItemToEquip = user.FavoriteItems.FirstOrDefault(f => f.FavoriteItemId == req.FavoriteItemId);
-        if (favoriteItemToEquip == null)
+        lock (user)
+        lock (JsonDb.SaveLock)
         {
-            throw new BadHttpRequestException($"FavoriteItem with ID {req.FavoriteItemId} not found", 404);
+            if (!ReferenceEquals(JsonDb.GetUser(user.ID), user))
+                throw new BadHttpRequestException("Stale collection inventory.", 409);
+
+            NetUserFavoriteItemData? favoriteItemToEquip = user.FavoriteItems.FirstOrDefault(f => f.FavoriteItemId == req.FavoriteItemId);
+            if (favoriteItemToEquip == null)
+            {
+                throw new BadHttpRequestException($"FavoriteItem with ID {req.FavoriteItemId} not found", 404);
+            }
+
+            CharacterModel? character = user.Characters.FirstOrDefault(c => c.Csn == req.Csn);
+            if (character == null)
+            {
+                throw new BadHttpRequestException($"Character with CSN {req.Csn} not found", 404);
+            }
+
+            NetUserFavoriteItemData? existingEquippedItem = user.FavoriteItems.FirstOrDefault(f => f.Csn == req.Csn);
+            existingEquippedItem?.Csn = 0; // Unequip
+
+            favoriteItemToEquip.Csn = req.Csn;
+
+            foreach (NetUserFavoriteItemData item in user.FavoriteItems)
+            {
+                response.FavoriteItems.Add(item.Clone());
+            }
+
+            JsonDb.Save();
         }
-
-        CharacterModel? character = user.Characters.FirstOrDefault(c => c.Csn == req.Csn);
-        if (character == null)
-        {
-            throw new BadHttpRequestException($"Character with CSN {req.Csn} not found", 404);
-        }
-
-        NetUserFavoriteItemData? existingEquippedItem = user.FavoriteItems.FirstOrDefault(f => f.Csn == req.Csn);
-        existingEquippedItem?.Csn = 0; // Unequip
-
-        favoriteItemToEquip.Csn = req.Csn;
-
-        foreach (NetUserFavoriteItemData item in user.FavoriteItems)
-        {
-            response.FavoriteItems.Add(item);
-        }
-
-        JsonDb.Save();
 
         await WriteDataAsync(response);
     }

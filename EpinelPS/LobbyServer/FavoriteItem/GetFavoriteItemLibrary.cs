@@ -1,4 +1,4 @@
-﻿namespace EpinelPS.LobbyServer.FavoriteItem;
+namespace EpinelPS.LobbyServer.FavoriteItem;
 
 [GameRequest("/favoriteitem/library")]
 public class GetFavoriteItemLibrary : LobbyMessage
@@ -10,14 +10,17 @@ public class GetFavoriteItemLibrary : LobbyMessage
         ResGetFavoriteItemLibrary response = new();
         User user = GetUser();
 
-        foreach (NetUserFavoriteItemData favoriteItem in user.FavoriteItems)
+        lock (user)
         {
-            NetFavoriteItemLibraryElement libraryElement = new()
+            foreach (NetUserFavoriteItemData favoriteItem in user.FavoriteItems)
             {
-                Tid = favoriteItem.Tid,
-                ReceivedAt = DateTime.UtcNow.Ticks // Use current time as received time
-            };
-            response.FavoriteItemLibrary.Add(libraryElement);
+                NetFavoriteItemLibraryElement libraryElement = new()
+                {
+                    Tid = favoriteItem.Tid,
+                    ReceivedAt = DateTime.UtcNow.Ticks // Use current time as received time
+                };
+                response.FavoriteItemLibrary.Add(libraryElement);
+            }
         }
 
         await WriteDataAsync(response);

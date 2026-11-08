@@ -22,87 +22,94 @@ public class IncreaseExpFavoriteItem : LobbyMessage
 
         ResIncreaseExpFavoriteItem response = new();
 
-        NetUserFavoriteItemData? favoriteItem = user.FavoriteItems.FirstOrDefault(f => f.FavoriteItemId == req.FavoriteItemId);
-        if (favoriteItem == null)
+        lock (user)
+        lock (JsonDb.SaveLock)
         {
-            throw new BadHttpRequestException($"FavoriteItem with ID {req.FavoriteItemId} not found", 404);
-        }
+            if (!ReferenceEquals(JsonDb.GetUser(user.ID), user))
+                throw new BadHttpRequestException("Stale collection inventory.", 409);
 
-        if (req.ItemData == null)
-        {
-            throw new BadHttpRequestException($"No material item provided", 400);
-        }
-
-        DbItemData? userItem = user.Items.FirstOrDefault(x => x.Isn == req.ItemData.Isn);
-        if (userItem == null)
-        {
-            throw new BadHttpRequestException($"Material item with ISN {req.ItemData.Isn} not found", 404);
-        }
-
-        if (userItem.Count < req.ItemData.Count)
-        {
-            throw new BadHttpRequestException($"Insufficient material. Required: {req.ItemData.Count}, Available: {userItem.Count}", 400);
-        }
-
-        GameData.Instance.FavoriteItemTable.TryGetValue(favoriteItem.Tid, out FavoriteItemRecord? favoriteRecord);
-        FavoriteItemProbabilityRecord? probabilityData = GetProbabilityData(favoriteItem.Lv, req.ItemData.Tid, favoriteRecord);
-        if (probabilityData == null)
-        {
-            throw new BadHttpRequestException($"Cannot upgrade at current level with this material", 400);
-        }
-
-        int totalExpGained = 0;
-        int actualLoopsUsed = 0;
-        bool isGreatSuccess = false;
-
-        // Process each loop individually
-        for (int i = 0; i < req.LoopCount; i++)
-        {
-            actualLoopsUsed++;
-            isGreatSuccess = CheckGreatSuccess(probabilityData.GreatSuccessRate);
-
-            if (isGreatSuccess)
+            NetUserFavoriteItemData? favoriteItem = user.FavoriteItems.FirstOrDefault(f => f.FavoriteItemId == req.FavoriteItemId);
+            if (favoriteItem == null)
             {
-                System.Console.WriteLine("FavItem SS");
-                favoriteItem.Lv = probabilityData.GreatSuccessLevel;
-                favoriteItem.Exp = 0;
-                totalExpGained += probabilityData.Exp;
-                break;
+                throw new BadHttpRequestException($"FavoriteItem with ID {req.FavoriteItemId} not found", 404);
             }
-            else
-            {
-                favoriteItem.Exp += probabilityData.Exp;
-                totalExpGained += probabilityData.Exp;
-                ProcessLevelUp(favoriteItem);
 
-                probabilityData = GetProbabilityData(favoriteItem.Lv, req.ItemData.Tid, favoriteRecord);
-                if (probabilityData == null)
+            if (req.ItemData == null)
+            {
+                throw new BadHttpRequestException($"No material item provided", 400);
+            }
+
+            DbItemData? userItem = user.Items.FirstOrDefault(x => x.Isn == req.ItemData.Isn);
+            if (userItem == null)
+            {
+                throw new BadHttpRequestException($"Material item with ISN {req.ItemData.Isn} not found", 404);
+            }
+
+            if (userItem.Count < req.ItemData.Count)
+            {
+                throw new BadHttpRequestException($"Insufficient material. Required: {req.ItemData.Count}, Available: {userItem.Count}", 400);
+            }
+
+            GameData.Instance.FavoriteItemTable.TryGetValue(favoriteItem.Tid, out FavoriteItemRecord? favoriteRecord);
+            FavoriteItemProbabilityRecord? probabilityData = GetProbabilityData(favoriteItem.Lv, req.ItemData.Tid, favoriteRecord);
+            if (probabilityData == null)
+            {
+                throw new BadHttpRequestException($"Cannot upgrade at current level with this material", 400);
+            }
+
+            int totalExpGained = 0;
+            int actualLoopsUsed = 0;
+            bool isGreatSuccess = false;
+
+            // Process each loop individually
+            for (int i = 0; i < req.LoopCount; i++)
+            {
+                actualLoopsUsed++;
+                isGreatSuccess = CheckGreatSuccess(probabilityData.GreatSuccessRate);
+
+                if (isGreatSuccess)
                 {
+                    System.Console.WriteLine("FavItem SS");
+                    favoriteItem.Lv = probabilityData.GreatSuccessLevel;
+                    favoriteItem.Exp = 0;
+                    totalExpGained += probabilityData.Exp;
                     break;
                 }
+                else
+                {
+                    favoriteItem.Exp += probabilityData.Exp;
+                    totalExpGained += probabilityData.Exp;
+                    ProcessLevelUp(favoriteItem);
+
+                    probabilityData = GetProbabilityData(favoriteItem.Lv, req.ItemData.Tid, favoriteRecord);
+                    if (probabilityData == null)
+                    {
+                        break;
+                    }
+                }
             }
+
+            // Calculate actual items used based on loops completed
+            int actualUseCount = (req.ItemData.Count / req.LoopCount) * actualLoopsUsed;
+            int goldCost = totalExpGained * 10;
+
+            // Apply costs
+            userItem.Count -= actualUseCount;
+
+            if (user.GetCurrencyVal(CurrencyType.Gold) < goldCost)
+            {
+                throw new BadHttpRequestException($"Insufficient gold. Required: {goldCost}, Available: {user.GetCurrencyVal(CurrencyType.Gold)}", 400);
+            }
+
+            user.AddCurrency(CurrencyType.Gold, -goldCost);
+
+            response.FavoriteItem = favoriteItem.Clone();
+            response.Result = isGreatSuccess ? FavoriteItemGreatSuccessResult.GreatSuccess : FavoriteItemGreatSuccessResult.Success;
+            response.ItemData = NetUtils.ToNet(userItem);
+            response.LoopCount = actualLoopsUsed;
+
+            JsonDb.Save();
         }
-
-        // Calculate actual items used based on loops completed
-        int actualUseCount = (req.ItemData.Count / req.LoopCount) * actualLoopsUsed;
-        int goldCost = totalExpGained * 10;
-
-        // Apply costs
-        userItem.Count -= actualUseCount;
-
-        if (user.GetCurrencyVal(CurrencyType.Gold) < goldCost)
-        {
-            throw new BadHttpRequestException($"Insufficient gold. Required: {goldCost}, Available: {user.GetCurrencyVal(CurrencyType.Gold)}", 400);
-        }
-
-        user.AddCurrency(CurrencyType.Gold, -goldCost);
-
-        response.FavoriteItem = favoriteItem;
-        response.Result = isGreatSuccess ? FavoriteItemGreatSuccessResult.GreatSuccess : FavoriteItemGreatSuccessResult.Success;
-        response.ItemData = NetUtils.ToNet(userItem);
-        response.LoopCount = actualLoopsUsed;
-
-        JsonDb.Save();
 
         await WriteDataAsync(response);
     }
