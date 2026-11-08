@@ -153,7 +153,7 @@ internal static class RankingService
             foreach (var snapshot in snapshots.Where(s => s.Eligible))
                 foreach (var (id, achievement) in snapshot.Owner.Ranking!.Achievements.Where(a => targetIds.Contains(a.Key)))
                     response.RankAchievement.Add(new NetRankAchievementData { RankId = id, Rank = achievement.Rank,
-                        Score = achievement.Score, AchievedAt = achievement.AchievedAt, User = snapshot.Profile.Clone() });
+                        Score = AchievementScore(type, achievement.Score), AchievedAt = achievement.AchievedAt, User = snapshot.Profile.Clone() });
             var ordered = response.RankAchievement.OrderBy(a => a.RankId).ThenBy(a => a.Rank).ToArray();
             response.RankAchievement.Clear(); response.RankAchievement.AddRange(ordered);
             return response;
@@ -210,6 +210,12 @@ internal static class RankingService
     private static int Score(Snapshot snapshot, int type, int? group = null) => type == 11
         ? snapshot.MuseumGroups.GetValueOrDefault(group ?? 0) : snapshot.Scores[type];
 
+    // Earlier releases stored stage IDs as tower achievement scores. The client
+    // renders scores directly as floors; preserve the historical record on disk.
+    private static int AchievementScore(int type, int score) => type is >= 5 and <= 9 &&
+        GameData.Instance.towerTable.TryGetValue(score, out var floor) && floor.Type == Towers[type - 5]
+            ? floor.Floor : score;
+
     private static IEnumerable<Snapshot> Ordered(IEnumerable<Snapshot> snapshots, int type, int? group = null) =>
         snapshots.Where(s => s.Eligible && Score(s, type, group) > 0).OrderByDescending(s => Score(s, type, group)).ThenBy(s => s.Owner.ID);
 
@@ -258,7 +264,7 @@ internal static class RankingService
                         clearedFloors[tower] = Math.Max(clearedFloors.GetValueOrDefault(tower), floor.Floor);
                 for (int index = 0; index < Towers.Length; index++)
                     if (towerFloors.TryGetValue((Towers[index], clearedFloors.GetValueOrDefault(Towers[index])), out var floor))
-                        scores[5 + index] = floor.Id;
+                        scores[5 + index] = floor.Floor;
                 var museumGroups = SoloRaidMuseumHelper.GetRankingPointsByGroup(user);
                 scores[10] = (int)Math.Min(int.MaxValue, museumGroups.Values.Sum(value => (long)value));
                 string guild = user.Guild.guildId is int guildId && JsonDb.Instance.Guilds.TryGetValue(guildId, out var union) ? union.Data.Name : "";
@@ -277,7 +283,7 @@ internal static class RankingService
         if (type == 0) return snapshot.HardChapter >= target.ConditionId;
         if (type is >= 5 and <= 9)
             return GameData.Instance.towerTable.TryGetValue(target.ConditionId, out var required) && required.Type == Towers[type - 5] &&
-                GameData.Instance.towerTable.TryGetValue(snapshot.Scores[type], out var cleared) && cleared.Type == required.Type && cleared.Floor >= required.Floor;
+                snapshot.Scores[type] >= required.Floor;
         return Score(snapshot, type, target.ConditionId) >= target.ConditionValue;
     }
 
