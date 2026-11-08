@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using EpinelPS;
 using EpinelPS.Data;
@@ -9,29 +10,51 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
-
-var root = new DirectoryInfo(AppContext.BaseDirectory);
-while (root != null && !Directory.Exists(Path.Combine(root.FullName, "Server and Server selector"))) root = root.Parent;
-var data = new GameData(Directory.GetFiles(Path.Combine(root!.FullName, "Server and Server selector/cache"), "StaticData.pack", SearchOption.AllDirectories).Single());
-typeof(GameData).GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, data);
+using Paseto;
+using Paseto.Builder;
+const ulong self=9801;
+var root=new DirectoryInfo(AppContext.BaseDirectory);
+while(root!=null&&!Directory.Exists(Path.Combine(root.FullName,"Server and Server selector")))root=root.Parent;
+var data=new GameData(Directory.GetFiles(Path.Combine(root!.FullName,"Server and Server selector/cache"),"StaticData.pack",SearchOption.AllDirectories).Single());
+typeof(GameData).GetField("_instance",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,data);
 await GameDataInitializer.InitializeGameData(new Progress<double>());
-var targets = await data.LoadZip<RankingRecord>("RankingTable.json", new Progress<double>());
-var points = await data.LoadZip<RankingPointRecord>("RankingPointTable.json", new Progress<double>());
-Console.WriteLine("TARGETS " + JsonConvert.SerializeObject(targets.GroupBy(x => x.RankingType).Select(g => new { type = g.Key.ToString(), count = g.Count(), first = g.Take(3), last = g.Last() })));
-Console.WriteLine("POINTS " + JsonConvert.SerializeObject(points));
-Console.WriteLine("RANK TRIGGERS " + JsonConvert.SerializeObject(data.TriggerTable.Values.Where(t => (int)t.Trigger is 31 or 32 or 33)));
-Console.WriteLine("SERVER REWARDS " + JsonConvert.SerializeObject(targets.Take(3).Select(t => data.RewardDataRecords.GetValueOrDefault(t.ServerRewardId))));
-string conn = $"Data Source={Path.Combine(AppContext.BaseDirectory, "ranking.db")}";
-GameContext.InitializeOptions(conn, "sqlite");
-using (var db = GameContext.CreateNew()) { db.Database.EnsureDeleted(); db.Database.EnsureCreated(); db.Users.Add(new GameUser { ID = 9801, Nickname = "Ranking9801" }); db.SaveChanges(); }
-File.WriteAllText(Path.Combine(AppContext.BaseDirectory,"db.json"), JsonConvert.SerializeObject(new CoreInfo { Users = [new User { ID = 9801, LastHardStageCleared = 7001001 }] }));
-using var services = new ServiceCollection().AddDbContext<GameContext>(o => o.UseSqlite(conn)).BuildServiceProvider();
-var ctx = new DefaultHttpContext { RequestServices = services };
-ctx.Items["UserID"] = 9801UL;
-ctx.Request.Path = "/v1/ranking/alltoprank";
-ctx.Request.Body = new MemoryStream(new ReqGetAllTopRank().ToByteArray()); ctx.Response.Body = new MemoryStream();
-await LobbyHandler.DispatchSingle(ctx);
-var result = ResGetAllTopRank.Parser.ParseFrom(((MemoryStream)ctx.Response.Body).ToArray());
-if (result.TopRankingList.Count != 5) { Console.WriteLine("FAIL overview must return the five implemented boards; actual="+result.TopRankingList.Count); return 1; }
-Console.WriteLine("PASS overview returns five implemented boards");
-return 0;
+var rawTargets=await data.LoadZip<RankingRecord>("RankingTable.json",new Progress<double>());
+string jsonPath=Path.Combine(AppContext.BaseDirectory,"db.json"),conn=$"Data Source={Path.Combine(AppContext.BaseDirectory,"ranking.db")}";
+GameContext.InitializeOptions(conn,"sqlite");
+byte[] key=Enumerable.Repeat((byte)77,32).ToArray();bool restart=args.Contains("--verify-saved");
+if(!restart){File.WriteAllText(jsonPath,JsonConvert.SerializeObject(Fixture()));using var db=GameContext.CreateNew();db.Database.EnsureDeleted();db.Database.EnsureCreated();db.Users.AddRange(Enumerable.Range(9801,13).Select(i=>new GameUser{ID=(ulong)i,Nickname="Rank"+i}));db.SaveChanges();}
+var property=typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb")!.GetProperty("Instance")!;
+CoreInfo State()=>(CoreInfo)property.GetValue(null)!;
+using var services=new ServiceCollection().AddDbContext<GameContext>(o=>o.UseSqlite(conn)).BuildServiceProvider();
+int passed=0,failed=0;
+if(restart){Targets(true);var top=await Achievements(self);Check(top.TriggerList.Single(x=>x.Trigger==31).UserValue==10,"restart lost counts");await AllClaim(self);await Achievements(self);Check(ItemCount()==10&&Player(self).MailDatas.Count==3,"restart reissued rewards");Console.WriteLine("PASS fresh process preserves ranking receipts");return 0;}
+await Test("overview returns all five boards with public profiles",async()=>{Player(self).LastHardStageCleared=7001001;for(int c=1;c<=4;c++)Add(self,c,1);var r=await Send<ResGetAllTopRank>(self,"alltoprank",new ReqGetAllTopRank());Check(r.TopRankingList.Select(x=>x.Type).Order().SequenceEqual(Enumerable.Range(0,5)),"five boards missing");Check(r.TopRankingList.All(x=>x.User?.Usn==(long)self&&x.User.Nickname=="Rank9801"&&x.User.UserTitleDisplayData!=null),"public profile missing");});
+await Test("company points use rarity breakthrough and core rather than level",async()=>{Add(self,1,1);Add(9802,1,11);Player(self).Characters[0].Level=999;var r=await Board(self,2);Check(r.User.Score==300&&r.User.Rank==2&&r.RankingList[0].Score==3300,"wrong points or ranking");Check((await Board(self,1)).User.Score==0,"company mapping swapped");});
+await Test("duplicate variants contribute the strongest NameCode once",async()=>{Add(self,1,1);Add(self,1,11);Check((await Board(self,2)).User.Score==3300,"duplicate variants counted");});
+await Test("four company mappings exclude abnormal characters",async()=>{for(int c=1;c<=4;c++)Add(self,c,1);Add(self,7,11);foreach(int t in new[]{1,2,3,4})Check((await Board(self,t)).User.Score==300,"wrong corporation mapping");});
+await Test("hard board rejects normal or nonexistent progress",async()=>{Player(self).LastHardStageCleared=6007006;Check((await Board(self,0)).User.Score==0,"normal stage ranked");Player(self).LastHardStageCleared=7001001;Check((await Board(self,0)).User.Score==7001001,"hard stage missing");Player(self).LastHardStageCleared=int.MaxValue;Check((await Board(self,0)).User.Score==0,"invalid stage ranked");});
+await Test("stable ties banned exclusion and zero personal profile",async()=>{Add(9802,1,1);Add(9803,1,1);Add(9804,1,11);Player(9804).IsBanned=true;var r=await Board(self,2);Check(r.RankingList.Select(x=>x.User.Usn).SequenceEqual(new long[]{9802,9803}),"tie order or banned filtering");Check(r.User is{Rank:0,Score:0,User.Usn:(long)self},"personal row missing");});
+await Test("milestone winners are retained across later progress and refresh",async()=>{Targets(true);Add(9802,1,11);await Achievements(self);Add(self,1,11);var r=await Achievements(self);Check(r.TriggerList.Single(x=>x.Trigger==31).UserValue==0&&r.TriggerList.Single(x=>x.Trigger==32).UserValue==10,"historical winner displaced");string before=JsonConvert.SerializeObject(State());await Achievements(self);await Board(self,2);Check(JsonConvert.SerializeObject(State())==before,"refresh recounted targets");var leaders=await Send<ResGetRankAchievementLeaderBoard>(self,"rankachievementleaderboard",new ReqGetRankAchievementLeaderBoard{Type=2});Check(leaders.RankAchievement.Count==20&&leaders.RankAchievement.Count(x=>x.User.Usn==9802&&x.Rank==1)==10&&leaders.RankAchievement.All(x=>x.AchievedAt>0),"milestone leaderboard incomplete");});
+await Test("first top-five and top-ten counters respect boundaries",async()=>{Targets(true);foreach(var p in State().Users)Add(p.ID,1,11);var a=await Achievements(self);var b=await Achievements(9806);var c=await Achievements(9811);Check(a.TriggerList.All(x=>x.UserValue==10),"first place counters wrong");Check(b.TriggerList.Single(x=>x.Trigger==32).UserValue==0&&b.TriggerList.Single(x=>x.Trigger==33).UserValue==10,"sixth place wrong");Check(c.TriggerList.All(x=>x.UserValue==0),"eleventh gained credit");});
+await Test("hard chapter targets require the final main stage",async()=>{var table=RankingTable();table.Clear();table[20001]=rawTargets.Single(t=>t.Id==20001);Player(self).LastHardStageCleared=7001001;Check((await Achievements(self)).TriggerList.All(x=>x.UserValue==0),"chapter target awarded early");Player(self).LastHardStageCleared=data.StageDataRecords.Values.Where(s=>s.ChapterMod==ChapterMod.Hard&&s.ChapterId==1&&s.StageType==StageType.Main).Max(s=>s.Id);Check((await Achievements(self)).TriggerList.All(x=>x.UserValue==1),"chapter target missing");});
+await Test("unranked users can claim unlocked server rewards once per target",async()=>{Targets(true);Add(9802,1,11);Check((await Send<ResUpdateRankingServerReward>(self,"updateserverreward",new ReqUpdateRankingServerReward())).HasNewReward,"reward flag missing");Check((await Board(self,2)).RewardEnabled,"board reward flag missing");await Send<ResObtainRankAchievementServerReward>(self,"obtainrankachievementserverreward",new ReqObtainRankAchievementServerReward{Type=2});Check(ItemCount()==10,"ten server gifts missing");await AllClaim(self);Check(ItemCount()==10&&!(await Send<ResUpdateRankingServerReward>(self,"updateserverreward",new ReqUpdateRankingServerReward())).HasNewReward,"rewards duplicated");});
+await Test("parallel reward retries pay once",async()=>{Targets(true);Add(self,1,11);await Achievements(self);await Task.WhenAll(Enumerable.Range(0,8).Select(_=>Task.Run(()=>AllClaim(self))));Check(ItemCount()==10,"parallel duplicate reward");});
+await Test("ranking frames are mailed automatically once",async()=>{Targets(true);Add(self,1,11);await Achievements(self);var mails=Player(self).MailDatas.Values.ToArray();Check(mails.Length==3&&mails.All(m=>m.HasReward&&m.State==1&&m.Items.Count==1&&m.Items[0].RewardType==(int)RewardType.Frame),"three frame mails missing");await Achievements(self);Check(Player(self).MailDatas.Count==3,"mail duplicated");});
+await Test("ordinary achievement route cannot bypass ranking requirements",async()=>{try{await Send<ResObtainAchievementReward>(self,"/mission/obtain/achievement",new ReqObtainAchievementReward{TidList={60001}});throw new Exception("bypass accepted");}catch(BadHttpRequestException){}Check(Player(self).FrameList.Count==0,"unearned frame");});
+await Test("failed settlement save rolls back winners mail and SQLite events",async()=>{Targets(true);Add(self,1,11);string before=JsonConvert.SerializeObject(State());Directory.CreateDirectory(jsonPath+".tmp");try{try{await Achievements(self);throw new Exception("failure ignored");}catch(IOException){}catch(UnauthorizedAccessException){}}finally{Directory.Delete(jsonPath+".tmp");}using var db=GameContext.CreateNew();Check(JsonConvert.SerializeObject(State())==before&&!db.Triggers.Any(),"partial settlement persisted");});
+await Test("failed claim save rolls back inventory and receipts",async()=>{Targets(true);Add(self,1,11);await Achievements(self);string before=JsonConvert.SerializeObject(Player(self));Directory.CreateDirectory(jsonPath+".tmp");try{try{await AllClaim(self);throw new Exception("failure ignored");}catch(IOException){}catch(UnauthorizedAccessException){}}finally{Directory.Delete(jsonPath+".tmp");}Check(JsonConvert.SerializeObject(Player(self))==before,"partial claim persisted");await AllClaim(self);Check(ItemCount()==10,"retry after rollback failed");});
+await Test("invalid types and anonymous requests cannot mutate state",async()=>{string before=JsonConvert.SerializeObject(State());try{await Board(self,999);throw new Exception("invalid accepted");}catch(BadHttpRequestException){}try{await Board(0,2);throw new Exception("anonymous accepted");}catch(UnauthorizedAccessException){}Check(JsonConvert.SerializeObject(State())==before,"invalid request mutated save");});
+await Test("fresh process preserves all counts and claim receipts",async()=>{Targets(true);Add(self,1,11);await Achievements(self);await AllClaim(self);using var child=Process.Start(new ProcessStartInfo(Environment.ProcessPath!,"--verify-saved"){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true})!;var output=child.StandardOutput.ReadToEndAsync();var error=child.StandardError.ReadToEndAsync();await child.WaitForExitAsync();Check(child.ExitCode==0,(await output)+(await error));});
+Console.WriteLine($"Ranking regression: {passed} passed, {failed} failed");return failed==0?0:1;
+CoreInfo Fixture()=>new(){DbVersion=5,LauncherTokenKey=key,EncryptionTokenKey=key,BondRewardLevelsMigrated=true,Users=Enumerable.Range(9801,13).Select(i=>new User{ID=(ulong)i}).ToList()};
+User Player(ulong id)=>State().Users.Single(u=>u.ID==id);
+void Add(ulong id,int corp,int grade){var c=data.CharacterTable.Values.Where(c=>(int)c.Corporation==corp&&c.OriginalRare==OriginalRareType.SSR&&c.GradeCoreId==grade).OrderBy(c=>c.Id).First();Player(id).Characters.Add(new(){Csn=Player(id).Characters.Count+1,Tid=c.Id,Grade=grade-1});}
+int ItemCount()=>Player(self).Items.Where(i=>i.ItemType==9201001).Sum(i=>i.Count);
+Dictionary<int,RankingRecord> RankingTable()=>(Dictionary<int,RankingRecord>)(typeof(GameData).GetField("Rankings")?.GetValue(data)??throw new InvalidOperationException("RankingTable is not loaded"));
+void Targets(bool custom){var f=typeof(GameData).GetField("Rankings");if(f==null)return;var table=(Dictionary<int,RankingRecord>)f.GetValue(data)!;table.Clear();foreach(var t in rawTargets)table[t.Id]=t;if(custom){table.Clear();for(int n=1;n<=10;n++)table[10200+n]=new(){Id=10200+n,RankingType=RankingType.GroupPointElysion,ConditionValue=n*300,ServerRewardId=15000001};}}
+async Task Test(string name,Func<Task> test){try{property.SetValue(null,Fixture());using(var db=GameContext.CreateNew()){db.Triggers.ExecuteDelete();}Targets(false);await test();passed++;Console.WriteLine("PASS "+name);}catch(Exception e){failed++;Console.WriteLine("FAIL "+name+": "+e);}}
+Task<ResGetRankingList> Board(ulong id,int type)=>Send<ResGetRankingList>(id,"rankinglist",new ReqGetRankingList{Type=type});
+Task<ResGetRankAchievementTop> Achievements(ulong id)=>Send<ResGetRankAchievementTop>(id,"rankachievementtop",new ReqGetRankAchievementTop());
+Task<ResObtainAllRankAchievementServerReward> AllClaim(ulong id)=>Send<ResObtainAllRankAchievementServerReward>(id,"obtainallrankachievementserverreward",new ReqObtainAllRankAchievementServerReward());
+async Task<T> Send<T>(ulong id,string route,IMessage req)where T:IMessage<T>,new(){using var scope=services.CreateScope();var ctx=new DefaultHttpContext{RequestServices=scope.ServiceProvider};ctx.Request.Path=route.StartsWith('/')?"/v1"+route:"/v1/ranking/"+route;ctx.Request.Body=new MemoryStream(req.ToByteArray());ctx.Response.Body=new MemoryStream();if(id!=0)ctx.Request.Headers.Authorization="Bearer "+new PasetoBuilder().Use(ProtocolVersion.V4,Purpose.Local).WithKey(key,Encryption.SymmetricKey).AddClaim("userId",id).Expiration(DateTime.UtcNow.AddMinutes(10)).Encode();await LobbyHandler.DispatchSingle(ctx);T reply=new();reply.MergeFrom(((MemoryStream)ctx.Response.Body).ToArray());return reply;}
+static void Check(bool b,string m){if(!b)throw new InvalidOperationException(m);}
