@@ -196,6 +196,71 @@ foreach (int tid in new[] { 100102, 7150002, 9210003 })
         Check((await Compose(tid == 9210003 ? SR(6) : R(8))).Reward != null, "retry after failed persistence lost the materials");
     });
 
+foreach (string action in new[] { "equip", "increaseexp", "exchange" })
+{
+    await Run(action + " waits for collection consumption and then rejects stale inputs without charging", () =>
+    {
+        using var pool = ForceReward(7150002);
+        var (route, request) = CompetingRequest(action);
+        using var done = new ManualResetEventSlim(); Exception? error = null;
+        var thread = new Thread(() => { try { Send(account, route, request).GetAwaiter().GetResult(); } catch (Exception e) { error = e; } finally { done.Set(); } });
+        string? composed = null;
+        try
+        {
+            lock (Current())
+            {
+                thread.Start(); WaitUntilBlocked(thread, done);
+                Check(!done.IsSet, action + " bypassed the collection inventory lock");
+                Compose(action == "exchange" ? SR() : R()).GetAwaiter().GetResult();
+                composed = Snapshot();
+            }
+        }
+        finally { Check(thread.Join(10000), "competing request did not finish"); }
+        Check(error is BadHttpRequestException && Snapshot() == composed, "stale competing request changed inventory or currency");
+        return Task.CompletedTask;
+    });
+    await Run(action + " waits for the save lock before changing inventory or gold", () =>
+    {
+        var (route, request) = CompetingRequest(action);
+        using var done = new ManualResetEventSlim(); Exception? error = null;
+        var thread = new Thread(() => { try { Send(account, route, request).GetAwaiter().GetResult(); } catch (Exception e) { error = e; } finally { done.Set(); } });
+        string before = Snapshot();
+        var saveLock = db.GetField("SaveLock", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        try
+        {
+            lock (saveLock)
+            {
+                thread.Start(); WaitUntilBlocked(thread, done);
+                Check(!done.IsSet && Snapshot() == before, action + " mutated inventory before acquiring the save lock");
+            }
+        }
+        finally { Check(thread.Join(10000), "competing request did not finish"); }
+        Check(error == null, action + " fixture failed: " + error?.Message);
+        return Task.CompletedTask;
+    });
+}
+foreach (string action in new[] { "list", "library" })
+    await Run(action + " returns an inventory snapshot after composition releases its lock", () =>
+    {
+        using var pool = ForceReward(7150002);
+        using var done = new ManualResetEventSlim(); Exception? error = null; byte[]? reply = null;
+        var thread = new Thread(() => { try { reply = Send(account, "/favoriteitem/" + action, action == "list" ? new ReqListFavoriteItem() : new ReqGetFavoriteItemLibrary()).GetAwaiter().GetResult(); } catch (Exception e) { error = e; } finally { done.Set(); } });
+        try
+        {
+            lock (Current())
+            {
+                thread.Start(); WaitUntilBlocked(thread, done);
+                Check(!done.IsSet, action + " bypassed the collection inventory lock");
+                Compose(R()).GetAwaiter().GetResult();
+            }
+        }
+        finally { Check(thread.Join(10000), "inventory read did not finish"); }
+        Check(error == null && reply != null, "inventory read failed");
+        var tids = action == "list" ? ResListFavoriteItem.Parser.ParseFrom(reply!).FavoriteItems.Select(i => i.Tid) : ResGetFavoriteItemLibrary.Parser.ParseFrom(reply!).FavoriteItemLibrary.Select(i => i.Tid);
+        Check(tids.SequenceEqual(Current().FavoriteItems.Select(i => i.Tid)), "inventory read returned a stale snapshot");
+        return Task.CompletedTask;
+    });
+
 Console.WriteLine($"RESULT: {passes} passed, {failures} failed");
 return failures == 0 ? 0 : 1;
 
@@ -203,12 +268,29 @@ Task<ResComposeCollectionItem> Compose(params long[] ids) => ComposeAs(account, 
 async Task<ResComposeCollectionItem> ComposeAs(ulong user, long[] ids)
 {
     var req = new ReqComposeCollectionItem(); req.FavoriteItemId.AddRange(ids);
-    var ctx = new DefaultHttpContext { RequestServices = services };
-    ctx.Items["UserID"] = user; ctx.Request.Path = "/v1/favoriteitem/compose";
-    ctx.Request.Body = new MemoryStream(req.ToByteArray()); ctx.Response.Body = new MemoryStream();
-    await LobbyHandler.DispatchSingle(ctx);
-    return ResComposeCollectionItem.Parser.ParseFrom(((MemoryStream)ctx.Response.Body).ToArray());
+    return ResComposeCollectionItem.Parser.ParseFrom(await Send(user, "/favoriteitem/compose", req));
 }
+async Task<byte[]> Send(ulong user, string route, IMessage request)
+{
+    var ctx = new DefaultHttpContext { RequestServices = services };
+    ctx.Items["UserID"] = user; ctx.Request.Path = "/v1" + route;
+    ctx.Request.Body = new MemoryStream(request.ToByteArray()); ctx.Response.Body = new MemoryStream();
+    await LobbyHandler.DispatchSingle(ctx);
+    return ((MemoryStream)ctx.Response.Body).ToArray();
+}
+(string, IMessage) CompetingRequest(string action)
+{
+    Current().Currency[CurrencyType.Gold] = 1000000;
+    Current().Characters.Add(new CharacterModel { Csn = 777, Tid = data.CharacterTable.Values.First().Id });
+    if (action == "equip") return ("/favoriteitem/equip", new ReqEquipFavoriteItem { FavoriteItemId = 101, Csn = 777 });
+    if (action == "exchange") return ("/favoriteitem/exchange", new ReqIncreaseExpFavoriteItem { FavoriteItemId = 101 });
+    var probability = data.FavoriteItemProbabilityTable.Values.First(p => p.ProbabilityGroup == data.FavoriteItemTable[100101].ProbabilityGroup && p.LevelMin == 0);
+    Current().Items.Add(new DbItemData { Isn = 999, ItemType = probability.NeedItemId, Count = probability.NeedItemCount });
+    return ("/favoriteitem/increaseexp", new ReqIncreaseExpFavoriteItem { FavoriteItemId = 101, LoopCount = 1,
+        ItemData = new() { Isn = 999, Tid = probability.NeedItemId, Count = probability.NeedItemCount } });
+}
+void WaitUntilBlocked(Thread thread, ManualResetEventSlim done) => Check(SpinWait.SpinUntil(() => done.IsSet ||
+    (thread.ThreadState & System.Threading.ThreadState.WaitSleepJoin) != 0, 5000), "worker did not reach the inventory gate");
 async Task Reject(long[] ids, ulong user = account, bool configuration = false)
 {
     string memory = Snapshot(), disk = File.ReadAllText(save); bool rejected = false;
