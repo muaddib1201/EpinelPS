@@ -35,6 +35,9 @@ public static partial class ManagedNpcService
         // Legacy managed profiles seed campaign fields, but not every historical quest flag.
         // Use their existing clear evidence only for unlocks; do not repay old quest rewards.
         if (!GameData.Instance.QuestDataRecords.TryGetValue(questId, out var quest) || quest.ConditionId.Count == 0) return false;
+        var visited = new HashSet<int>();
+        for (int next = quest.NextMainQuestId; next != 0 && visited.Add(next) && GameData.Instance.QuestDataRecords.TryGetValue(next, out var following); next = following.NextMainQuestId)
+            if (user.MainQuestData.ContainsKey(next)) return true;
         return quest.ConditionId.All(c => GameData.Instance.StageDataRecords.TryGetValue(c.ConditionId, out var stage) &&
             (user.IsStageCompleted(stage.Id) || stage.ChapterMod == ChapterMod.Normal && stage.Id <= user.LastNormalStageCleared));
     }

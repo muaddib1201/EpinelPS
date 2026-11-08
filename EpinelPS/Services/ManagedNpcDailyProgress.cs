@@ -17,7 +17,7 @@ public static partial class ManagedNpcService
         if (DailyUnlocked(user, ContentsOpen.SimulationRoom))
         {
             long combat = DailyCombat(user);
-            var chapter = GameData.Instance.SimulationRoomChapterTable.Values.Where(c => !c.OverclockActive &&
+            var chapter = GameData.Instance.SimulationRoomChapterTable.Values.Where(c => c.DifficultyId is >= 1 and <= 5 && !c.OverclockActive &&
                     c.RecommendedBattlePower * .75 <= combat &&
                     GameData.Instance.SimulationRoomDifficultyTable.TryGetValue(c.DifficultyId, out var difficulty) &&
                     DailyCondition(user, difficulty.OpenConditionType, difficulty.OpenConditionValue))
