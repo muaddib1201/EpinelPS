@@ -100,7 +100,8 @@ try
     Npc().Currency[CurrencyType.CharPremiumTicket] = 1;
     var coreCharacter = Npc().Characters.First(c => data.CharacterTable[c.Tid].OriginalRare == OriginalRareType.SSR);
     int coreName = data.CharacterTable[coreCharacter.Tid].NameCode;
-    coreCharacter.Tid = data.CharacterTable.Values.First(c => c.NameCode == coreName && c.GradeCoreId == 205).Id;
+    int baseGrade = data.CharacterTable.Values.Where(c => c.NameCode == coreName).Min(c => c.GradeCoreId);
+    coreCharacter.Tid = data.CharacterTable.Values.First(c => c.NameCode == coreName && c.GradeCoreId == baseGrade + 4).Id;
     coreCharacter.Grade = 4;
     Npc().BondInfo.Add(new NetUserAttractiveData { NameCode = coreName, Lv = 20 });
     var evaluator = typeof(ManagedNpcService).GetMethod("RoutineMissionProgress", BindingFlags.NonPublic | BindingFlags.Static)!;
