@@ -48,6 +48,10 @@ internal static class RankingLiveProbe
             }
             var museumTotal = await Read<ResGetMuseumTotalRankingList>("get/museumtotal/rankinglist", new ReqGetMuseumTotalRankingList { Type = 10 });
             if (museumTotal.User?.User?.Usn != (long)id) throw new InvalidDataException("Live museum total profile is absent.");
+            var museumTop = overview.TopMuseumTotalRankingList.Single();
+            if (museumTop.Type != 10 || museumTop.Score != (museumTotal.RankingList.FirstOrDefault()?.Score ?? 0) ||
+                museumTop.User?.Usn != museumTotal.RankingList.FirstOrDefault()?.User.Usn)
+                throw new InvalidDataException("Live museum total overview disagrees with detail.");
             var museumHalls = new List<object>();
             foreach (var hall in overview.TopMuseumGroupRankingList)
             {
