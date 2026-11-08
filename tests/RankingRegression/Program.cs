@@ -31,8 +31,7 @@ ctx.Items["UserID"] = 9801UL;
 ctx.Request.Path = "/v1/ranking/alltoprank";
 ctx.Request.Body = new MemoryStream(new ReqGetAllTopRank().ToByteArray()); ctx.Response.Body = new MemoryStream();
 await LobbyHandler.DispatchSingle(ctx);
-ctx.Response.Body.Position = 0;
-var result = ResGetAllTopRank.Parser.ParseFrom(ctx.Response.Body);
+var result = ResGetAllTopRank.Parser.ParseFrom(((MemoryStream)ctx.Response.Body).ToArray());
 if (result.TopRankingList.Count != 5) { Console.WriteLine("FAIL overview must return the five implemented boards; actual="+result.TopRankingList.Count); return 1; }
 Console.WriteLine("PASS overview returns five implemented boards");
 return 0;
