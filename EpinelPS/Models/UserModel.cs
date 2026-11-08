@@ -790,14 +790,7 @@ public class User
 
     public int GetDispatchCount()
     {
-
-        int dis1 = GameData.Instance.DispatchBoardTable.Values
-            .Where(x => x.DispatchType == DispatchType.Dispatch && x.DispatchBoardLv == DispatchLv).FirstOrDefault().DispatchMax;
-        int dis2 = GameData.Instance.DispatchBoardTable.Values.Where(x => x.DispatchType == DispatchType.DispatchCollection && x.DispatchBoardLv == DispatchCollectionLv).FirstOrDefault()?.DispatchMax ?? 0;
-        int dis3 = GameData.Instance.DispatchBoardTable.Values
-            .Where(x => x.DispatchType == DispatchType.DispatchFavorite && x.DispatchBoardLv == DispatchFavoriteLv).FirstOrDefault()?.DispatchMax ?? 0;
-
-        return dis1 + dis2 + dis3;
+        return EpinelPS.LobbyServer.Outpost.Dispatch.DispatchHelper.GetBaseDispatchCount(this);
     }
     public static int GenerateMsn()
     {

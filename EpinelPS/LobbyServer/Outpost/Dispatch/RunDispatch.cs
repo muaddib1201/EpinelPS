@@ -1,4 +1,5 @@
-﻿using EpinelPS.Data;
+using EpinelPS.LobbyServer.Mission;
+using EpinelPS.Data;
 using EpinelPS.Database;
 using EpinelPS.Utils;
 
@@ -14,41 +15,43 @@ public class RunDispatch : LobbyMessage
         ResRunDispatch response = new();
 
         User user = GetUser();
-        DateTime startTime = DateTime.UtcNow;
+        response = MissionProgressDelivery.Apply(user, () =>
+        {
+            DateTime startTime = DateTime.UtcNow;
 
-        DispatchRecord? dispatch = GameData.Instance.DispatchTable.Values
-            .Where(x => x.Id == req.Tid).FirstOrDefault();
+            DispatchRecord? dispatch = GameData.Instance.DispatchTable.Values
+                .Where(x => x.Id == req.Tid).FirstOrDefault();
         
-        response.DispatchData = new()
-        {
-            Tid = req.Tid,
-            IsRun = 1,
-            StartAt = startTime.Ticks,
-            EndAt = startTime.AddMinutes(dispatch.TimeMin).Ticks
-        };
+            response.DispatchData = new()
+            {
+                Tid = req.Tid,
+                IsRun = 1,
+                StartAt = startTime.Ticks,
+                EndAt = startTime.AddMinutes(dispatch.TimeMin).Ticks
+            };
 
-        var dispatchData = user.UserDispatchData.dispatchDatas.FirstOrDefault(x => x.Tid == req.Tid);
-        if (dispatchData != null)
-        {
-            dispatchData.IsRun = 1; 
-            dispatchData.StartAt = startTime.Ticks;
-            dispatchData.EndAt = startTime.AddMinutes(dispatch.TimeMin).Ticks;
-            //dispatchData.EndAt = startTime.AddSeconds(dispatch.TimeMin).Ticks;
-        }
+            var dispatchData = user.UserDispatchData.dispatchDatas.FirstOrDefault(x => x.Tid == req.Tid);
+            if (dispatchData != null)
+            {
+                dispatchData.IsRun = 1; 
+                dispatchData.StartAt = startTime.Ticks;
+                dispatchData.EndAt = startTime.AddMinutes(dispatch.TimeMin).Ticks;
+                //dispatchData.EndAt = startTime.AddSeconds(dispatch.TimeMin).Ticks;
+            }
 
-        user.SelectableDispatchData.Add(new NetSelectableDispatchData()
-        {
-            DispatchGroupId = dispatch.DispatchGradeId,
-            IsRun = true,
-            EndAt = startTime.AddMinutes(dispatch.TimeMin).Ticks,
-            //EndAt = startTime.AddSeconds(dispatch.TimeMin).Ticks,
-            SelectSlotId = req.SelectSlotId,
-            SelectTid = req.Tid,
-            StartAt = startTime.Ticks
+            user.SelectableDispatchData.Add(new NetSelectableDispatchData()
+            {
+                DispatchGroupId = dispatch.DispatchGradeId,
+                IsRun = true,
+                EndAt = startTime.AddMinutes(dispatch.TimeMin).Ticks,
+                //EndAt = startTime.AddSeconds(dispatch.TimeMin).Ticks,
+                SelectSlotId = req.SelectSlotId,
+                SelectTid = req.Tid,
+                StartAt = startTime.Ticks
+            });
+
+            return response.Clone();
         });
-
-        JsonDb.Save();
-        // TODO
         await WriteDataAsync(response);
     }
 }

@@ -1,4 +1,5 @@
-﻿using EpinelPS.Data;
+using EpinelPS.LobbyServer.Mission;
+using EpinelPS.Data;
 using EpinelPS.Database;
 using EpinelPS.Utils;
 
@@ -12,25 +13,26 @@ public class CancelDispatch : LobbyMessage
         ReqCancelDispatch req = await ReadData<ReqCancelDispatch>();
         ResCancelDispatch response = new();
         User user = GetUser();
-        DateTime startTime = DateTime.UtcNow;
-
-        DispatchRecord? dispatch = GameData.Instance.DispatchTable.Values
-            .Where(x => x.Id == req.Tid).FirstOrDefault();
-        
-        
-        var dispatchData = user.UserDispatchData.dispatchDatas.FirstOrDefault(x => x.Tid == req.Tid);
-        if (dispatchData != null)
+        response = MissionProgressDelivery.Apply(user, () =>
         {
-            dispatchData.IsRun = 0;
-            dispatchData.StartAt = startTime.Ticks;
-            dispatchData.EndAt = startTime.AddMinutes(dispatch.TimeMin).Ticks;
-        }
+            DateTime startTime = DateTime.UtcNow;
 
-        user.SelectableDispatchData.RemoveAll(cs => cs.SelectTid == req.Tid);
+            DispatchRecord? dispatch = GameData.Instance.DispatchTable.Values
+                .Where(x => x.Id == req.Tid).FirstOrDefault();
+        
+        
+            var dispatchData = user.UserDispatchData.dispatchDatas.FirstOrDefault(x => x.Tid == req.Tid);
+            if (dispatchData != null)
+            {
+                dispatchData.IsRun = 0;
+                dispatchData.StartAt = startTime.Ticks;
+                dispatchData.EndAt = startTime.AddMinutes(dispatch.TimeMin).Ticks;
+            }
 
-        JsonDb.Save();           
+            user.SelectableDispatchData.RemoveAll(cs => cs.SelectTid == req.Tid);
 
-        // TODO
+            return response.Clone();
+        });
         await WriteDataAsync(response);
     }
 }
