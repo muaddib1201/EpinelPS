@@ -147,7 +147,7 @@ internal static class RankingService
                         CorporationType.TETRA => 3, CorporationType.PILGRIM => 4, _ => -1 };
                     if (type > 0) scores[type] = (int)Math.Min(int.MaxValue, (long)scores[type] + character.Point);
                 }
-                string guild = user.Guild.guildId is long guildId && JsonDb.Instance.Guilds.TryGetValue((int)guildId, out var union) ? union.Name : "";
+                string guild = user.Guild.guildId is int guildId && JsonDb.Instance.Guilds.TryGetValue(guildId, out var union) ? union.Data.Name : "";
                 var profile = new NetWholeUserData { Usn = (long)user.ID, Server = 1001, Nickname = names.GetValueOrDefault(user.ID, "Player"),
                     Lv = user.userPointData.UserLevel, Icon = user.ProfileIconId, IconPrism = user.ProfileIconIsPrism, Frame = user.ProfileFrame,
                     GuildName = guild, UserTitleId = user.TitleId, UserTitleDisplayData = new(), LastActionAt = user.LastLogin.Ticks };
