@@ -20,6 +20,7 @@ var data=new GameData(Directory.GetFiles(Path.Combine(root!.FullName,"Server and
 typeof(GameData).GetField("_instance",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,data);
 await GameDataInitializer.InitializeGameData(new Progress<double>());
 var rawTargets=await data.LoadZip<RankingRecord>("RankingTable.json",new Progress<double>());
+var rawMuseumMissions=data.MuseumMissionTable.ToArray();
 if(args.Contains("--inspect-tables"))
 {
     Console.WriteLine(JsonConvert.SerializeObject(new { targets = rawTargets.GroupBy(t=>t.RankingType).Select(g=>new { type=g.Key.ToString(),count=g.Count(),first=g.Take(2) }), groups=data.MuseumGroupTable.Values, missions=data.MuseumMissionTable.Values.Take(3), towers=data.towerTable.Values.GroupBy(t=>t.Type).Select(g=>new { type=g.Key.ToString(),first=g.OrderBy(t=>t.Floor).First() }) },Formatting.Indented));
@@ -55,6 +56,101 @@ await Test("daily mission route cannot bypass ranking rewards",async()=>{try{awa
 await Test("actual character upgrades observe first crossing before a later higher score",async()=>{Targets(true);var table=RankingTable();table.Clear();table[10201]=new(){Id=10201,RankingType=RankingType.GroupPointElysion,ConditionValue=600,ServerRewardId=15000001};Add(self,1,1);Add(9802,1,1);foreach(var id in new ulong[]{self,9802}){var c=data.CharacterTable[Player(id).Characters[0].Tid];Player(id).Items.Add(new(){Isn=1,ItemType=c.PieceId,Count=3});}await Achievements(self);await Send<ResCharacterUpgrade>(self,"/character/upgrade",new ReqCharacterUpgrade{Csn=1,Isn=1,Count=1});await Send<ResCharacterUpgrade>(9802,"/character/upgrade",new ReqCharacterUpgrade{Csn=1,Isn=1,Count=2});var ranks=await Send<ResGetRankAchievementLeaderBoard>(self,"rankachievement",new ReqGetRankAchievementLeaderBoard{Type=2});Check(ranks.RankAchievement.Single(r=>r.Rank==1).User.Usn==(long)self,"later higher score stole first crossing");});
 await Test("NPC snapshot replacement cannot discard reserved milestone winners",async()=>{Targets(true);Add(self,1,1);Add(9802,1,11);Player(9802).ManagedNpc=new();var gate=typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb")!.GetField("SaveLock",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;Exception? error=null;Thread worker;lock(Player(9813)){worker=new Thread(()=>{try{Board(self,2).GetAwaiter().GetResult();}catch(Exception ex){error=ex;}});worker.Start();Check(SpinWait.SpinUntil(()=>worker.ThreadState.HasFlag(System.Threading.ThreadState.WaitSleepJoin),10000),"worker did not reach blocked snapshot");lock(gate)EpinelPS.Services.ManagedNpcService.Configure(false,1,DateTime.UtcNow);}Check(worker.Join(20000),"ranking snapshot retry deadlocked");if(error!=null)throw error;var current=Player(9802);var rank=Newtonsoft.Json.Linq.JObject.Parse(JsonConvert.SerializeObject(current))["Ranking"]?["Achievements"];Check(rank?.Count()==10,"NPC winner was written to detached object");await Task.CompletedTask;});
 await Test("rank frames stay locked until automatic reward mail is claimed",async()=>{Targets(true);Add(self,1,11);await Achievements(self);var frameIds=Player(self).MailDatas.Values.SelectMany(m=>m.Items).Select(i=>i.RewardId).ToHashSet();var before=await Send<ResGetProfileFrame>(self,"/User/GetProfileFrame",new ReqGetProfileFrame());Check(!before.Frames.Any(frameIds.Contains),"unclaimed ranking frames are already advertised as owned");var claim=await Send<ResAllObtainMail>(self,"/mail/allobtain",new ReqAllObtainMail());Check(claim.Reward.ProfileFrame.Count==3&&frameIds.All(Player(self).FrameList.Contains),"mail did not grant owned rank frames");var after=await Send<ResGetProfileFrame>(self,"/User/GetProfileFrame",new ReqGetProfileFrame());Check(frameIds.All(after.Frames.Contains),"earned frame missing from client catalogue");await Send<ResAllObtainMail>(self,"/mail/allobtain",new ReqAllObtainMail());Check(Player(self).FrameList.Count==3,"mail retry duplicated frame ownership");});
+await Test("five tower boards use the matching cleared tower stage",async()=>
+{
+    var types=new[]{CorporationTowerType.ALL,CorporationTowerType.MISSILIS,CorporationTowerType.ELYSION,CorporationTowerType.TETRA,CorporationTowerType.OVERSPEC};
+    var floors=new[]{29,30,40,50,60};var scores=new[]{10029,30030,20040,40050,50060};
+    for(int n=0;n<types.Length;n++){Player(self).TowerProgress[types[n]]=floors[n];var board=await Board(self,n+5);Check(board.User is{Rank:1}&&board.User.Score==scores[n],"tower type or cleared stage score mismatched");}
+    Player(self).TowerProgress[CorporationTowerType.ALL]=int.MaxValue;
+    Check((await Board(self,5)).User.Score==0,"nonexistent tower floor ranked");
+});
+await Test("legacy SQLite tower clears belong only to their user and category",async()=>
+{
+    using(var db=GameContext.CreateNew()){db.Triggers.AddRange(new TriggerModelNew{UserId=self,Type=Trigger.TowerBasicClear,ConditionId=10030,Value=1},new TriggerModelNew{UserId=9802,Type=Trigger.TowerElysionClear,ConditionId=20040,Value=1},new TriggerModelNew{UserId=self,Type=Trigger.TowerMissilisClear,ConditionId=20050,Value=1});db.SaveChanges();}
+    Check((await Board(self,5)).User.Score==10030,"durable legacy clear missing");
+    Check((await Board(self,7)).User.Score==0&&(await Board(self,6)).User.Score==0,"foreign user or mismatched clear leaked into score");
+});
+await Test("museum overview has separate total and per hall winners",async()=>
+{
+    EarnMuseum(self,910001,101,10);EarnMuseum(9802,910002,201,20);
+    var overview=await Send<ResGetAllTopRank>(self,"alltoprank",new ReqGetAllTopRank());
+    Check(overview.TopMuseumTotalRankingList.Single() is{Type:10,Score:20,User.Usn:9802},"museum total winner missing");
+    Check(overview.TopMuseumGroupRankingList.Count==3,"three museum hall cards missing");
+    Check(overview.TopMuseumGroupRankingList.Single(r=>r.ConditionId==1) is{Type:11,Score:10,User.Usn:(long)self},"hall one winner wrong");
+    Check(overview.TopMuseumGroupRankingList.Single(r=>r.ConditionId==2) is{Score:20,User.Usn:9802},"hall two winner wrong");
+    Check(overview.TopMuseumGroupRankingList.Single(r=>r.ConditionId==3) is{Score:0,User:null},"unplayed hall invented a winner");
+});
+await Test("museum details rank only earned points and preserve the personal zero row",async()=>
+{
+    EarnMuseum(self,910001,101,10);EarnMuseum(self,910002,201,20);EarnMuseum(9802,910003,201,30);
+    var total=await MuseumTotal(self);Check(total.User is{Rank:1,Score:30}&&total.RankingList.Select(r=>r.User.Usn).SequenceEqual(new long[]{(long)self,9802}),"total points or stable ties wrong");
+    var hall=await MuseumHall(self,2);Check(hall.User is{Rank:2,Score:20}&&hall.RankingList[0].User.Usn==9802,"hall ranking mixed total points");
+    Check((await MuseumHall(self,3)).User is{Rank:0,Score:0,User.Usn:(long)self},"zero personal museum profile missing");
+});
+await Test("museum receipts reject duplicates unknown stages and the wrong mode",async()=>
+{
+    EarnMuseum(self,910001,101,10);var stage=Player(self).SoloRaidMuseumData[101];stage.ReceivedChallengeMissions.AddRange([910001,999999]);stage.ReceivedNoLimitMissions.Add(910001);
+    EarnMuseum(self,910002,201,20);stage.ReceivedChallengeMissions.Add(910002);Player(self).SoloRaidMuseumData.Remove(201);
+    Check((await MuseumTotal(self)).User.Score==10,"invalid or duplicate receipts inflated ranking points");
+    var mission=await Send<ResGetSoloRaidMuseumMission>(self,"/soloraidmuseum/get/mission",new ReqGetSoloRaidMuseumMission{StageId=101});
+    Check(mission.MuseumTotalRankingPoint==10&&mission.MuseumGroupRankingPoint==10,"museum mission and leaderboard point sources diverged");
+});
+await Test("tower milestones require the specified floor and museum milestones their hall",async()=>
+{
+    var table=RankingTable();table.Clear();
+    table[30101]=new(){Id=30101,RankingType=RankingType.TowerTribe,ConditionId=10030,ConditionValue=1,ServerRewardId=15000001};
+    table[400001]=new(){Id=400001,RankingType=RankingType.MuseumTotal,ConditionValue=30,ServerRewardId=15000001};
+    table[401001]=new(){Id=401001,RankingType=RankingType.MuseumGroup,ConditionId=1,ConditionValue=15,ServerRewardId=15000001};
+    Player(self).TowerProgress[CorporationTowerType.ALL]=29;EarnMuseum(self,910001,201,30);
+    Check((await Achievements(self)).TriggerList.Single(t=>t.Trigger==31).UserValue==1,"tower floor or foreign hall awarded early");
+    Player(self).TowerProgress[CorporationTowerType.ALL]=30;EarnMuseum(self,910002,101,15);
+    Check((await Achievements(self)).TriggerList.All(t=>t.UserValue==3),"added categories did not credit cumulative achievements");
+    var tower=await Send<ResGetRankAchievementLeaderBoard>(self,"rankachievement",new ReqGetRankAchievementLeaderBoard{Type=5});
+    var total=await Send<ResGetMuseumTotalRankAchievementLeaderBoard>(self,"get/museumtotal/rankachievement",new ReqGetMuseumTotalRankAchievementLeaderBoard{Type=10});
+    var hall=await Send<ResGetMuseumGroupRankAchievementLeaderBoard>(self,"get/museumgroup/rankachievement",new ReqGetMuseumGroupRankAchievementLeaderBoard{Type=11,ConditionId=1});
+    Check(tower.RankAchievement.Single().RankId==30101&&total.RankAchievement.Single().RankId==400001&&hall.RankAchievement.Single().RankId==401001,"category milestone details missing");
+    string before=JsonConvert.SerializeObject(State());await Achievements(self);await MuseumTotal(self);Check(JsonConvert.SerializeObject(State())==before,"refresh duplicated new ranking milestones");
+});
+await Test("museum hall reward claims are isolated and all claim remains idempotent",async()=>
+{
+    var table=RankingTable();table.Clear();
+    table[401001]=new(){Id=401001,RankingType=RankingType.MuseumGroup,ConditionId=1,ConditionValue=15,ServerRewardId=15000001};
+    table[402001]=new(){Id=402001,RankingType=RankingType.MuseumGroup,ConditionId=2,ConditionValue=20,ServerRewardId=15000001};
+    table[400001]=new(){Id=400001,RankingType=RankingType.MuseumTotal,ConditionValue=30,ServerRewardId=15000001};
+    table[30101]=new(){Id=30101,RankingType=RankingType.TowerTribe,ConditionId=10030,ConditionValue=1,ServerRewardId=15000001};
+    EarnMuseum(9802,910001,101,15);EarnMuseum(9802,910002,201,20);Player(9802).TowerProgress[CorporationTowerType.ALL]=30;
+    Check((await MuseumHall(self,1)).RewardEnabled,"earned hall server gift absent for unranked user");
+    await HallClaim(1);await HallClaim(1);Check(ItemCount()==1&&!(await MuseumHall(self,1)).RewardEnabled&&(await MuseumHall(self,2)).RewardEnabled,"hall claim crossed category or paid twice");
+    await HallClaim(2);Check(ItemCount()==2,"hall two reward missing");
+    await Send<ResObtainMuseumTotalRankAchievementServerReward>(self,"obtain/museumtotal/rankachievementserverreward",new ReqObtainMuseumTotalRankAchievementServerReward{Type=10});Check(ItemCount()==3,"museum total reward missing");
+    await Send<ResObtainRankAchievementServerReward>(self,"rankachievementserverreward",new ReqObtainRankAchievementServerReward{Type=5});await AllClaim(self);Check(ItemCount()==4,"tower gift missing or all claim duplicated a receipt");
+});
+await Test("successful tower clears observe the first winner before another player advances",async()=>
+{
+    RankingTable().Clear();RankingTable()[30101]=new(){Id=30101,RankingType=RankingType.TowerTribe,ConditionId=10001,ConditionValue=1,ServerRewardId=15000001};
+    await Send<ResClearTower>(self,"/tower/cleartower",new ReqClearTower{TowerId=10001,TeamNumber=1,BattleResult=1});
+    await Send<ResClearTower>(9802,"/tower/cleartower",new ReqClearTower{TowerId=10001,TeamNumber=1,BattleResult=1});
+    await Send<ResClearTower>(9802,"/tower/cleartower",new ReqClearTower{TowerId=10002,TeamNumber=1,BattleResult=1});
+    var history=await Send<ResGetRankAchievementLeaderBoard>(self,"rankachievement",new ReqGetRankAchievementLeaderBoard{Type=5});
+    Check(history.RankAchievement.Single(r=>r.Rank==1).User.Usn==(long)self,"later tower progress stole the first observed winner");
+});
+await Test("successful museum mission claims observe their first winner",async()=>
+{
+    RankingTable().Clear();RankingTable()[400001]=new(){Id=400001,RankingType=RankingType.MuseumTotal,ConditionValue=10,ServerRewardId=15000001};
+    EarnMuseum(self,910001,101,10);Player(self).SoloRaidMuseumData[101].ReceivedChallengeMissions.Clear();
+    EarnMuseum(9802,910002,201,20);Player(9802).SoloRaidMuseumData[201].ReceivedChallengeMissions.Clear();
+    await Send<ResAcquireSoloRaidMuseumChallengeMission>(self,"/soloraidmuseum/challenge/acquire/mission",new ReqAcquireSoloRaidMuseumChallengeMission{MissionIdList={910001}});
+    await Send<ResAcquireSoloRaidMuseumChallengeMission>(9802,"/soloraidmuseum/challenge/acquire/mission",new ReqAcquireSoloRaidMuseumChallengeMission{MissionIdList={910002}});
+    var history=await Send<ResGetMuseumTotalRankAchievementLeaderBoard>(self,"get/museumtotal/rankachievement",new ReqGetMuseumTotalRankAchievementLeaderBoard{Type=10});
+    Check(history.RankAchievement.Single(r=>r.Rank==1).User.Usn==(long)self,"later museum points stole the first observed winner");
+});
+await Test("museum invalid groups types and anonymous reads cannot settle or claim",async()=>
+{
+    EarnMuseum(9802,910001,101,10);string before=JsonConvert.SerializeObject(State());
+    await Reject(()=>MuseumHall(self,999));await Reject(()=>Send<ResGetMuseumTotalRankingList>(self,"get/museumtotal/rankinglist",new ReqGetMuseumTotalRankingList{Type=5}));
+    await Reject(()=>Board(self,10));await Reject(()=>MuseumTotal(0));
+    Check(JsonConvert.SerializeObject(State())==before,"rejected museum request changed ranking state");
+});
 Console.WriteLine($"Ranking regression: {passed} passed, {failed} failed");return failed==0?0:1;
 CoreInfo Fixture()=>new(){DbVersion=5,LauncherTokenKey=key,EncryptionTokenKey=key,BondRewardLevelsMigrated=true,Users=Enumerable.Range(9801,13).Select(i=>new User{ID=(ulong)i}).ToList()};
 User Player(ulong id)=>State().Users.Single(u=>u.ID==id);
@@ -62,7 +158,12 @@ void Add(ulong id,int corp,int grade){var c=data.CharacterTable.Values.Where(c=>
 int ItemCount()=>Player(self).Items.Where(i=>i.ItemType==9201001).Sum(i=>i.Count);
 Dictionary<int,RankingRecord> RankingTable()=>(Dictionary<int,RankingRecord>)(typeof(GameData).GetField("Rankings")?.GetValue(data)??throw new InvalidOperationException("RankingTable is not loaded"));
 void Targets(bool custom){var f=typeof(GameData).GetField("Rankings");if(f==null)return;var table=(Dictionary<int,RankingRecord>)f.GetValue(data)!;table.Clear();foreach(var t in rawTargets)table[t.Id]=t;if(custom){table.Clear();for(int n=1;n<=10;n++)table[10200+n]=new(){Id=10200+n,RankingType=RankingType.GroupPointElysion,ConditionValue=n*300,ServerRewardId=15000001};}}
-async Task Test(string name,Func<Task> test){try{property.SetValue(null,Fixture());using(var db=GameContext.CreateNew()){db.Triggers.ExecuteDelete();}Targets(false);await test();passed++;Console.WriteLine("PASS "+name);}catch(Exception e){failed++;Console.WriteLine("FAIL "+name+": "+e);}}
+async Task Test(string name,Func<Task> test){try{property.SetValue(null,Fixture());using(var db=GameContext.CreateNew()){db.Triggers.ExecuteDelete();}Targets(false);data.MuseumMissionTable.Clear();foreach(var pair in rawMuseumMissions)data.MuseumMissionTable.Add(pair.Key,pair.Value);await test();passed++;Console.WriteLine("PASS "+name);}catch(Exception e){failed++;Console.WriteLine("FAIL "+name+": "+e);}}
+void EarnMuseum(ulong id,int missionId,int stageId,int points){data.MuseumMissionTable[missionId]=new(){Id=missionId,StageId=stageId,RankingPointAmount=points,ModeType=MuseumStageModeType.Challenge,ConditionValue=0};if(!Player(id).SoloRaidMuseumData.TryGetValue(stageId,out var stage))Player(id).SoloRaidMuseumData[stageId]=stage=new(){StageId=stageId};stage.ReceivedChallengeMissions.Add(missionId);}
+Task<ResGetMuseumTotalRankingList> MuseumTotal(ulong id)=>Send<ResGetMuseumTotalRankingList>(id,"get/museumtotal/rankinglist",new ReqGetMuseumTotalRankingList{Type=10});
+Task<ResGetMuseumGroupRankingList> MuseumHall(ulong id,int group)=>Send<ResGetMuseumGroupRankingList>(id,"get/museumgroup/rankinglist",new ReqGetMuseumGroupRankingList{Type=11,ConditionId=group});
+Task<ResObtainMuseumGroupRankAchievementServerReward> HallClaim(int group)=>Send<ResObtainMuseumGroupRankAchievementServerReward>(self,"obtain/museumgroup/rankachievementserverreward",new ReqObtainMuseumGroupRankAchievementServerReward{Type=11,ConditionId=group});
+async Task Reject(Func<Task> action){try{await action();}catch(BadHttpRequestException){return;}catch(UnauthorizedAccessException){return;}throw new Exception("invalid museum request accepted");}
 Task<ResGetRankingList> Board(ulong id,int type)=>Send<ResGetRankingList>(id,"getlist",new ReqGetRankingList{Type=type});
 Task<ResGetRankAchievementTop> Achievements(ulong id)=>Send<ResGetRankAchievementTop>(id,"rankachievementtop",new ReqGetRankAchievementTop());
 Task<ResObtainAllRankAchievementServerReward> AllClaim(ulong id)=>Send<ResObtainAllRankAchievementServerReward>(id,"allrankachievementserverreward",new ReqObtainAllRankAchievementServerReward());
