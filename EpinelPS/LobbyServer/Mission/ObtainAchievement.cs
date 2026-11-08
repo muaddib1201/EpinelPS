@@ -14,6 +14,10 @@ public class ObtainAchievement : LobbyMessage
 
         ResObtainAchievementReward response = new();
 
+        // Ranking special rewards are mailed by ranking settlement, not claimed here.
+        if (req.TidList.Any(id => GameData.Instance.TriggerTable.GetValueOrDefault(id)?.HandlerType == HandlerType.Ranking))
+            throw new BadHttpRequestException("Ranking rewards are delivered by mail.", 400);
+
         List<NetRewardData> rewards = [];
 
         int total_points = 0;

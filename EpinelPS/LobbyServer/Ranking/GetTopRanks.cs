@@ -7,9 +7,7 @@ public class GetTopRanks : LobbyMessage
     {
         ReqGetAllTopRank req = await ReadData<ReqGetAllTopRank>();
 
-        ResGetAllTopRank response = new();
-
-        // TODO
+        ResGetAllTopRank response = RankingService.Overview(GetUser());
 
         await WriteDataAsync(response);
     }

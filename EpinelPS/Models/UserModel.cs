@@ -44,6 +44,8 @@ public class GachaRates
 public class User
 {
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public RankingPlayerState? Ranking { get; set; }
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public FriendshipState? Friendships { get; set; }
     public Dictionary<int, int> GuildContributionByDay { get; set; } = [];
     public bool ShouldSerializeGuildContributionByDay() => GuildContributionByDay.Count != 0;

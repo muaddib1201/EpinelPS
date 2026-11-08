@@ -286,6 +286,11 @@ public class GameData
     [LoadRecord("TriggerTable.json", "Id")]
     public readonly Dictionary<int, TriggerRecord> TriggerTable = [];
 
+    [LoadRecord("RankingTable.json", "Id")]
+    public readonly Dictionary<int, RankingRecord> Rankings = [];
+    [LoadRecord("RankingPointTable.json", "Id")]
+    public readonly Dictionary<int, RankingPointRecord> RankingPoints = [];
+
     [LoadRecord("InfraCoreGradeTable.json", "Id")]
     public readonly Dictionary<int, InfraCoreGradeRecord> InfracoreTable = [];
 

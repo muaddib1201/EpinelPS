@@ -7,9 +7,7 @@ public class GetRankAchieventTop : LobbyMessage
     {
         ReqGetRankAchievementTop req = await ReadData<ReqGetRankAchievementTop>();
 
-        ResGetRankAchievementTop response = new();
-
-        // TODO
+        ResGetRankAchievementTop response = RankingService.Counts(GetUser());
 
         await WriteDataAsync(response);
     }
