@@ -110,6 +110,17 @@ await Run("daily rollover preserves unfinished tasks while refreshing only avail
     Check(user.UserDispatchData.dispatchDatas.Any(expected.Equals) && user.DispatchClearList.Count == 0 && user.DispatchResetCount == 0,
         "rollover lost a running task or retained yesterday's counters");
 });
+await Run("claiming yesterday's task before the first board read still consumes today's slot", async () =>
+{
+    var user = Reset();
+    user.UserDispatchData.Today = 20260101;
+    var running = user.UserDispatchData.dispatchDatas[0];
+    running.IsRun = 1;
+    running.EndAt = DateTime.UtcNow.AddMinutes(-1).Ticks;
+    await Send<ResObtainDispatchReward>("/outpost/obtaindispatchreward", new ReqObtainDispatchReward { TidList = { running.Tid } });
+    Check((await Get()).DispatchList.Count == 9 && user.DispatchClearList.Contains(running.Tid),
+        "the first read erased a claim made after rollover and recreated its slot");
+});
 await Run("reset rolls the current board probabilities and preserves running and claimed tasks", async () =>
 {
     var user = Reset();
