@@ -1,5 +1,5 @@
 using EpinelPS.Data;
-using EpinelPS.Database;
+using EpinelPS.LobbyServer.Mission;
 
 namespace EpinelPS.LobbyServer.Character;
 
@@ -10,9 +10,14 @@ public class SynchroDeviceOneClick : LobbyMessage
     {
         ReqSynchroDeviceOneClick req = await ReadData<ReqSynchroDeviceOneClick>();
         User user = GetUser();
+        var response = MissionProgressDelivery.Apply(user, () => Upgrade(user, req.SynchroLv));
+        await WriteDataAsync(response);
+    }
+
+    private static ResSynchroDeviceOneClick Upgrade(User user, int targetLv)
+    {
         ResSynchroDeviceOneClick response = new();
 
-        int targetLv = req.SynchroLv;
         if (targetLv > user.SynchroDeviceLevel)
         {
             var levelData = GameData.Instance.GetCharacterLevelUpData();
@@ -43,7 +48,7 @@ public class SynchroDeviceOneClick : LobbyMessage
                 user.SubtractCurrency(CurrencyType.CharacterExp2, totalExp2);
                 user.SynchroDeviceLevel = lv;
                 user.SynchroDeviceUpgraded = true;
-                JsonDb.Save();
+                user.AddTrigger(Trigger.CharacterLevelUpCount, 1);
             }
         }
 
@@ -51,6 +56,6 @@ public class SynchroDeviceOneClick : LobbyMessage
         foreach (var c in user.Currency)
             response.Currencies.Add(new NetUserCurrencyData() { Type = (int)c.Key, Value = c.Value });
 
-        await WriteDataAsync(response);
+        return response;
     }
 }
