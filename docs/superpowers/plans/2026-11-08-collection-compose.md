@@ -22,6 +22,6 @@
 
 ## Tasks
 
-1. [ ] Add `tests/CollectionComposeRegression` with synthetic players and real dispatcher requests. Run via `nikke_workflow.py test --suite CollectionComposeRegression`; observe the valid R request fail with missing reward. Inspect the loaded rule/reward records to settle implementation details.
+1. [x] Add `tests/CollectionComposeRegression` with synthetic players and real dispatcher requests. Missing route reproduced in `.nikke/checks/20261108-122339-239219`; expanded checks reproduced 45 failures in `20261108-122841-353202`. Static rules: R=4, reward 3899901 -> auto-open box 9490101; SR=3, reward 3899902 -> auto-open box 9490102 -> item 9210003. R pool: six SR collections at 250/10000 each, purple maintenance x10 at 3000/10000, blue maintenance x20 at 5500/10000.
 2. [ ] Add behavior tests covering R/SR rewards, batch sizes, rejection cases, retry/concurrency, reload and failed persistence. Implement `EpinelPS/LobbyServer/FavoriteItem/ComposeCollectionItem.cs` using the existing configured reward definitions. Run the targeted suite until green, then review the diff and commit.
 3. [ ] Integrate, sync and run all regression suites. Publish the integrated source. Prepare and seal `.nikke/install.ps1`, validate the sealed release and deploy under the shared lock when the game has exited. Verify health and preservation of the current live save; retain evidence in `.nikke`.
