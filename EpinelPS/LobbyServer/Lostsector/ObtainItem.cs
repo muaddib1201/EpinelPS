@@ -39,6 +39,13 @@ public class ObtainItem : LobbyMessage
         }
 
         JsonDb.Save();
+        // The chest is already committed. A notification outage must not turn
+        // that successful payout into an error that invites another chest claim.
+        try { LostSectorMissionProgress.Recover(user); }
+        catch (Exception ex)
+        {
+            Logging.WriteLine($"Lost Sector clear notification for user {user.ID} remains recoverable: {ex.Message}", LogType.Warning);
+        }
         await WriteDataAsync(response);
     }
 }
