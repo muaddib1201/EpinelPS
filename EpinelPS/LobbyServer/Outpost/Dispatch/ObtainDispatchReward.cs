@@ -20,6 +20,7 @@ public class ObtainDispatchReward : LobbyMessage
 
     private static ResObtainDispatchReward Obtain(User user, ReqObtainDispatchReward req)
     {
+        DispatchHelper.AdvanceDay(user);
         ResObtainDispatchReward response = new();
         NetRewardData rewardData = new();
         List<NetUserDispatchData> dispatchDatas = user.UserDispatchData.dispatchDatas ??= [];

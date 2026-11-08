@@ -59,6 +59,19 @@ public class DispatchHelper
         (board.DispatchType == DispatchType.Dispatch
             ? GameData.Instance.GetInfracoreGrade(user.InfraCoreLvl)?.FunctionList?.ElementAtOrDefault(1)?.Function ?? 0 : 0));
 
+    internal static void AdvanceDay(User user)
+    {
+        int day = user.GetDateDay();
+        if (user.UserDispatchData.Today == day) return;
+        var rows = user.UserDispatchData.dispatchDatas ??= [];
+        rows.RemoveAll(r => r.IsRun != 1);
+        var running = rows.Select(r => r.Tid).ToHashSet();
+        user.SelectableDispatchData.RemoveAll(r => !running.Contains(r.SelectTid));
+        user.DispatchClearList.Clear();
+        user.DispatchResetCount = 0;
+        user.UserDispatchData.Today = day;
+    }
+
     // Caller holds the player/save transaction. Claimed and running tasks occupy
     // their slots before pending rows are kept, repaired or rerolled.
     internal static void PrepareBoard(User user, DateTime now, bool reroll = false)
@@ -68,16 +81,8 @@ public class DispatchHelper
         if (!boards.Any(b => b.DispatchType == DispatchType.Dispatch))
             throw new BadHttpRequestException("Dispatch board configuration is unavailable.", 400);
         user.ResetableData.DispatchCount = boards.Sum(b => Capacity(user, b));
+        AdvanceDay(user);
         var rows = user.UserDispatchData.dispatchDatas ?? [];
-        int day = user.GetDateDay();
-        if (user.UserDispatchData.Today != day)
-        {
-            rows = rows.Where(r => r.IsRun == 1).ToList();
-            user.DispatchClearList.Clear();
-            user.DispatchResetCount = 0;
-            user.UserDispatchData.Today = day;
-        }
-
         var definitions = GameData.Instance.DispatchTable;
         var claimed = user.DispatchClearList.ToHashSet();
         var kept = rows.Where(r => r.IsRun == 1).DistinctBy(r => r.Tid).ToList();
