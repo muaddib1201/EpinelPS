@@ -69,7 +69,7 @@ bool restarting = args.Contains("--verify-saved");
 if (!restarting) File.WriteAllText(save, JsonConvert.SerializeObject(new CoreInfo
 {
     DbVersion = 5, BondRewardLevelsMigrated = true,
-    Users = Enumerable.Range(810, 12).Select(i => new User
+    Users = Enumerable.Range(810, 18).Select(i => new User
     {
         ID = (ulong)i, LastReset = DateTime.UtcNow, LastWeeklyReset = DateTime.UtcNow, InfraCoreLvl = 17
     }).ToList()
@@ -92,6 +92,16 @@ int failures = 0, passes = 0;
 
 if (restarting)
 {
+    await Run("a fresh process delivers a committed device upgrade notification exactly once", async () =>
+    {
+        Check(User(826).SynchroDeviceLevel == 247, "restart lost the upgraded device level");
+        var first = await Send<ResSyncTrigger>(826, "/trigger/sync", new ReqSyncTrigger());
+        Check(first.Triggers.Count(t => t.Trigger == 70 && t.UserValue == 1) == 1,
+            "restart did not deliver the saved daily upgrade notification");
+        var next = await Send<ResSyncTrigger>(826, "/trigger/sync", new ReqSyncTrigger { Seq = first.Triggers.Max(t => t.Seq) });
+        Check(next.Triggers.Count == 0 && UpgradeCount(826) == 1 && User(826).PendingMissionTriggers.Count == 0,
+            "repeated sync duplicated the recovered upgrade notification");
+    });
     await Run("a new server process retains the clock refresh and encrypted response replay", async () =>
     {
         long head;
@@ -309,10 +319,118 @@ await Run("a committed pending counseling event remains recoverable for a fresh 
         !check.Triggers.Any(t => t.UserId == 821 && t.Type == Trigger.CharacterCounsel), "restart fixture lost the pending counseling notification");
 });
 
+await Run("a device one-click upgrade from 237 to 247 reaches the daily mission through trigger sync", async () =>
+{
+    PrepareUpgrade(822);
+    var before = new Dictionary<CurrencyType, long>(User(822).Currency);
+    long started = DateTime.UtcNow.Ticks;
+    var upgraded = await UpgradeDevice(822, 247);
+    Check(upgraded.SynchroLv == 247 && User(822).SynchroDeviceLevel == 247, "the device did not upgrade");
+    var costs = data.GetCharacterLevelUpData().Values.Where(r => r.Level > 237 && r.Level <= 247).ToArray();
+    Check(User(822).Currency[CurrencyType.Gold] == before[CurrencyType.Gold] - costs.Sum(r => (long)r.Gold) &&
+        User(822).Currency[CurrencyType.CharacterExp] == before[CurrencyType.CharacterExp] - costs.Sum(r => (long)r.CharacterExp) &&
+        User(822).Currency[CurrencyType.CharacterExp2] == before[CurrencyType.CharacterExp2] - costs.Sum(r => (long)r.CharacterExp2),
+        "upgrade consumed the wrong currencies");
+    var sync = await Send<ResSyncTrigger>(822, "/trigger/sync", new ReqSyncTrigger());
+    var events = sync.Triggers.Where(t => t.Trigger == 70).ToArray();
+    Check(events.Length == 1 && events[0].UserValue == 1 && events[0].ConditionId == 0,
+        "successful device one-click upgrade omitted the daily mission event");
+    Check(events[0].CreatedAt >= started && events[0].CreatedAt <= DateTime.UtcNow.Ticks,
+        "upgrade event was sent outside the current daily mission time window");
+    jsonDb.GetMethod("Reload")!.Invoke(null, null);
+    Check(User(822).SynchroDeviceLevel == 247 && UpgradeCount(822) == 1, "reload lost the level or upgrade event");
+});
+
+await Run("replaying a device target or requesting a lower level cannot count another upgrade", async () =>
+{
+    PrepareUpgrade(823);
+    await UpgradeDevice(823, 247);
+    string after = JsonConvert.SerializeObject(User(823).Currency);
+    jsonDb.GetMethod("Reload")!.Invoke(null, null);
+    await UpgradeDevice(823, 247);
+    await UpgradeDevice(823, 237);
+    Check(User(823).SynchroDeviceLevel == 247 && UpgradeCount(823) == 1 &&
+        JsonConvert.SerializeObject(User(823).Currency) == after, "a repeated or lower target consumed currency or duplicated mission progress");
+});
+
+await Run("insufficient device upgrade materials cannot award daily progress", async () =>
+{
+    PrepareUpgrade(824);
+    User(824).Currency[CurrencyType.CharacterExp2] = 0;
+    string before = JsonConvert.SerializeObject(User(824).Currency);
+    var response = await UpgradeDevice(824, 247);
+    Check(response.SynchroLv == 237 && UpgradeCount(824) == 0 &&
+        JsonConvert.SerializeObject(User(824).Currency) == before, "an unpaid device upgrade changed level, currencies or progress");
+});
+
+await Run("a failed device upgrade save rolls back currencies and mission progress before retry", async () =>
+{
+    PrepareUpgrade(825);
+    string before = JsonConvert.SerializeObject(User(825).Currency);
+    Directory.CreateDirectory(save + ".tmp");
+    bool failedSave = false;
+    try
+    {
+        try { await UpgradeDevice(825, 247); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { failedSave = true; }
+    }
+    finally { Directory.Delete(save + ".tmp"); }
+    Check(failedSave && User(825).SynchroDeviceLevel == 237 && UpgradeCount(825) == 0 &&
+        User(825).PendingMissionTriggers.Count == 0 && JsonConvert.SerializeObject(User(825).Currency) == before,
+        "failed save left a consumed level, currency or upgrade event");
+    await UpgradeDevice(825, 247);
+    Check(User(825).SynchroDeviceLevel == 247 && UpgradeCount(825) == 1, "a rolled-back upgrade could not be retried once");
+});
+
+await Run("a committed device upgrade retains its notification when SQLite delivery fails", async () =>
+{
+    PrepareUpgrade(826);
+    using (var db = GameContext.CreateNew())
+        db.Database.ExecuteSqlRaw("CREATE TRIGGER fail_upgrade BEFORE INSERT ON Triggers WHEN NEW.UserId=826 AND NEW.Type=70 BEGIN SELECT RAISE(ABORT,'test interruption'); END;");
+    try { await UpgradeDevice(826, 247); }
+    finally { using var db = GameContext.CreateNew(); db.Database.ExecuteSqlRaw("DROP TRIGGER fail_upgrade"); }
+    var saved = JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(save))!.Users.Single(u => u.ID == 826);
+    Check(saved.SynchroDeviceLevel == 247 && saved.PendingMissionTriggers.Count(t => t.Type == Trigger.CharacterLevelUpCount && t.Value == 1) == 1 &&
+        UpgradeCount(826) == 0, "a committed upgrade lost the durable pending daily event");
+});
+
+await Run("retrying after a failed upgrade response preserves exactly one paid upgrade event", async () =>
+{
+    PrepareUpgrade(827);
+    bool failedWrite = false;
+    try { await Send<ResSynchroDeviceOneClick>(827, "/character/synchrodevice/deviceoneclick", new ReqSynchroDeviceOneClick { SynchroLv = 247 }, new BrokenWriteStream()); }
+    catch (IOException) { failedWrite = true; }
+    Check(failedWrite && User(827).SynchroDeviceLevel == 247, "response failure did not follow the committed upgrade");
+    string after = JsonConvert.SerializeObject(User(827).Currency);
+    jsonDb.GetMethod("Reload")!.Invoke(null, null);
+    await UpgradeDevice(827, 247);
+    Check(UpgradeCount(827) == 1 && JsonConvert.SerializeObject(User(827).Currency) == after,
+        "response retry lost or duplicated the paid upgrade event");
+});
+
 Console.WriteLine($"RESULT {passes} passed, {failures} failed");
 return failures == 0 ? 0 : 1;
 
 User User(ulong id) => ((CoreInfo)jsonDb.GetProperty("Instance")!.GetValue(null)!).Users.Single(u => u.ID == id);
+
+void PrepareUpgrade(ulong id)
+{
+    var user = User(id);
+    user.SynchroDeviceUpgraded = true;
+    user.SynchroDeviceLevel = 237;
+    foreach (var currency in new[] { CurrencyType.Gold, CurrencyType.CharacterExp, CurrencyType.CharacterExp2 })
+        user.Currency[currency] = 1_000_000_000;
+    jsonDb.GetMethod("Save")!.Invoke(null, null);
+}
+
+Task<ResSynchroDeviceOneClick> UpgradeDevice(ulong id, int target) => Send<ResSynchroDeviceOneClick>(id,
+    "/character/synchrodevice/deviceoneclick", new ReqSynchroDeviceOneClick { SynchroLv = target });
+
+int UpgradeCount(ulong id)
+{
+    using var db = GameContext.CreateNew();
+    return db.Triggers.Where(t => t.UserId == id && t.Type == Trigger.CharacterLevelUpCount).Sum(t => t.Value);
+}
 
 async Task Counsel(ulong id, bool quick, string? nonce = null)
 {
