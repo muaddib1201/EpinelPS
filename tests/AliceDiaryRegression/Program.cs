@@ -100,6 +100,23 @@ await Run($"{(legacy?"legacy":"V2")} skill upgrades update Alice skill 1 and bur
     var result=await Sync();
     Check(Total(result,133,0)==4 && Total(result,134,0)==4,"skill action was saved without diary progress");
 });
+foreach(bool legacy in new[]{true,false})
+await Run($"a failed {(legacy?"legacy":"V2")} skill save cannot publish an unearned diary level",async()=>
+{
+    await Sync();
+    string before=JsonConvert.SerializeObject(Current());
+    Directory.CreateDirectory(save+".tmp");
+    bool rejected=false;
+    try
+    {
+        if(legacy) await Send<ResCharacterSkillLevelUp>(player,"/character/skill/levelup",new ReqCharacterSkillLevelUp { Csn=1,Category=(int)CharacterSkillCategory.Skill1 });
+        else await Send<ResCharacterSkillLevelUpV2>(player,"/character/skill/levelupV2",new ReqCharacterSkillLevelUpV2 { Csn=1,SkillCategory=CharacterSkillCategory.Skill1,TargetLevel=2 });
+    }
+    catch(Exception ex) when(ex is IOException or UnauthorizedAccessException) { rejected=true; }
+    finally { Directory.Delete(save+".tmp"); }
+    var result=await Sync();
+    Check(rejected && JsonConvert.SerializeObject(Current())==before && Total(result,133,0)==1 && result.Triggers.All(t=>t.Trigger!=92),"failed skill save exposed an unsaved upgrade, spent materials or published progress");
+});
 foreach(string route in new[]{"normal","quick","gift"})
 await Run($"{route} affinity gains count below the cap",async()=>
 {
