@@ -14,7 +14,6 @@ using Google.Protobuf;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
@@ -36,8 +35,11 @@ var pack = Directory.GetFiles(Path.Combine(root, "Server and Server selector/cac
 var data = new GameData(pack);
 typeof(GameData).GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, data);
 await data.Parse();
-Console.WriteLine($"Static event missions loaded: {data.EventMissionListTable.Count}; static sectors: {data.LostSector.Count}");
-File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "static-mission-audit.json"), JsonConvert.SerializeObject(data.EventMissionListTable.Values, Formatting.Indented));
+if (args.FirstOrDefault(a => a.StartsWith("--preview-mission-root=")) is { } preview)
+    return MissionChecks.Preview(data, preview["--preview-mission-root=".Length..]);
+if (args.FirstOrDefault(a => a.StartsWith("--probe-mission-root=")) is { } probe)
+    return await MissionChecks.Probe(data, probe["--probe-mission-root=".Length..],
+        args.FirstOrDefault(a => a.StartsWith("--baseline-directory="))?["--baseline-directory=".Length..]);
 var savePath = Path.Combine(AppContext.BaseDirectory, "db.json");
 bool verifySaved = args.Contains("--verify-saved");
 var info = verifySaved ? JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(savePath))! : new CoreInfo();
@@ -98,11 +100,10 @@ if (verifySaved)
 else
 {
     await Test("an opened sector cannot satisfy the actual Day By Day clear condition", async () => {
-        foreach (var row in data.EventMissionListTable.Values.Where(m => (m.Id >= 200010200 && m.Id < 200010300) || m.Trigger == Trigger.LostSectorClear))
-            Console.WriteLine($"Mission definition: id={row.Id}, trigger={(int)row.Trigger}, condition={row.ConditionId}, target={row.ConditionValue}, name={row.NameLocalkey}");
-        var mission = data.EventMissionListTable.Values.Single(m => m.Id >= 200010200 && m.Id < 200010300 && m.Trigger == Trigger.LostSectorClear);
+        var mission = data.DailyEventTable[200010204];
         Console.WriteLine($"Day By Day condition: mission={mission.Id}, trigger={(int)mission.Trigger}, sector={mission.ConditionId}, target={mission.ConditionValue}");
-        Check(mission.ConditionId == 1 && mission.ConditionValue == 1, "static Day By Day condition changed");
+        Check(mission.Trigger == Trigger.LostSectorClear && mission.ConditionId == 1 && mission.ConditionValue == 1 && mission.IgnoreEventPeriod,
+            "static Day By Day condition changed");
         var sync = await Send<ResSyncTrigger>("trigger/sync", new ReqSyncTrigger());
         Check(sync.Triggers.All(t => t.Trigger != 53), "opening a sector invented a clear");
     });
