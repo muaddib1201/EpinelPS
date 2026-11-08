@@ -37,7 +37,7 @@ int passed=0,failed=0;
 if(args.Contains("--verify-completion-saved"))
 {
     CompletionTargets();
-    Check((await Board(self,5)).User.Score==10030&&(await MuseumTotal(self)).User.Score==10,"restart lost tower or museum points");
+    Check((await Board(self,5)).User.Score==30&&(await MuseumTotal(self)).User.Score==10,"restart lost tower or museum points");
     await AllClaim(self);
     Check(ItemCount()==2&&(await Achievements(self)).TriggerList.All(t=>t.UserValue==2),"restart duplicated new ranking rewards or milestones");
     Console.WriteLine("PASS fresh process preserves tower and museum rankings and reward receipts");return 0;
@@ -64,19 +64,28 @@ await Test("daily mission route cannot bypass ranking rewards",async()=>{try{awa
 await Test("actual character upgrades observe first crossing before a later higher score",async()=>{Targets(true);var table=RankingTable();table.Clear();table[10201]=new(){Id=10201,RankingType=RankingType.GroupPointElysion,ConditionValue=600,ServerRewardId=15000001};Add(self,1,1);Add(9802,1,1);foreach(var id in new ulong[]{self,9802}){var c=data.CharacterTable[Player(id).Characters[0].Tid];Player(id).Items.Add(new(){Isn=1,ItemType=c.PieceId,Count=3});}await Achievements(self);await Send<ResCharacterUpgrade>(self,"/character/upgrade",new ReqCharacterUpgrade{Csn=1,Isn=1,Count=1});await Send<ResCharacterUpgrade>(9802,"/character/upgrade",new ReqCharacterUpgrade{Csn=1,Isn=1,Count=2});var ranks=await Send<ResGetRankAchievementLeaderBoard>(self,"rankachievement",new ReqGetRankAchievementLeaderBoard{Type=2});Check(ranks.RankAchievement.Single(r=>r.Rank==1).User.Usn==(long)self,"later higher score stole first crossing");});
 await Test("NPC snapshot replacement cannot discard reserved milestone winners",async()=>{Targets(true);Add(self,1,1);Add(9802,1,11);Player(9802).ManagedNpc=new();var gate=typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb")!.GetField("SaveLock",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;Exception? error=null;Thread worker;lock(Player(9813)){worker=new Thread(()=>{try{Board(self,2).GetAwaiter().GetResult();}catch(Exception ex){error=ex;}});worker.Start();Check(SpinWait.SpinUntil(()=>worker.ThreadState.HasFlag(System.Threading.ThreadState.WaitSleepJoin),10000),"worker did not reach blocked snapshot");lock(gate)EpinelPS.Services.ManagedNpcService.Configure(false,1,DateTime.UtcNow);}Check(worker.Join(20000),"ranking snapshot retry deadlocked");if(error!=null)throw error;var current=Player(9802);var rank=Newtonsoft.Json.Linq.JObject.Parse(JsonConvert.SerializeObject(current))["Ranking"]?["Achievements"];Check(rank?.Count()==10,"NPC winner was written to detached object");await Task.CompletedTask;});
 await Test("rank frames stay locked until automatic reward mail is claimed",async()=>{Targets(true);Add(self,1,11);await Achievements(self);var frameIds=Player(self).MailDatas.Values.SelectMany(m=>m.Items).Select(i=>i.RewardId).ToHashSet();var before=await Send<ResGetProfileFrame>(self,"/User/GetProfileFrame",new ReqGetProfileFrame());Check(!before.Frames.Any(frameIds.Contains),"unclaimed ranking frames are already advertised as owned");var claim=await Send<ResAllObtainMail>(self,"/mail/allobtain",new ReqAllObtainMail());Check(claim.Reward.ProfileFrame.Count==3&&frameIds.All(Player(self).FrameList.Contains),"mail did not grant owned rank frames");var after=await Send<ResGetProfileFrame>(self,"/User/GetProfileFrame",new ReqGetProfileFrame());Check(frameIds.All(after.Frames.Contains),"earned frame missing from client catalogue");await Send<ResAllObtainMail>(self,"/mail/allobtain",new ReqAllObtainMail());Check(Player(self).FrameList.Count==3,"mail retry duplicated frame ownership");});
-await Test("five tower boards use the matching cleared tower stage",async()=>
+await Test("five tower boards return literal floors in overview detail and personal rows",async()=>
 {
     var types=new[]{CorporationTowerType.ALL,CorporationTowerType.MISSILIS,CorporationTowerType.ELYSION,CorporationTowerType.TETRA,CorporationTowerType.OVERSPEC};
-    var floors=new[]{29,30,40,50,60};var scores=new[]{10029,30030,20040,40050,50060};
-    for(int n=0;n<types.Length;n++){Player(self).TowerProgress[types[n]]=floors[n];var board=await Board(self,n+5);Check(board.User is{Rank:1}&&board.User.Score==scores[n],"tower type or cleared stage score mismatched");}
+    var floors=new[]{29,30,40,50,60};
+    for(int n=0;n<types.Length;n++){Player(self).TowerProgress[types[n]]=floors[n];var board=await Board(self,n+5);Check(board.User is{Rank:1}&&board.User.Score==floors[n]&&board.RankingList.Single().Score==floors[n],"tower score must be the cleared floor, not the stage ID");}
+    var overview=await Send<ResGetAllTopRank>(self,"alltoprank",new ReqGetAllTopRank());
+    for(int n=0;n<types.Length;n++)Check(overview.TopRankingList.Single(r=>r.Type==n+5).Score==floors[n],"overview returned an internal tower ID");
     Player(self).TowerProgress[CorporationTowerType.ALL]=int.MaxValue;
     Check((await Board(self,5)).User.Score==0,"nonexistent tower floor ranked");
 });
 await Test("legacy SQLite tower clears belong only to their user and category",async()=>
 {
     using(var db=GameContext.CreateNew()){db.Triggers.AddRange(new TriggerModelNew{UserId=self,Type=Trigger.TowerBasicClear,ConditionId=10030,Value=1},new TriggerModelNew{UserId=9802,Type=Trigger.TowerElysionClear,ConditionId=20040,Value=1},new TriggerModelNew{UserId=self,Type=Trigger.TowerMissilisClear,ConditionId=20050,Value=1});db.SaveChanges();}
-    Check((await Board(self,5)).User.Score==10030,"durable legacy clear missing");
+    Check((await Board(self,5)).User.Score==30,"durable legacy clear must display its floor");
     Check((await Board(self,7)).User.Score==0&&(await Board(self,6)).User.Score==0,"foreign user or mismatched clear leaked into score");
+});
+await Test("legacy tower achievements display floors without rewriting their rank or time",async()=>
+{
+    CompletionTargets();Player(self).Ranking=new(){Achievements={[30101]=new(){Rank=1,Score=10030,AchievedAt=777}}};
+    var history=await Send<ResGetRankAchievementLeaderBoard>(self,"rankachievement",new ReqGetRankAchievementLeaderBoard{Type=5});
+    var row=history.RankAchievement.Single();Check(row.Score==30&&row.Rank==1&&row.AchievedAt==777,"legacy stage ID leaked into achievement response");
+    Check(Player(self).Ranking!.Achievements[30101].Score==10030,"display conversion rewrote historical storage");
 });
 await Test("museum overview has separate total and per hall winners",async()=>
 {
