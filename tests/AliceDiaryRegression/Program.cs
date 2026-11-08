@@ -39,7 +39,7 @@ await Run("saved 10/10/22 completes the actual skill and bond diary requirements
     var response=await Sync();
     Check(Total(response,133,0)==10 && Total(response,134,0)==10 && Total(response,76,5004)==22,"saved levels were not delivered to the diary");
     var missions=data.DailyEventTable.Values.Where(m=>m.EventId==20002 && (m.Trigger==Trigger.AliceSkill1Level || m.Trigger==Trigger.AliceSkillBurstLevel || (m.Trigger==Trigger.CharacterAttractiveLevelMax && m.ConditionId==5004))).ToArray();
-    Check(missions.Length==7 && missions.All(m=>m.IsStack && m.IgnoreEventPeriod && Total(response,(int)m.Trigger,m.ConditionId)>=m.ConditionValue),"actual diary thresholds are not met by the sync payload");
+    Check(missions.Length==15 && missions.All(m=>m.IsStack && m.IgnoreEventPeriod && Total(response,(int)m.Trigger,m.ConditionId)>=m.ConditionValue),"actual diary thresholds are not met by the sync payload");
     Check(JsonConvert.SerializeObject(State())==before,"repair changed saved characters, rewards or claimed missions");
 });
 await Run("partial history receives only its missing values and retains unrelated events",async()=>
