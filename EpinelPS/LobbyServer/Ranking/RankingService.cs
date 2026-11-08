@@ -21,7 +21,14 @@ internal static class RankingService
         lock (JsonDb.SaveLock)
         {
             var hash = new HashCode(); hash.Add(user.LastHardStageCleared);
-            foreach (var character in user.Characters) { hash.Add(character.Csn); hash.Add(character.Tid); }
+            foreach (var character in user.Characters)
+            {
+                hash.Add(character.Csn); hash.Add(character.Tid); hash.Add(character.Grade); hash.Add(character.Level);
+                hash.Add(character.Skill1Lvl); hash.Add(character.Skill2Lvl); hash.Add(character.UltimateLevel);
+            }
+            hash.Add(user.SynchroDeviceUpgraded); hash.Add(user.SynchroDeviceLevel);
+            foreach (var slot in user.SynchroSlots.OrderBy(s => s.Slot)) { hash.Add(slot.Slot); hash.Add(slot.CharacterSerialNumber); }
+            foreach (var research in user.ResearchProgress.OrderBy(r => r.Key)) { hash.Add(research.Key); hash.Add(research.Value.Level); }
             foreach (var tower in user.TowerProgress.OrderBy(t => t.Key)) { hash.Add(tower.Key); hash.Add(tower.Value); }
             foreach (var stage in user.SoloRaidMuseumData.OrderBy(s => s.Key))
             {
@@ -240,14 +247,8 @@ internal static class RankingService
                         s.ChapterId == stage.ChapterId && s.StageType == StageType.Main).Max(s => s.Id);
                     chapter = stage.ChapterId - (stage.Id < final ? 1 : 0);
                 }
-                var characters = user.Characters.Select(c => data.CharacterTable.GetValueOrDefault(c.Tid)).OfType<CharacterRecord>()
-                    .Select(c => (Character: c, Point: Point(c))).GroupBy(c => c.Character.NameCode).Select(g => g.MaxBy(c => c.Point));
-                foreach (var character in characters)
-                {
-                    int type = character.Character.Corporation switch { CorporationType.MISSILIS => 1, CorporationType.ELYSION => 2,
-                        CorporationType.TETRA => 3, CorporationType.PILGRIM => 4, _ => -1 };
-                    if (type > 0) scores[type] = (int)Math.Min(int.MaxValue, (long)scores[type] + character.Point);
-                }
+                var growth = CorporationGrowthScoring.Scores(user);
+                for (int type = 1; type <= 4; type++) scores[type] = growth[type];
                 var clearedFloors = new Dictionary<CorporationTowerType, int>();
                 foreach (var pair in user.TowerProgress)
                     if (towerFloors.ContainsKey((pair.Key, pair.Value))) clearedFloors[pair.Key] = pair.Value;
@@ -268,15 +269,6 @@ internal static class RankingService
             }
         }
         return snapshots.ToArray();
-    }
-
-    private static int Point(CharacterRecord character)
-    {
-        int baseGrade = character.OriginalRare switch { OriginalRareType.SSR => 1, OriginalRareType.SR => 101, _ => 201 };
-        int value = character.GradeCoreId - baseGrade;
-        if (value < 0) return 0;
-        return GameData.Instance.RankingPoints.Values.FirstOrDefault(p => p.OriginalRare == character.OriginalRare &&
-            p.Grade == Math.Min(value, 3) && p.Core == Math.Max(value - 3, 0))?.Point ?? 0;
     }
 
     private static bool Reached(Snapshot snapshot, RankingRecord target)
@@ -302,7 +294,7 @@ internal static class RankingService
                     if (attempt >= 4) throw new BadHttpRequestException("Ranking participants changed; retry the request.", 409);
                     continue;
                 }
-                if (GameData.Instance.Rankings.Count == 0 || GameData.Instance.RankingPoints.Count == 0)
+                if (GameData.Instance.Rankings.Count == 0 || GameData.Instance.RankingPoints.Count == 0 || GameData.Instance.SkillLevelPoints.Count == 0)
                     throw new InvalidDataException("Ranking tables are unavailable.");
                 var players = snapshots.Where(s => s.Eligible).Select(s => s.Owner).ToArray();
                 if (!players.Contains(requester)) throw new UnauthorizedAccessException("Account cannot participate in rankings.");

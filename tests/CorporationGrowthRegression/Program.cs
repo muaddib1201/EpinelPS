@@ -152,7 +152,8 @@ CoreInfo Fixture() => new() { DbVersion = 5, BondRewardLevelsMigrated = true, La
 CharacterModel Add(ulong id, OriginalRareType rarity = OriginalRareType.SSR, CorporationType corporation = CorporationType.ELYSION, int? characterClass = null)
 {
     int grade = rarity == OriginalRareType.SSR ? 1 : rarity == OriginalRareType.SR ? 101 : 201;
-    var definition = data.CharacterTable.Values.Where(c => c.Corporation == corporation && c.OriginalRare == rarity && c.GradeCoreId == grade && (!characterClass.HasValue || (int)c.Class == characterClass.Value)).OrderBy(c => c.Id).First();
+    var ownedNames = Player(id).Characters.Where(c => data.CharacterTable.ContainsKey(c.Tid)).Select(c => data.CharacterTable[c.Tid].NameCode).ToHashSet();
+    var definition = data.CharacterTable.Values.Where(c => c.Corporation == corporation && c.OriginalRare == rarity && c.GradeCoreId == grade && (!characterClass.HasValue || (int)c.Class == characterClass.Value) && !ownedNames.Contains(c.NameCode)).OrderBy(c => c.Id).First();
     var character = new CharacterModel { Csn = Player(id).Characters.Count + 1, Tid = definition.Id }; Player(id).Characters.Add(character); return character;
 }
 RecycleRoomResearchProgress Research(ulong id, RecycleType type, RecycleSubType subType, int level)
