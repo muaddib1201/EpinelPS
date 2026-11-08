@@ -1,5 +1,5 @@
 using EpinelPS.Data;
-using EpinelPS.Database;
+using EpinelPS.LobbyServer.Mission;
 
 namespace EpinelPS.LobbyServer.Character;
 
@@ -12,12 +12,11 @@ public class SkillLevelUp : LobbyMessage
         User user = GetUser();
         ResCharacterSkillLevelUp response = new();
 
-        SkillLevelUpResult result = SkillLevelUpHelper.Upgrade(user, req.Csn, (CharacterSkillCategory)req.Category);
+        SkillLevelUpResult result = MissionProgressDelivery.Apply(user,
+            () => SkillLevelUpHelper.Upgrade(user, req.Csn, (CharacterSkillCategory)req.Category));
         response.Character = result.Character;
         response.Items.AddRange(result.Items);
         response.Currencies.AddRange(result.Currencies);
-
-        JsonDb.Save();
 
         await WriteDataAsync(response);
     }
