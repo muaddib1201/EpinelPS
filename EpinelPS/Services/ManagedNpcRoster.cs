@@ -15,7 +15,10 @@ public static class ManagedNpcRoster
     public static string SkillRange(int tier) => $"{MainMinimum[Math.Clamp(tier, 0, 4)]}～{MainMaximum[Math.Clamp(tier, 0, 4)]}";
     public static int SkillCap(User user) => MainMaximum[TierForCount(SsrCount(user))];
 
-    public static void Apply(User user)
+    public static void Apply(User user) => ApplyCore(user, true);
+    public static void Refresh(User user) => ApplyCore(user, false);
+
+    private static void ApplyCore(User user, bool initializeSkills)
     {
         if (user.ManagedNpc == null) return;
         var plan = ManagedNpcTeams.Select(user);
@@ -25,7 +28,7 @@ public static class ManagedNpcRoster
         state.TeamSynergies = plan.Synergies.ToList();
         user.RepresentationTeamDataNew = plan.SerialNumbers;
         var main = plan.SerialNumbers.ToHashSet();
-        foreach (var c in user.Characters)
+        foreach (var c in user.Characters.Where(_ => initializeSkills))
         {
             if (!GameData.Instance.CharacterTable.TryGetValue(c.Tid, out var row) || row.OriginalRare != OriginalRareType.SSR) continue;
             bool active = main.Contains(c.Csn);

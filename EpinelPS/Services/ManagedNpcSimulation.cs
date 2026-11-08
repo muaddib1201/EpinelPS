@@ -27,7 +27,7 @@ public static partial class ManagedNpcService
         lock (JsonDb.SaveLock) Change(() =>
         {
             var settings = JsonDb.Instance.NpcManagement!;
-            bool reschedule = settings.Enabled != enabled || settings.Speed != speed;
+            bool reschedule = settings.Enabled != enabled;
             settings.Enabled = enabled; settings.Speed = speed;
             if (reschedule)
                 foreach (var user in JsonDb.Instance.Users.Where(u => u.ManagedNpc != null))

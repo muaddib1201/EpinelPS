@@ -19,7 +19,10 @@ public static class ManagedNpcGrowth
         _ => 80
     };
 
-    public static void Apply(User user)
+    public static void Apply(User user) => ApplyCore(user, true);
+    public static void Refresh(User user) => ApplyCore(user, false);
+
+    private static void ApplyCore(User user, bool initialAllowance)
     {
         if (user.ManagedNpc == null) return;
         var previousLevels = user.Characters.ToDictionary(c => c.Csn, c => Level(user, c));
@@ -54,11 +57,11 @@ public static class ManagedNpcGrowth
             user.SynchroDeviceUpgraded = true;
             user.SynchroDeviceLevel = target;
         }
-        EnsureSlots(user);
+        EnsureSlots(user, initialAllowance);
         user.ManagedNpc.GrowthSchemaVersion = SchemaVersion;
     }
 
-    private static void EnsureSlots(User user)
+    private static void EnsureSlots(User user, bool initialAllowance)
     {
         var standards = user.SynchroDeviceUpgraded ? new HashSet<int>() : user.Characters
             .OrderByDescending(c => c.Level).ThenBy(c => c.Csn).Take(5).Select(c => c.Csn).ToHashSet();
@@ -69,13 +72,18 @@ public static class ManagedNpcGrowth
         foreach (long csn in desired.Order())
         {
             if (assigned.Contains(csn)) continue;
-            var slot = user.SynchroSlots.FirstOrDefault(s => s.CharacterSerialNumber == 0) ?? SynchroAddSlot.AppendSlot(user);
+            var slot = user.SynchroSlots.FirstOrDefault(s => s.CharacterSerialNumber == 0);
+            if (slot == null)
+            {
+                if (!initialAllowance && user.SynchroSlots.Count >= SynchroAddSlot.GetFreeSlotAllowance(user)) continue;
+                slot = SynchroAddSlot.AppendSlot(user);
+            }
             slot.CharacterSerialNumber = csn;
             slot.AvailableAt = 0;
             assigned.Add(csn);
         }
         int missingAllowance = user.SynchroSlots.Count - SynchroAddSlot.GetFreeSlotAllowance(user);
-        if (missingAllowance > 0) user.SynchroSlotsFromItems += missingAllowance;
+        if (initialAllowance && missingAllowance > 0) user.SynchroSlotsFromItems += missingAllowance;
     }
 
     public static void Advance(User user)

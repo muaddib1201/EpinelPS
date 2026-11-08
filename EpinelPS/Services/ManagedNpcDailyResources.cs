@@ -19,7 +19,7 @@ public static partial class ManagedNpcService
         ContentsOpenCondition.None => true,
         ContentsOpenCondition.UserLevel => user.userPointData.UserLevel >= value,
         ContentsOpenCondition.StageClear => user.IsStageCompleted(value),
-        ContentsOpenCondition.MainQuest => user.MainQuestData.ContainsKey(value),
+        ContentsOpenCondition.MainQuest => DailyQuestComplete(user, value),
         ContentsOpenCondition.GuildLevel => JsonDb.Instance.Guilds.GetValueOrDefault(user.Guild.guildId ?? 0)?.Data.Grade >= value,
         ContentsOpenCondition.MaxGachaCount => user.GachaBannerMaxPulls.Values.Sum() >= value,
         ContentsOpenCondition.MaxGachaPremiumCount => user.GetGachaCountForType(GachaPremiumType.GachaPremium) >= value,
@@ -28,6 +28,16 @@ public static partial class ManagedNpcService
         ContentsOpenCondition.SynchroDeviceAmplification => user.SynchroDeviceUpgraded,
         _ => false
     };
+
+    private static bool DailyQuestComplete(User user, int questId)
+    {
+        if (user.MainQuestData.ContainsKey(questId)) return true;
+        // Legacy managed profiles seed campaign fields, but not every historical quest flag.
+        // Use their existing clear evidence only for unlocks; do not repay old quest rewards.
+        if (!GameData.Instance.QuestDataRecords.TryGetValue(questId, out var quest) || quest.ConditionId.Count == 0) return false;
+        return quest.ConditionId.All(c => GameData.Instance.StageDataRecords.TryGetValue(c.ConditionId, out var stage) &&
+            (user.IsStageCompleted(stage.Id) || stage.ChapterMod == ChapterMod.Normal && stage.Id <= user.LastNormalStageCleared));
+    }
 
     private static long DailyCombat(User user) => user.RepresentationTeamDataNew.Sum(c => (long)FormulaUtils.CalculateCP(user, c));
     private static void DailyLog(User user, DateTime now, string text) => Log(user.ManagedNpc!, now, text);
@@ -148,12 +158,12 @@ public static partial class ManagedNpcService
     {
         var available = user.Characters.Select(c => GameData.Instance.CharacterTable[c.Tid]).ToList();
         if (available.Count < dispatch.SlotMax) return false;
-        foreach (var requirement in dispatch.DispatchSlotArray ?? [])
+        foreach (var requirement in (dispatch.DispatchSlotArray ?? []).Take(dispatch.SlotMax))
         {
-            var match = available.FirstOrDefault(c => (requirement.Rare == 0 || c.OriginalRare == requirement.Rare) &&
+            var match = available.FirstOrDefault(c => (requirement.Rare == 0 || c.OriginalRare >= requirement.Rare) &&
                 (requirement.DispatchSlotType is DispatchSlotType.None or DispatchSlotType.ALL ||
                  requirement.DispatchSlotType == DispatchSlotType.CHARACTER && c.NameCode == requirement.SlotValue ||
-                 requirement.DispatchSlotType != DispatchSlotType.CHARACTER && (int)c.Corporation == (int)requirement.DispatchSlotType));
+                 requirement.DispatchSlotType != DispatchSlotType.CHARACTER && (requirement.DispatchSlotType == DispatchSlotType.ABNORMAL ? c.Corporation == CorporationType.ABNORMAL : (int)c.Corporation == (int)requirement.DispatchSlotType)));
             if (match == null) return false;
             available.Remove(match);
         }

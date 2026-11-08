@@ -47,7 +47,7 @@ public static partial class ManagedNpcService
                 upgraded++;
             }
         }
-        ManagedNpcGrowth.Apply(user);
+        ManagedNpcGrowth.Refresh(user);
         if (user.SynchroDeviceUpgraded)
         {
             while (levels < DailyTrainingLimit && user.SynchroDeviceLevel < ManagedNpcGrowth.MaximumSynchroLevel(user) &&
@@ -63,7 +63,7 @@ public static partial class ManagedNpcService
                 if (levels < DailyTrainingLimit && character.Level < cap && PayDailyLevel(user, character.Level + 1))
                 { character.Level++; levels++; }
             }
-            ManagedNpcGrowth.Apply(user);
+            ManagedNpcGrowth.Refresh(user);
         }
         if (levels > 0)
         {
@@ -73,12 +73,12 @@ public static partial class ManagedNpcService
         }
         foreach (var character in user.Characters.Where(c => user.RepresentationTeamDataNew.Contains(c.Csn)).OrderBy(c => c.Skill1Lvl))
         {
-            if (character.Skill1Lvl >= ManagedNpcRoster.SkillCap(user)) continue;
+            if (character.Skill1Lvl >= 10) continue;
             try { SkillLevelUpHelper.Upgrade(user, character.Csn, CharacterSkillCategory.Skill1); skills++; }
             catch (BadHttpRequestException ex) when (ex.Message.StartsWith("Insufficient", StringComparison.Ordinal)) { continue; }
             if (skills >= 3) break;
         }
-        ManagedNpcRoster.Apply(user);
+        ManagedNpcRoster.Refresh(user);
         DailyLog(user, now, $"实际养成：升级 {levels} 次、突破 {upgraded} 次、技能 {skills} 次；均已扣除材料");
     }
 
@@ -106,8 +106,8 @@ public static partial class ManagedNpcService
         else { DailyLog(user, now, "招募：招募券、友情点数或免费钻石不足"); return; }
         if (!GameData.Instance.gachaTypes.ContainsKey(banner)) { DailyLog(user, now, "招募：当前数据没有可用卡池"); return; }
         ExecGacha.Execute(user, new ReqExecuteGacha { Tid = banner, Count = count, CurrencyType = (int)currency });
-        ManagedNpcGrowth.Apply(user);
-        ManagedNpcRoster.Apply(user);
+        ManagedNpcGrowth.Refresh(user);
+        ManagedNpcRoster.Refresh(user);
         DailyLog(user, now, $"完成实际招募 {count} 次，支付 {currency}；角色和里程已入账");
     }
 }

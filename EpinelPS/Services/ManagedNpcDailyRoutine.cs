@@ -34,6 +34,7 @@ public static partial class ManagedNpcService
                 {
                     SettleDailyPhase(user, now, false, () =>
                     {
+                        GuildActivity.EnsureMember(user, now);
                         npc.DailyRoutine = new NpcDailyRoutineState { Day = day, StartedUtc = now, NextPhaseUtc = now + PhaseInterval };
                         npc.NextActionUtc = npc.DailyRoutine.NextPhaseUtc;
                         npc.Day = day;
