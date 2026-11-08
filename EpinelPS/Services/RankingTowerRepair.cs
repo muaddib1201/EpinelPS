@@ -4,6 +4,7 @@ using EpinelPS.LobbyServer.Mission;
 using EpinelPS.LobbyServer.Ranking;
 using EpinelPS.Models;
 using EpinelPS.Utils;
+using Newtonsoft.Json;
 
 namespace EpinelPS.Services;
 
@@ -73,11 +74,35 @@ public static class RankingTowerRepair
         // firsts, so only the additional cumulative tiers get manual notifications.
         RankingService.Update(user);
         long[] before = Counts(user.Ranking!);
-        var transfers = TransferFirsts(state, account);
-        long[] after = Counts(user.Ranking!);
-        for (int tier = 0; tier < 3; tier++)
-            if (after[tier] > before[tier]) user.AddTrigger((Trigger)(31 + tier), checked((int)(after[tier] - before[tier])));
-        JsonDb.Save();
+        var previous = state.Users.Select(u => (User: u, u.Ranking)).ToArray();
+        var oldPending = user.PendingMissionTriggers;
+        long oldTriggerAt = user.LastMailRewardTriggerAt;
+        FirstTransfer[] transfers;
+        long[] after;
+        try
+        {
+            foreach (var saved in previous)
+                saved.User.Ranking = saved.Ranking == null ? null : JsonConvert.DeserializeObject<RankingPlayerState>(JsonConvert.SerializeObject(saved.Ranking));
+            using (var scope = new RewardMutationScope(user))
+            {
+                transfers = TransferFirsts(state, account);
+                after = Counts(user.Ranking!);
+                for (int tier = 0; tier < 3; tier++)
+                    if (after[tier] > before[tier]) user.AddTrigger((Trigger)(31 + tier), checked((int)(after[tier] - before[tier])));
+                user.PendingMissionTriggers = [.. oldPending, .. scope.Triggers];
+            }
+            // The assignment and its notification identities become durable
+            // together; failed SQLite delivery is recovered without new events.
+            JsonDb.Save();
+        }
+        catch
+        {
+            foreach (var saved in previous) saved.User.Ranking = saved.Ranking;
+            user.PendingMissionTriggers = oldPending;
+            user.LastMailRewardTriggerAt = oldTriggerAt;
+            throw;
+        }
+        MissionProgressDelivery.Flush(user);
         RankingService.Update(user);
         return new(account, targetFloor, plan, transfers, currencyBefore, new(user.Currency), itemsBefore, ItemCounts(user), before, after);
     }

@@ -5,6 +5,7 @@ using EpinelPS.Data;
 using EpinelPS.Database;
 using EpinelPS.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
 using Newtonsoft.Json;
 
 const ulong self=9911;
@@ -116,6 +117,19 @@ await Test("first transfer outbox survives a failed second tier delivery without
     finally{db.Database.ExecuteSqlRaw("DROP TRIGGER repair_fail_second_tier");}
     instance.SetValue(null,JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(save))!);Execute();
     Check(Me().PendingMissionTriggers.Count==0&&db.Triggers.Where(t=>t.UserId==self&&t.Type==Trigger.AchieveRanking1st).Sum(t=>t.Value)==1&&db.Triggers.Where(t=>t.UserId==self&&t.Type==Trigger.AchieveRanking5th).Sum(t=>t.Value)==1,"outbox recovery repeated the first tier");return Task.CompletedTask;
+});
+await Test("maintenance report cannot overwrite its input save",async()=>
+{
+    string source=Path.Combine(root!.FullName,"src/EpinelPS/tools/RankingTowerRepair/bin/Release/net10.0/win-x64");
+    string stage=Path.Combine(AppContext.BaseDirectory,"cli-collision-"+Guid.NewGuid().ToString("N"));
+    foreach(string file in Directory.GetFiles(source,"*",SearchOption.AllDirectories)){string output=Path.Combine(stage,Path.GetRelativePath(source,file));Directory.CreateDirectory(Path.GetDirectoryName(output)!);File.Copy(file,output);}
+    Me().userPointData.UserLevel=26;File.WriteAllText(Path.Combine(stage,"db.json"),JsonConvert.SerializeObject(State()));
+    using(var input=new SqliteConnection($"Data Source={sqlite}"))using(var output=new SqliteConnection($"Data Source={Path.Combine(stage,"epinelps.db")}")){input.Open();output.Open();input.BackupDatabase(output);}
+    byte[] before=File.ReadAllBytes(Path.Combine(stage,"db.json"));
+    var start=new ProcessStartInfo(Path.Combine(stage,"RankingTowerRepair.exe")){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+    foreach(string arg in new[]{"--workspace",root.FullName,"--account",self.ToString(),"--floor","27","--report",Path.Combine(stage,"db.json")})start.ArgumentList.Add(arg);
+    using var child=Process.Start(start)!;var stdout=child.StandardOutput.ReadToEndAsync();var stderr=child.StandardError.ReadToEndAsync();await child.WaitForExitAsync();
+    Check(child.ExitCode!=0&&before.SequenceEqual(File.ReadAllBytes(Path.Combine(stage,"db.json"))),"report collision overwrote a save or performed a repair");await stdout;await stderr;
 });
 Console.WriteLine($"Ranking tower repair regression: {passed} passed, {failed} failed");return failed==0?0:1;
 
