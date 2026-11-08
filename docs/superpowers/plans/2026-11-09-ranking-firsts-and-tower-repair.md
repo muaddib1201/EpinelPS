@@ -30,17 +30,17 @@
 
 Files: EpinelPS/LobbyServer/Ranking/RankingService.cs; tests/RankingRegression/Program.cs.
 
-- [ ] RED: existing five-tower and durable-clear tests expect literal floors; add legacy achievement display regression. Run RankingRegression through unified test.
-- [ ] GREEN: capture floor.Floor, compare achieved floor to target static floor, convert legacy stage-ID achievement scores only at response boundary. Verify targeted regression, including restart and milestone rewards.
-- [ ] Commit the verified source fix.
+- [x] RED: existing five-tower and durable-clear tests expect literal floors; add legacy achievement display regression. Run RankingRegression through unified test.
+- [x] GREEN: capture floor.Floor, compare achieved floor to target static floor, convert legacy stage-ID achievement scores only at response boundary. Verify targeted regression, including restart and milestone rewards.
+- [x] Commit the verified source fix.
 
 ### Task 2: Workspace-only repair utility
 
-Files: tools/RankingTowerRepair/{RankingTowerRepair.csproj,Program.cs,RepairOperations.cs}; tests/RankingTowerRepairRegression/{RankingTowerRepairRegression.csproj,Program.cs}.
+Files: EpinelPS/Services/RankingTowerRepair.cs; tools/RankingTowerRepair/{RankingTowerRepair.csproj,Program.cs}; tests/RankingTowerRepairRegression/{RankingTowerRepairRegression.csproj,Program.cs}.
 
-- [ ] RED: test reassignment swaps, missing self in top ten, receipt preservation, native reward amounts for missing manufacturer floors, durable/pending history deduplication, no Tribe change, malformed-input preflight, restart and repeated invocation.
-- [ ] GREEN: preflight all four towers, reconcile valid progress/history, invoke normal skip/reward and clear-trigger writers; settle normal new milestones; transfer current first records and send only newly gained tier events; settle cumulative mail. Fail CLI unless executable data directory is inside explicit workspace.
-- [ ] Verify targeted suites and commit. Review whole branch independently before integration.
+- [x] RED: test reassignment swaps, missing self in top ten, receipt preservation, native reward amounts for missing manufacturer floors, durable/pending history deduplication, no Tribe change, malformed-input preflight, restart and repeated invocation.
+- [x] GREEN: preflight all four towers, reconcile valid progress/history, invoke normal skip/reward and clear-trigger writers; settle normal new milestones; transfer current first records and send only newly gained tier events; settle cumulative mail. Fail CLI unless executable data directory is inside explicit workspace.
+- [x] Verify targeted suites and commit. Review whole branch independently before integration.
 
 ### Task 3: Integration, full verification and deployment
 
@@ -53,3 +53,8 @@ Files: tools/RankingTowerRepair/{RankingTowerRepair.csproj,Program.cs,RepairOper
 
 - Read-only live inspection: .nikke/tower-first-repair-readonly-before.json. ZOLRATH TowerProgress is ALL=95, ELYSION/MISSILIS/TETRA/OVERSPEC=3. All 38 currently achieved targets include a ZOLRATH record; 23 firsts already belong to it and 15 belong to three NPCs.
 - Root cause: RankingService.Capture sets scores[5+index] to floor.Id and tests explicitly assert those IDs. The screenshot displays the numeric score directly as a floor. Source correction must also update Reached, which currently looks that score up as a stage ID.
+- Tower RED 20261109-001311-822172: 29 passed / 4 failed; GREEN real-floor display, old history, milestone and fresh-process checks passed.
+- Maintenance RED 20261109-001727-390039: 0 passed / 9 failed for absent maintenance operation. Added real reward failure injection; atomic rollback RED 20261109-002423-615899: 9 passed / 1 failed. Existing MissionProgressDelivery.Apply now wraps the four-tower batch.
+- Independent review found two P2s: direct tier-event delivery before first-record durability, and report/input collision. Real SQLite second-tier abort reproduced the first (20261109-003137-982459); real private CLI invocation with --report=db.json reproduced the second (20261109-003402-401519). Both fixed and independently re-reviewed at d725a7c with no P0-P2 remaining.
+- Final targeted at d725a7c: 13 maintenance + 33 ranking + 5 tower groups passed, including second-tier outbox recovery, CLI collision rejection, failed reward rollback and fresh-process no-duplicate behavior.
+- Read-only live snapshot preview .nikke/repair-preview-20261109-002758: 96 paid floors, 15 first transfers, all 38 existing firsts become ZOLRATH. Native table rewards total 5800 gems, 823600 gold, 300 core dust; UserExp 15356 advances commander 26 to 27 and grants the normal 30 level-up gems. Four existing manufacturer mold items gain 44 each; three additional mold items gain 5 each. Only requested user fields and three previous-first NPC Ranking states change. This preview is not a live installation.
