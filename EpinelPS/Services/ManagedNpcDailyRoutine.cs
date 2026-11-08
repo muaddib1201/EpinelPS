@@ -114,7 +114,10 @@ public static partial class ManagedNpcService
             case 2: CounselAndTrainDaily(user, now); break;
             case 3: RecruitAndResourceBattlesDaily(user, now); break;
             case 4: AdvanceDailyProgress(user, now); break;
-            case 5: CompleteDailySocial(user, now); break;
+            case 5:
+                CompleteDailySocial(user, now);
+                ClaimDailyRoutineMissions(user, now);
+                break;
             default: throw new ArgumentOutOfRangeException(nameof(phase));
         }
     }

@@ -4,6 +4,7 @@
 @{
     ViewData["Title"] = "托管 NPC";
     string Time(DateTime value) => value == default ? "—" : value.ToUniversalTime().AddHours(8).ToString("MM-dd HH:mm");
+    int today = int.Parse(DateTime.UtcNow.AddHours(-EpinelPS.Database.JsonDb.Instance.ResetHourUtcTime).ToString("yyyyMMdd"));
 }
 <div class="container-fluid py-3">
     <div class="d-flex justify-content-between align-items-center mb-3">
@@ -16,9 +17,10 @@
             <form action="/admin/ManagedNpcs/Configure" method="post" class="d-flex flex-wrap gap-3 align-items-end">
                 @Html.AntiForgeryToken()
                 <div><label class="form-label" for="globalEnabled">托管状态</label><select id="globalEnabled" name="Enabled" class="form-select"><option value="true" selected="@(Model.Settings.Enabled)">运行</option><option value="false" selected="@(!Model.Settings.Enabled)">暂停</option></select></div>
-                <div><label class="form-label" for="speed">成长速度倍率</label><input id="speed" name="Speed" type="number" min="0.25" max="4" step="0.25" value="@Model.Settings.Speed.ToString(CultureInfo.InvariantCulture)" class="form-control" /></div>
+                <input name="Speed" type="hidden" value="1" />
+                <div class="align-self-center">每天一轮 · 五阶段 · 三十分钟</div>
                 <button class="btn btn-primary" type="submit">保存设置</button>
-            </form><small class="text-muted">所有 NPC 默认积极养成，每日最多养成 6 次、推进 12 关、贡献 30 联盟活跃。练度按 SSR 持有数量与技能分为五档；暂停后不累计成长。</small>
+            </form><small class="text-muted">每六分钟执行一个阶段，资源收益与消耗实际结算。每日任务点数计入联盟，每人每日最多贡献 100 点；重启接续进度，已完成阶段不重复执行。</small>
         </div></div></div>
         <div class="col-lg-6"><div class="card h-100"><div class="card-body">
             <h5>@(Model.Players.Count == 0 ? "生成首批 NPC" : "增加 NPC")</h5>
@@ -58,6 +60,8 @@
                         </details>
                     }
                     <div class="small text-muted">今日推图 @npc.StagesToday / @ManagedNpcService.DailyStageLimit</div>
+                    <div class="small">@(npc.DailyRoutine?.Day == today ? $"今日阶段 {npc.DailyRoutine.CompletedPhases}/5" : "等待今日日程")</div>
+                    <div class="small text-muted">每日任务 @player.ResetableData.DailyMissionPoints 点 · 今日联盟贡献 @(player.Guild.ActivityByDay?.GetValueOrDefault(today) ?? 0)</div>
                 </td>
                 <td class="small">上次：@Time(npc.LastActionUtc)<br />下次：@(npc.Enabled && Model.Settings.Enabled ? Time(npc.NextActionUtc) : "暂停中")</td>
                 <td>
