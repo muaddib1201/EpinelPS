@@ -63,7 +63,7 @@ public static partial class ManagedNpcService
         if (DailyUnlocked(user, ContentsOpen.Mail))
         {
             int claimed = 0;
-            foreach (var mail in user.MailDatas.Where(m => m.State == 1).ToArray())
+            foreach (var mail in user.MailDatas.Values.Where(m => m.State == 1).ToArray())
             {
                 NetRewardData reward = new();
                 if (mail.HasReward)

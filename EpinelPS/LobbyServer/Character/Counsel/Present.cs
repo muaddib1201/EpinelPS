@@ -94,7 +94,7 @@ public class Present : LobbyMessage
 
         // Outpost events can require a character's attractive level to be maxed
         if (bondInfo.Lv >= user.GetMaxAttractiveLevel(req.NameCode) &&
-            !GameContext.Triggers.Any(t => t.UserId == user.ID && t.Type == Trigger.CharacterAttractiveLevelMax && t.ConditionId == req.NameCode))
+            !MissionTriggerHistory.Read(user).Any(t => t.Type == Trigger.CharacterAttractiveLevelMax && t.ConditionId == req.NameCode))
         {
             user.AddTrigger(Trigger.CharacterAttractiveLevelMax, bondInfo.Lv, req.NameCode);
         }

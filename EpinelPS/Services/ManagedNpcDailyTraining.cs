@@ -27,7 +27,7 @@ public static partial class ManagedNpcService
         if (recipient != null && gift != null)
         {
             var request = new ReqCharacterPresent { NameCode = recipient.NameCode };
-            request.Items.Add(new NetItemUse { Tid = gift.ItemType, Count = 1 });
+            request.Items.Add(new NetItemData { Tid = gift.ItemType, Count = 1 });
             Present.Give(user, request);
             DailyLog(user, now, "赠送已有好感材料 1 份");
         }
