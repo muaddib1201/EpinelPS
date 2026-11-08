@@ -218,30 +218,50 @@ internal static class TeamChecks
         training.Characters = training.Characters.OrderBy(c => training.RepresentationTeamDataNew.Contains(c.Csn)).ToList();
         foreach (var c in training.Characters) c.Skill1Lvl = c.Skill2Lvl = c.UltimateLevel = 1;
         var state = training.ManagedNpc!;
-        state.Enabled = true; state.ActiveStartHourUtc = 0; state.ActiveHours = 24; state.NextActionUtc = state.NextSkillUtc = now;
-        state.NextRecruitUtc = now.AddYears(1); state.Day = int.Parse(now.AddHours(-Get().ResetHourUtcTime).ToString("yyyyMMdd"));
-        state.LevelsToday = state.StagesToday = 100; state.ActivityToday = state.ShootingToday = 1;
+        state.Enabled = true;
+        state.LastActionUtc = now.AddMinutes(-1);
+        state.Day = int.Parse(now.AddHours(-Get().ResetHourUtcTime).ToString("yyyyMMdd"));
+        state.DailyRoutine = new NpcDailyRoutineState { Day = state.Day, StartedUtc = now.AddMinutes(-6), NextPhaseUtc = now, CompletedPhases = 1 };
+        training.LastReset = training.LastWeeklyReset = now;
+        training.Currency[CurrencyType.Gold] = training.Currency[CurrencyType.CharacterExp] = training.Currency[CurrencyType.CharacterExp2] = 1_000_000_000;
+        long itemSerial = 900000;
+        foreach (var c in training.Characters.Where(c => training.RepresentationTeamDataNew.Contains(c.Csn)))
+        {
+            var row = data.CharacterTable[c.Tid];
+            foreach (int skillId in new[] { row.Skill1Id, row.Skill2Id, row.UltiSkillId })
+            {
+                if (!data.skillInfoTable.TryGetValue(skillId, out var info) || !data.costTable.TryGetValue(info.LevelUpCostId, out var cost)) continue;
+                foreach (var item in cost.Costs.Where(i => i.ItemType == RewardType.Item && i.ItemValue > 0))
+                    if (!training.Items.Any(i => i.ItemType == item.ItemId)) training.Items.Add(new DbItemData { Isn = itemSerial++, ItemType = item.ItemId, Count = 1_000_000 });
+            }
+        }
         Call(Service, "Tick", now);
         training = Get().Users.Single(u => u.ID == training.ID);
         var trained = training.Characters.Where(c => c.Skill1Lvl > 1 || c.Skill2Lvl > 1 || c.UltimateLevel > 1).ToArray();
-        Check(trained.Length == 1 && training.RepresentationTeamDataNew.Contains(trained[0].Csn), "training must follow selected serial numbers after roster reordering");
-        foreach (var c in training.Characters.Where(c => training.RepresentationTeamDataNew.Contains(c.Csn))) c.Skill1Lvl = c.Skill2Lvl = c.UltimateLevel = 3;
-        state = training.ManagedNpc!; state.NextActionUtc = state.NextSkillUtc = now.AddMinutes(1);
+        Check(trained.Length is > 0 and <= 3 && trained.All(c => training.RepresentationTeamDataNew.Contains(c.Csn)),
+            "paid training follows selected serial numbers after roster reordering");
+        string skillSnapshot = JsonConvert.SerializeObject(training.Characters.Select(c => (c.Csn, c.Skill1Lvl, c.Skill2Lvl, c.UltimateLevel)));
+        string currencySnapshot = JsonConvert.SerializeObject(training.Currency);
         Call(Service, "Tick", now.AddMinutes(1));
-        training = Get().Users.Single(u => u.ID == training.ID);
-        Check(training.Characters.All(c => c.Skill1Lvl <= 3 && c.Skill2Lvl <= 3 && c.UltimateLevel <= 3), "ongoing tier-one training must stop at skill level three");
+        Check(JsonConvert.SerializeObject(training.Characters.Select(c => (c.Csn, c.Skill1Lvl, c.Skill2Lvl, c.UltimateLevel))) == skillSnapshot &&
+            JsonConvert.SerializeObject(training.Currency) == currencySnapshot, "repeated same-day ticks cannot repeat paid training");
         var previousCards = training.Characters.Select(c => (c.Csn, c.Tid)).ToArray();
-        state = training.ManagedNpc!; state.NextActionUtc = state.NextRecruitUtc = now.AddMinutes(2); state.NextSkillUtc = now.AddYears(1);
+        training.Currency[CurrencyType.CharPremiumTicket] = 1;
+        int previousPulls = training.GetGachaCountForType(GachaPremiumType.GachaPremium);
+        training.ManagedNpc!.DailyRoutine!.NextPhaseUtc = now.AddMinutes(2);
         Call(Service, "Tick", now.AddMinutes(2));
         training = Get().Users.Single(u => u.ID == training.ID);
-        Check(training.Characters.Count == 13 && previousCards.All(card => training.Characters.Any(c => c.Csn == card.Csn && c.Tid == card.Tid)), "recruiting adds one SSR without replacing existing cards");
-        Check((int)training.ManagedNpc!.GetType().GetProperty("RosterTier")!.GetValue(training.ManagedNpc)! == 1,
-            "the thirteenth owned SSR promotes collection tier");
-        Check(training.Characters.Where(c => training.RepresentationTeamDataNew.Contains(c.Csn)).All(c =>
-            new[] { c.Skill1Lvl, c.Skill2Lvl, c.UltimateLevel }.All(v => v is >= 4 and <= 5)), "recruiting refreshes selected team skill tier");
+        Check(training.GetCurrencyVal(CurrencyType.CharPremiumTicket) == 0 && training.GetGachaCountForType(GachaPremiumType.GachaPremium) == previousPulls + 1 &&
+            previousCards.All(card => training.Characters.Any(c => c.Csn == card.Csn && c.Tid == card.Tid)),
+            "recruiting spends the real ticket and preserves all existing cards");
+        Check((int)training.ManagedNpc!.GetType().GetProperty("RosterTier")!.GetValue(training.ManagedNpc)! ==
+            (int)Call(Roster, "TierForCount", (int)Call(Roster, "SsrCount", training)!)!, "collection tier tracks actual SSR ownership");
+        Check(JsonConvert.SerializeObject(training.Characters.Where(c => previousCards.Any(p => p.Csn == c.Csn))
+            .Select(c => (c.Csn, c.Skill1Lvl, c.Skill2Lvl, c.UltimateLevel))) == skillSnapshot,
+            "recruiting and team refresh do not grant free skill levels");
         Call(Service, "UpgradeRosters", now.AddMinutes(2));
         Check(JsonConvert.SerializeObject(Get().Users.Single(u => u.ID == 1)) == humanBefore, "ongoing NPC training and recruiting preserve the human save");
-        Console.WriteLine("PASS: selected-CSN training, tier skill caps, SSR recruitment, tier promotion and preserved human state");
+        Console.WriteLine("PASS: selected-CSN paid training, once-per-day phases, real recruiting, no free tier skills and preserved human state");
         return 0;
     }
 

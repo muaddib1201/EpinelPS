@@ -20,7 +20,7 @@ try
     await GameDataInitializer.InitializeGameData(new Progress<double>());
     File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "routine-definitions.json"), JsonConvert.SerializeObject(new
     {
-        Contents = data.ContentsOpenTable, Missions = data.TriggerTable.Values.Where(t => t.HandlerType is HandlerType.MissionDaily or HandlerType.MissionWeekly),
+        Contents = data.ContentsOpenTable, Missions = data.TriggerTable.Values.Where(t => t.HandlerType is HandlerType.MissionDaily or HandlerType.MissionWeekly or HandlerType.Achievement),
         DispatchBoards = data.DispatchBoardTable, Dispatch = data.DispatchTable.Values.Take(20), Simulation = data.SimulationRoomDifficultyTable,
         EarlyQuests = data.QuestDataRecords.Values.Where(q => q.Id <= 40), OutpostLevels = data.OutpostBattle.Keys.Take(25)
     }, Formatting.Indented));
@@ -188,7 +188,18 @@ try
     ManagedNpcService.Tick(now.AddDays(1).AddHours(4).AddMinutes(24));
     Check(Completed() == 5, "final phase retries successfully after rollback");
     Console.WriteLine("PASS: cross-day scheduling, pause/resume and failed-save rollback preserve phase accounting");
-    return 0;
+    var faultDay = now.AddDays(2);
+    ManagedNpcService.Tick(faultDay);
+    var broken = Npc().Characters.First();
+    broken.Tid = int.MaxValue;
+    failed = false;
+    try { ManagedNpcService.Tick(faultDay.AddMinutes(6)); }
+    catch (KeyNotFoundException) { failed = true; }
+    var healthy = State().Users.Single(u => u.ID == 1500000001);
+    Check(failed && Completed() == 0 && healthy.ManagedNpc!.DailyRoutine!.CompletedPhases == 1,
+        "one broken NPC rolls back its own phase without starving later healthy NPCs");
+    Console.WriteLine("PASS: a persistent NPC action failure cannot block the remaining population");
+    return TeamChecks.Run(root.FullName, data);
 }
 catch (Exception ex) { Console.WriteLine(ex); return 1; }
 

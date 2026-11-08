@@ -28,7 +28,7 @@ internal static class DeepChecks
             Check(get().Users.Sum(u => u.ManagedNpc?.TotalActions ?? 0) == actions, "configuration after a clock rollback cannot replay progress");
             Reset();
 
-            // Mutation caught: NPC-by-NPC catch-up repeatedly resets the same union's daily total.
+            // Mutation caught: restarting the routine must not award historical fixed union contributions.
             ManagedNpcService.Configure(true, 1, now);
             foreach (var p in get().Users.Where(u => u.ManagedNpc != null)) p.ManagedNpc!.Enabled = false;
             int guildId = get().Guilds.Keys.First();
@@ -44,10 +44,10 @@ internal static class DeepChecks
             }
             get().Guilds[guildId].NpcActivityDay = 0;
             get().Guilds[guildId].Data.ActivityPointDaily = 0;
-            // Reset is 20:00 UTC. Give both 20–90 minute timelines more than
-            // one maximum interval in the new game day before asserting its total.
             ManagedNpcService.Tick(now.AddHours(2));
-            Check(get().Guilds[guildId].Data.ActivityPointDaily == 60, "offline union daily accounting includes both members at the common active rate");
+            Check(get().Guilds[guildId].Data.ActivityPointDaily == 0 && pair.All(p =>
+                get().Users.Single(u => u.ID == p.ID).ManagedNpc!.DailyRoutine is { CompletedPhases: 0 }),
+                "offline restart schedules current-day routines without fixed or historical union credits");
             Reset();
 
             int beforeCount = get().Users.Count;
