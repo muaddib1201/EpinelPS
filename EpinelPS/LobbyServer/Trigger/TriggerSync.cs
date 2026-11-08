@@ -18,6 +18,7 @@ public class TriggerSync : LobbyMessage
         ReqSyncTrigger req = await ReadData<ReqSyncTrigger>();
         User user = GetUser();
         MissionProgressDelivery.Flush(user);
+        Lostsector.LostSectorMissionProgress.Recover(user);
 
         // This request is responsible for fetching a log for
         // daily, weekly, challenge mission completion.

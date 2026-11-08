@@ -88,6 +88,7 @@ internal static class MissionProgressDelivery
         foreach (var user in JsonDb.Instance.Users.ToArray())
         {
             Flush(user);
+            Lostsector.LostSectorMissionProgress.Recover(user);
             if (user.ShopMissionHistoryRepaired) continue;
             Apply(user, () =>
             {

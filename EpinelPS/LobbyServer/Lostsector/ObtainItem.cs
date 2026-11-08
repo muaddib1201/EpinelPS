@@ -39,6 +39,7 @@ public class ObtainItem : LobbyMessage
         }
 
         JsonDb.Save();
+        LostSectorMissionProgress.Recover(user);
         await WriteDataAsync(response);
     }
 }

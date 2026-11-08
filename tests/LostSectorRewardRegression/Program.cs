@@ -36,6 +36,8 @@ var pack = Directory.GetFiles(Path.Combine(root, "Server and Server selector/cac
 var data = new GameData(pack);
 typeof(GameData).GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, data);
 await data.Parse();
+Console.WriteLine($"Static event missions loaded: {data.EventMissionListTable.Count}; static sectors: {data.LostSector.Count}");
+File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "static-mission-audit.json"), JsonConvert.SerializeObject(data.EventMissionListTable.Values, Formatting.Indented));
 var savePath = Path.Combine(AppContext.BaseDirectory, "db.json");
 bool verifySaved = args.Contains("--verify-saved");
 var info = verifySaved ? JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(savePath))! : new CoreInfo();
