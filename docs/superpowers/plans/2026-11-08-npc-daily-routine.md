@@ -14,7 +14,7 @@
 
 - Only this session's registered worktree, isolated fixtures, and uniform workflow entry points.
 - Preserve existing NPC identities, character inventory, progress, teams and guilds; no resets or free growth.
-- One routine per game day, phases due at 6/12/18/24/30 minutes; restart never repeats settlement.
+- One routine per game day, phases due at 5/10/15/20/25 minutes with five minutes reserved for polling and settlement; restart never repeats settlement.
 - Real resource costs/rewards and eligible mission claims; guild contribution only from actual daily task points.
 - No client/battle simulation, live test writes, fabricated unsupported actions or historical daily catchup.
 

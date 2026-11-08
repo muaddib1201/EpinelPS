@@ -8,7 +8,8 @@ namespace EpinelPS.Services;
 public static partial class ManagedNpcService
 {
     public const int DailyPhaseCount = 5;
-    private static readonly TimeSpan PhaseInterval = TimeSpan.FromMinutes(6);
+    // Finish by minute 25 so the minute worker and settlement have a five-minute margin.
+    private static readonly TimeSpan PhaseInterval = TimeSpan.FromMinutes(5);
 
     public static void Tick(DateTime now)
     {
