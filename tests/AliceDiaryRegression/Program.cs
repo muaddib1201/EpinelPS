@@ -17,6 +17,7 @@ var workspace = Environment.GetEnvironmentVariable("NIKKE_WORKSPACE_ROOT") ?? th
 var data = new GameData(Directory.GetFiles(Path.Combine(workspace,"Server and Server selector/cache"),"StaticData.pack",SearchOption.AllDirectories).Single());
 typeof(GameData).GetField("_instance",BindingFlags.NonPublic|BindingFlags.Static)!.SetValue(null,data);
 await GameDataInitializer.InitializeGameData(new Progress<double>());
+Console.WriteLine("STATIC Alice max-affinity messenger dependencies: "+data.MessageConditions.Values.Count(c=>c.TriggerList?.Any(t=>t.Trigger==Trigger.CharacterAttractiveLevelMax && t.ConditionId==5004)==true));
 var jsonDb = typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb")!;
 var save = Path.Combine(AppContext.BaseDirectory,"db.json");
 const string connection = "Data Source=alice-diary;Mode=Memory;Cache=Shared";
