@@ -10,6 +10,7 @@ internal static class CorporationGrowthScoring
     internal static int[] Scores(User user)
     {
         var data = GameData.Instance;
+        var knownCharacters = user.Characters.Where(c => data.CharacterTable.ContainsKey(c.Tid)).ToArray();
         var research = user.ResearchProgress
             .Where(p => data.RecycleResearchStats.ContainsKey(p.Key))
             .Select(p => (Definition: data.RecycleResearchStats[p.Key], Level: Math.Max(0L, p.Value.Level)))
@@ -18,8 +19,11 @@ internal static class CorporationGrowthScoring
             .ToDictionary(g => g.Key, g => g.Max(p => p.Level));
         var registered = user.SynchroSlots.Where(s => s.Slot > 0 && s.CharacterSerialNumber > 0)
             .Select(s => s.CharacterSerialNumber).ToHashSet();
-        long synchro = registered.Count == 0 ? 0 : Math.Max(0L, user.GetSynchroLevel());
-        var characters = user.Characters.Where(c => data.CharacterTable.ContainsKey(c.Tid))
+        // Unknown saved definitions must not influence the five native levels,
+        // even indirectly through an otherwise valid registered character.
+        long synchro = registered.Count == 0 ? 0 : Math.Max(0L, user.SynchroDeviceUpgraded
+            ? user.SynchroDeviceLevel : knownCharacters.OrderByDescending(c => c.Level).Take(5).LastOrDefault()?.Level ?? 1);
+        var characters = knownCharacters
             .Select(c =>
             {
                 var definition = data.CharacterTable[c.Tid];

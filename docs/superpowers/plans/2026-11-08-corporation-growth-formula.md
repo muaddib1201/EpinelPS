@@ -17,8 +17,8 @@ Public primary observations: https://www.youtube.com/watch?v=3YVsuhp3aq8 (2024-1
 
 ## Execution
 
-- [ ] RED: add authenticated endpoint regressions for all four terms, additive Synchro, SR/R, research category/ownership boundaries, bond/equipment exclusion, duplicate records, and first-observed achievements after real skill/research/Synchro actions. Run through `nikke_workflow.py test`.
-- [ ] Implement a pure corporation-scoring helper and load the skill-point table. Extend the existing post-action progression stamp for native levels, three skills, Synchro state/assignments and research levels. Keep observation outside action/NPC locks.
+- [x] RED: add authenticated endpoint regressions for all four terms, additive Synchro, SR/R, research category/ownership boundaries, bond exclusion, duplicate records, and first-observed achievements after real skill/research/Synchro actions. Run through `nikke_workflow.py test`.
+- [x] Implement a pure corporation-scoring helper and load the skill-point table. Extend the existing post-action progression stamp for native levels, three skills, Synchro state/assignments and research levels. Keep observation outside action/NPC locks.
 - [ ] GREEN: update old tests which intentionally excluded level, run targeted tests, independent review and full isolated regression. Preserve existing milestone ranks/timestamps, reward claims, mail receipts and save rollback.
 - [ ] Integrate/sync, run the full suite on current integration, publish, prepare a new guarded installer, seal/check/deploy. Discard no existing live progression. Verify hashes/health, preservation and authenticated score responses after restart; keep client acceptance separate from server evidence.
 
@@ -26,3 +26,6 @@ Public primary observations: https://www.youtube.com/watch?v=3YVsuhp3aq8 (2024-1
 
 - Existing implementation only sums rarity/breakthrough/core and explicitly tests that levels are ignored. This is the reproduced design defect; the point table alone never represented the complete official formula.
 - No live state has been modified during formula research. All test fixtures are synthetic and live audit reads are separate.
+- RED `.nikke/checks/20261108-232015-283281`: one passed, twelve failed against the old formula. Initial GREEN `.nikke/checks/20261108-232333-957193`: all 13 growth and 32 existing ranking groups passed.
+- Independent review found an unknown-TID record could indirectly raise unenhanced Synchro. Added a failing authenticated regression (`.nikke/checks/20261108-232910-103877`: 12 passed/1 failed) and filter the native-level candidates inside the ranking helper, leaving other game systems unchanged.
+- A read-only calculation on the persisted live snapshot (`.nikke/company-growth-predicted-before-deploy.json`) produced new human corporation totals 30010/24154/26728/29772 for Elysion/Missilis/Tetra/Pilgrim. These are predictions until deployment probes confirm them; Tetra NPC 1500000059 calculates 28460. No NPC or player stats were adjusted to change rank order.
