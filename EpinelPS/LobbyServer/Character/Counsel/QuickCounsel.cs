@@ -20,7 +20,7 @@ public class QuickCounsel : LobbyMessage
         await WriteDataAsync(response);
     }
 
-    private ResCharacterQuickCounsel ApplyQuickCounsel(User user, ReqCharacterQuickCounsel req)
+    internal static ResCharacterQuickCounsel ApplyQuickCounsel(User user, ReqCharacterQuickCounsel req)
     {
         ResCharacterQuickCounsel response = new();
 
@@ -83,7 +83,7 @@ public class QuickCounsel : LobbyMessage
         return response;
     }
 
-    private void UpdateAttractiveLevel(NetUserAttractiveData attractiveData)
+    private static void UpdateAttractiveLevel(NetUserAttractiveData attractiveData)
     {
         while (attractiveData.Lv < 40)
         {

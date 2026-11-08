@@ -48,7 +48,7 @@ public static class NormalShopHelper
 
     private static NetShopProductData BuildContentsShopData(User user, ContentsShopRecord shop, bool reroll = false)
     {
-        var now = DateTime.UtcNow;
+        var now = RewardMutationScope.UtcNow;
         var category = (int)shop.ShopCategory;
         bool isMileage = category == MileageCategory;
         bool manualReroll = reroll;

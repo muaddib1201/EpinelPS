@@ -17,7 +17,7 @@ public class BuyProduct : LobbyMessage
         await WriteDataAsync(response);
     }
 
-    private ResShopBuyProduct Purchase(User user, ReqShopBuyProduct req)
+    internal static ResShopBuyProduct Purchase(User user, ReqShopBuyProduct req)
     {
 
         ResShopBuyProduct response = new()
@@ -46,7 +46,7 @@ public class BuyProduct : LobbyMessage
         return response;
     }
 
-    private void GrantProduct(User user, ref ResShopBuyProduct response, ContentsShopProductRecord product, int quantity)
+    private static void GrantProduct(User user, ref ResShopBuyProduct response, ContentsShopProductRecord product, int quantity)
     {
         Console.WriteLine($"Bought: {product.GoodsType}");
         int totalValue = checked(product.GoodsValue * quantity);

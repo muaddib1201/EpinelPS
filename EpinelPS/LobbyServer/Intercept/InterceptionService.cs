@@ -65,6 +65,23 @@ internal sealed class InterceptionService(User user, DateTime now, byte[]? nonce
         });
     }
 
+    internal static InterceptionClearResult SettleNpcRoutine(User user, DateTime now, int type, int id, long damage)
+    {
+        if (user.ManagedNpc == null || !RewardMutationScope.DefersSave) throw new InvalidOperationException("NPC phase transaction required.");
+        ValidateBoss(type, id);
+        if (user.ResetableData.InterceptionTickets <= 0) throw new BadHttpRequestException("No interception attempts remain.", 400);
+        var reward = InterceptionHelper.Clear(user, type, id, damage);
+        user.ResetableData.InterceptionTickets--;
+        var state = user.Interception ??= new();
+        int day = LobbyServer.Guild.GuildActivity.Day(now);
+        var key = BossKey(type, id);
+        long previous = state.BestByBoss.GetValueOrDefault(key) is { } saved && saved.Day == day ? saved.Damage : 0;
+        state.BestByBoss[key] = new InterceptionBest { Day = day, Damage = Math.Max(previous, damage) };
+        user.AddTrigger(Trigger.InterceptStart, 1);
+        user.AddTrigger(Trigger.InterceptClear, 1);
+        return reward;
+    }
+
     private T Commit<T>(string? key, int type, int id, long damage, bool fast, Func<InterceptionClearResult, T> response) where T : IMessage<T>
     {
         if (user.ResetableData.InterceptionTickets <= 0) throw new BadHttpRequestException("No interception attempts remain.", 400);

@@ -107,6 +107,14 @@ public static partial class ManagedNpcService
 
     private static void ExecuteDailyPhase(User user, int phase, DateTime now)
     {
-        // Business activities are supplied by the following implementation task.
+        switch (phase)
+        {
+            case 1: CollectDailyResources(user, now); break;
+            case 2: CounselAndTrainDaily(user, now); break;
+            case 3: RecruitAndResourceBattlesDaily(user, now); break;
+            case 4: AdvanceDailyProgress(user, now); break;
+            case 5: CompleteDailySocial(user, now); break;
+            default: throw new ArgumentOutOfRangeException(nameof(phase));
+        }
     }
 }

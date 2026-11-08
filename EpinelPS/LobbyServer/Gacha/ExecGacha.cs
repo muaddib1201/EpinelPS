@@ -45,7 +45,7 @@ public class ExecGacha : LobbyMessage
         await WriteDataAsync(response);
     }
 
-    private static ResExecuteGacha Execute(User user, ReqExecuteGacha req)
+    internal static ResExecuteGacha Execute(User user, ReqExecuteGacha req)
     {
         if (req.Count is not (1 or 10)) throw new BadHttpRequestException("Invalid recruit quantity.", 400);
         // Count determines whether we select 1 or 10 characters

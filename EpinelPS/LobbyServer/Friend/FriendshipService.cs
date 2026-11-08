@@ -102,6 +102,22 @@ public static class FriendshipService
         return new ResDeleteFriend();
     }, ReceiptKey(nameof(Delete), friendId, nonce));
 
+    internal static (int Sent, int Received) SettleNpcDaily(User user, DateTime now)
+    {
+        if (user.ManagedNpc == null) throw new ArgumentException("Managed NPC required.");
+        RefreshIncoming(user, now);
+        int sent = 0, received = 0;
+        foreach (var friend in Friends(user))
+        {
+            Prepare(friend, now);
+            if (SendOne(user, friend)) sent++;
+            if (ClaimOne(user, friend)) received++;
+        }
+        if (sent > 0) user.AddTrigger(Trigger.SendFriendShipPoint, sent);
+        if (received > 0) user.AddTrigger(Trigger.GetFriendShipPoint, received);
+        return (sent, received);
+    }
+
     private static FriendshipState State(User user) => user.Friendships ??= new();
     private static FriendGiftHistory History(User user, ulong id)
     {

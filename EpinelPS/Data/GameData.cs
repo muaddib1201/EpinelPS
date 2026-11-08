@@ -653,6 +653,8 @@ public class GameData
     public readonly Dictionary<int, DailyEventRecord> DailyEventTable = [];
 
     // SimulationRoom Data Tables
+    [LoadRecord("SimulationRoomDifficultyTable.json", "Id")]
+    public readonly Dictionary<int, SimulationRoomDifficultyRecord> SimulationRoomDifficultyTable = [];
     [LoadRecord("SimulationRoomChapterTable.json", "Id")]
     public readonly Dictionary<int, SimulationRoomChapterRecord> SimulationRoomChapterTable = [];
     [LoadRecord("SimulationRoomStageLocationTable.json", "Id")]

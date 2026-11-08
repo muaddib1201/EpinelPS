@@ -629,7 +629,7 @@ public static class SimRoomHelper
         {
             // get all chapter records for the current difficulty
             var chapterRecords = GameData.Instance.SimulationRoomChapterTable.Values
-                .Where(x => x.DifficultyId <= difficultyId);
+                .Where(x => x.DifficultyId < difficultyId || x.DifficultyId == difficultyId && x.Chapter <= chapterId);
 
             if (chapterRecords.Any())
             {
@@ -777,14 +777,15 @@ public static class SimRoomHelper
             foreach (var rewardItem in rewardRecord.Rewards.Where(x => x is not null && x.RewardValue > 0))
             {
                 // If reward already exists, increment its value, otherwise add it to the list
-                var rewardIndex = IncrementalRewards.FindIndex(x => x.RewardId == rewardItem.RewardId);
+                var rewardIndex = IncrementalRewards.FindIndex(x => x.RewardType == rewardItem.RewardType && x.RewardId == rewardItem.RewardId);
                 if (rewardIndex > -1)
                 {
                     IncrementalRewards[rewardIndex].RewardValue = IncrementalRewards[rewardIndex].RewardValue + rewardItem.RewardValue;
                 }
                 else
                 {
-                    IncrementalRewards.Add(rewardItem);
+                    IncrementalRewards.Add(new Reward_Data { RewardId = rewardItem.RewardId, RewardType = rewardItem.RewardType,
+                        RewardValue = rewardItem.RewardValue, RewardPercent = rewardItem.RewardPercent, PercentDisplayType = rewardItem.PercentDisplayType });
                 }
             }
         }

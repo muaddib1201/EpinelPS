@@ -17,7 +17,7 @@ public class Present : LobbyMessage
         await WriteDataAsync(response);
     }
 
-    private ResCharacterPresent Give(User user, ReqCharacterPresent req)
+    internal static ResCharacterPresent Give(User user, ReqCharacterPresent req)
     {
 
         ResCharacterPresent response = new();
@@ -116,7 +116,7 @@ public class Present : LobbyMessage
         return response;
     }
 
-    private void UpdateAttractiveLevel(NetUserAttractiveData attractiveData)
+    private static void UpdateAttractiveLevel(NetUserAttractiveData attractiveData)
     {
         while (attractiveData.Lv < 40)
         {

@@ -65,6 +65,10 @@ internal sealed partial class ArenaService
     {
         string key = BattleKey("result", req);
         if (Replay<ResArenaResult>(key) is { } receipt) return receipt;
+        return Remember(key, FinishRookie(req));
+    }
+    private ResArenaResult FinishRookie(ReqArenaResult req)
+    {
         var (battle, enemy) = Pending(req.EnemyUsn, false);
         if (!battle.AttackTeams.Contains(req.TeamNumber)) throw new BadHttpRequestException("Invalid arena attack team number.", 400);
         var result = new NetArenaResult { User = new NetArenaRankData { BeforeRank = Rank(user, false), BeforeRating = Own.Rating },
@@ -87,13 +91,17 @@ internal sealed partial class ArenaService
         Own.RookieRecords = [attack.ToByteArray(), .. Own.RookieRecords.Take(49)];
         enemy.Arena.RookieRecords = [defense.ToByteArray(), .. enemy.Arena.RookieRecords.Take(49)];
         Own.Pending = null;
-        return Remember(key, new ResArenaResult { ArenaCount = Own.RookieCount, ArenaResult = result, Reward = reward,
-            Currency = new NetUserCurrencyData { Type = 5000, Value = user.Currency.GetValueOrDefault(CurrencyType.ArenaChip) }, User = Profile(user, false), Enemy = Profile(enemy, false) });
+        return new ResArenaResult { ArenaCount = Own.RookieCount, ArenaResult = result, Reward = reward,
+            Currency = new NetUserCurrencyData { Type = 5000, Value = user.Currency.GetValueOrDefault(CurrencyType.ArenaChip) }, User = Profile(user, false), Enemy = Profile(enemy, false) };
     }
     internal ResSpecialArenaResult SpecialResult(ReqSpecialArenaResult req)
     {
         string key = BattleKey("special/result", req);
         if (Replay<ResSpecialArenaResult>(key) is { } receipt) return receipt;
+        return Remember(key, FinishSpecial(req));
+    }
+    private ResSpecialArenaResult FinishSpecial(ReqSpecialArenaResult req)
+    {
         var (battle, enemy) = Pending(req.EnemyUsn, true);
         var rounds = req.Result.OrderBy(r => r.Round).ToArray();
         if (rounds.Length is < 2 or > 3 || !rounds.Select(r => r.Round).SequenceEqual(Enumerable.Range(1, rounds.Length)) ||
@@ -117,8 +125,8 @@ internal sealed partial class ArenaService
         if (won) QueueTrigger(Trigger.WinArena, 1, 0);
         QueueTrigger(Trigger.SpecialArenaTier, result.User.After.Tier, 0);
         Own.Pending = null;
-        return Remember(key, new ResSpecialArenaResult { SpecialArenaCount = Own.SpecialCount, Battle = result, Reward = new(),
-            User = Profile(user, true), Enemy = Profile(enemy, true), Currencies = { user.Currency.Select(c => new NetUserCurrencyData { Type = (int)c.Key, Value = c.Value }) } });
+        return new ResSpecialArenaResult { SpecialArenaCount = Own.SpecialCount, Battle = result, Reward = new(),
+            User = Profile(user, true), Enemy = Profile(enemy, true), Currencies = { user.Currency.Select(c => new NetUserCurrencyData { Type = (int)c.Key, Value = c.Value }) } };
     }
 
     private string BattleKey(string route, IMessage req) => Key(route, req)
@@ -126,6 +134,8 @@ internal sealed partial class ArenaService
 
     private void QueueTrigger(Trigger type, int value, int condition)
     {
+        if (user.ManagedNpc != null && RewardMutationScope.DefersSave)
+        { user.AddTrigger(type, value, condition); return; }
         long at = Math.Max(now.AddHours(9).Ticks, Own.LastTriggerAt + 1);
         Own.LastTriggerAt = at;
         Own.PendingTriggers.Add(new TriggerModelNew { UserId = user.ID, CreatedAt = at, Type = type, ConditionId = condition, Value = value });

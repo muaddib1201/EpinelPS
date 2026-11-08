@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using EpinelPS.Data;
 using EpinelPS.Database;
 using EpinelPS.Utils;
+using EpinelPS.LobbyServer.Mission;
 
 namespace EpinelPS.LobbyServer.Tower;
 
@@ -36,8 +37,8 @@ public class TowerHelper
         // and does not receive new clears after the database migration.
         using var db = GameContext.CreateNew();
         Trigger trigger = TowerClearTriggers[type];
-        return db.Triggers
-            .Where(t => t.UserId == user.ID && t.Type == trigger && t.Value >= 1)
+        return db.Triggers.Where(t => t.UserId == user.ID).ToArray().Concat(MissionTriggerHistory.Pending(user))
+            .Where(t => t.Type == trigger && t.Value >= 1)
             .Select(t => t.ConditionId)
             .ToHashSet();
     }
