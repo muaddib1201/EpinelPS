@@ -7,6 +7,7 @@ using EpinelPS.Models;
 using EpinelPS.Services;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Microsoft.EntityFrameworkCore;
 
 try
 {
@@ -29,7 +30,7 @@ try
     GameContext.InitializeOptions($"Data Source={Path.Combine(AppContext.BaseDirectory, "npc-daily-regression.db")}", "sqlite");
     var now = new DateTime(2026, 11, 8, 5, 0, 0, DateTimeKind.Utc);
     CoreInfo State() => (CoreInfo)instance.GetValue(null)!;
-    User Npc() => State().Users.Single(u => u.ManagedNpc != null);
+    User Npc() => State().Users.Single(u => u.ID == 1500000000);
     JObject Routine() => JObject.FromObject(Npc().ManagedNpc!)["DailyRoutine"] as JObject
         ?? throw new Exception("FAIL: NPC daily routine state is unavailable");
     int Completed() => (int)Routine()["CompletedPhases"]!;
@@ -47,6 +48,14 @@ try
             "recruiting consumes the owned ticket and records the actual pull");
         Check(JsonConvert.SerializeObject(data.RewardDataRecords) == File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "reward-tables-before.json")),
             "multi-chapter simulation rewards never mutate shared static tables");
+        Check(Npc().ResetableData.DailyMissionPoints >= 100 && Npc().ResetableData.CompletedDailyMissions.Contains(10017),
+            "real action progress claims daily points and the unlocked hundred-point chest");
+        int day = (int)Routine()["Day"]!;
+        Check(Npc().Guild.ActivityByDay!.GetValueOrDefault(day) == 100 && Npc().GuildContributionByDay.GetValueOrDefault(day) == 100 &&
+            State().Guilds[Npc().Guild.guildId!.Value].Data.ActivityPoint == 100,
+            "new daily task points credit the remaining union budget without duplicating thirty legacy points");
+        Check(Npc().Arena?.RookieCount == 5 && Npc().Arena.RookieRecords.Count >= 5 && Npc().GetCurrencyVal(CurrencyType.ArenaChip) > 0,
+            "NPC arena fights actually spend attempts, persist records and pay win rewards");
         Console.WriteLine("PASS: separate-process restart resumes the remaining phases exactly once");
         return 0;
     }
@@ -59,7 +68,25 @@ try
     using var db = GameContext.CreateNew();
     db.Database.EnsureDeleted(); db.Database.EnsureCreated();
     db.Users.Add(new GameUser { ID = 1, Nickname = "UnchangedHuman" }); db.SaveChanges();
-    ManagedNpcService.CreateBatch(db, 1, "routine-fixture", now);
+    ManagedNpcService.CreateBatch(db, 2, "routine-fixture", now);
+    foreach (var player in State().Users.Where(u => u.ManagedNpc != null))
+    {
+        foreach (var stage in data.StageDataRecords.Values.Where(s => s.ChapterMod == ChapterMod.Normal && s.StageType == StageType.Main && s.ChapterId <= 8))
+        {
+            var map = data.GetMapIdFromChapter(stage.ChapterId, stage.ChapterMod);
+            if (!player.FieldInfoNew.TryGetValue(map, out var field)) player.FieldInfoNew[map] = field = new();
+            if (!field.CompletedStages.Contains(stage.Id)) field.CompletedStages.Add(stage.Id);
+        }
+        player.LastNormalStageCleared = data.StageDataRecords.Values.Where(s => s.ChapterMod == ChapterMod.Normal && s.StageType == StageType.Main && s.ChapterId == 8).Max(s => s.Id);
+    }
+    var opponent = State().Users.Single(u => u.ID == 1500000001);
+    opponent.SynchroDeviceUpgraded = false;
+    foreach (var character in opponent.Characters) character.Level = 1;
+    int legacyDay = int.Parse(now.AddHours(-State().ResetHourUtcTime).ToString("yyyyMMdd"));
+    Npc().ManagedNpc!.Day = legacyDay; Npc().ManagedNpc!.ActivityToday = 30;
+    var legacyGuild = State().Guilds[Npc().Guild.guildId!.Value];
+    legacyGuild.ActivityByDay = null; legacyGuild.NpcActivityDay = legacyDay;
+    legacyGuild.Data.ActivityPoint = legacyGuild.Data.ActivityPointDaily = legacyGuild.Data.Exp = 30;
     Npc().BattleTime = now.AddHours(-24);
     Npc().Currency[CurrencyType.Gold] = 10_000_000;
     Npc().Currency[CurrencyType.CharacterExp] = 10_000_000;
@@ -75,22 +102,38 @@ try
 
     ManagedNpcService.Tick(now);
     Check(Completed() == 0, "initial migration schedules without free immediate settlement");
+    Check(Npc().GuildContributionByDay.GetValueOrDefault(legacyDay) == 30, "migration retains already-earned legacy guild contribution");
     Check(Npc().ID == uid && Npc().LastNormalStageCleared == originalStage && Npc().Guild.guildId == originalGuild && originalCharacters.SetEquals(Npc().Characters.Select(c => c.Csn)),
         "migration preserves NPC identity, characters, campaign and guild");
     ManagedNpcService.Tick(now.AddMinutes(5));
     Check(Completed() == 0, "phase cannot run before six minutes");
+    db.Database.ExecuteSqlRaw("CREATE TRIGGER npc_test_reject BEFORE INSERT ON Triggers WHEN NEW.UserId = 1500000000 BEGIN SELECT RAISE(FAIL, 'NPC notification failure'); END;");
     ManagedNpcService.Tick(now.AddMinutes(6));
     Check(Completed() == 1, "exactly one phase is due at six minutes");
     Check(Npc().ResetableData.WipeoutCount == 1 && Npc().GetCurrencyVal(CurrencyType.CharacterExp) > 10_000_000,
         "first phase settles actual outpost resources and spends the daily free wipeout");
+    Check(Npc().PendingMissionTriggers.Count > 0 && !db.Triggers.Any(t => t.UserId == Npc().ID), "SQL failure leaves the paid phase and its durable outbox committed");
+    var deferred = Snapshot();
+    ManagedNpcService.Tick(now.AddMinutes(6));
+    Check(Snapshot() == deferred, "notification retry cannot rerun a committed phase");
+    db.Database.ExecuteSqlRaw("DROP TRIGGER npc_test_reject;");
     var resourcesBeforeTraining = Npc().GetCurrencyVal(CurrencyType.Gold);
     ManagedNpcService.Tick(now.AddMinutes(12));
     Check(Completed() == 2, "exactly two phases are due at twelve minutes");
+    Check(Npc().PendingMissionTriggers.Count == 0 && db.Triggers.Count(t => t.UserId == Npc().ID && t.Type == Trigger.OutpostBattleReward) == 1,
+        "SQL recovery delivers each earlier outpost action once");
     Check(Npc().BondInfo.Sum(b => b.CounseledCount) > 0 && Npc().ResetableData.DailyCounselCount.GetValueOrDefault(1) == 0,
         "counseling increases bond and consumes its actual daily budget");
     Check(Npc().GetCurrencyVal(CurrencyType.Gold) < resourcesBeforeTraining &&
         (Npc().SynchroDeviceUpgraded ? Npc().SynchroDeviceLevel : Npc().Characters.Max(c => c.Level)) > startingLevel,
         "character training pays actual gold/material costs for its level increase");
+    var probe = ManagedNpcService.Clone(Npc());
+    foreach (var character in probe.Characters) character.Skill1Lvl = character.Skill2Lvl = character.UltimateLevel = 1;
+    ManagedNpcRoster.Refresh(probe);
+    Check(probe.Characters.All(c => c.Skill1Lvl == 1 && c.Skill2Lvl == 1 && c.UltimateLevel == 1), "ongoing team selection cannot grant free skill levels");
+    probe.SynchroSlots.Clear(); probe.SynchroSlotsFromItems = 0;
+    ManagedNpcGrowth.Refresh(probe);
+    Check(probe.SynchroSlots.Count <= 5 && probe.SynchroSlotsFromItems == 0, "ongoing roster growth cannot manufacture paid synchro slots");
     Check(JsonConvert.SerializeObject(State().Users.Single(u => u.ID == 1)) == human, "NPC activities preserve the human profile");
     Console.WriteLine("PASS: migration preserves existing NPCs; phases obey the six-minute schedule");
     Save();
@@ -127,6 +170,19 @@ try
     Check(failed && Snapshot() == beforeFailure, "failed phase save rolls back settlement and phase marker");
     ManagedNpcService.Tick(now.AddDays(1).AddHours(4).AddMinutes(6));
     Check(Completed() == 2, "failed phase can retry once without losing progress");
+    ManagedNpcService.Tick(now.AddDays(1).AddHours(4).AddMinutes(18));
+    Check(Completed() == 4, "prepare an already-settled fourth phase for final-claim rollback");
+    beforeFailure = Snapshot();
+    int beforeSql = db.Triggers.Count();
+    Directory.CreateDirectory(path + ".tmp"); failed = false;
+    try { ManagedNpcService.Tick(now.AddDays(1).AddHours(4).AddMinutes(24)); }
+    catch (IOException) { failed = true; }
+    catch (UnauthorizedAccessException) { failed = true; }
+    finally { Directory.Delete(path + ".tmp"); }
+    Check(failed && Snapshot() == beforeFailure && db.Triggers.Count() == beforeSql,
+        "failed final phase rolls back task rewards, guild contribution, arena world and opponent records before SQLite notification");
+    ManagedNpcService.Tick(now.AddDays(1).AddHours(4).AddMinutes(24));
+    Check(Completed() == 5, "final phase retries successfully after rollback");
     Console.WriteLine("PASS: cross-day scheduling, pause/resume and failed-save rollback preserve phase accounting");
     return 0;
 }
