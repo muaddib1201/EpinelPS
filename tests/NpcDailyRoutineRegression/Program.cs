@@ -46,8 +46,8 @@ try
         Check(Completed() == 3, "restart resumes the next due phase");
         Check(Npc().GetCurrencyVal(CurrencyType.CharPremiumTicket) == 0 && Npc().GetGachaCountForType(GachaPremiumType.GachaPremium) == 1,
             "recruiting consumes the owned ticket and records the actual pull");
-        ManagedNpcService.Tick(now.AddMinutes(30));
-        Check(Completed() == 5, "restart resumes only the remaining three phases");
+        ManagedNpcService.Tick(now.AddMinutes(25));
+        Check(Completed() == 5, "all phases finish with five minutes reserved for worker polling and settlement");
         Check(JsonConvert.SerializeObject(data.RewardDataRecords) == File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "reward-tables-before.json")),
             "multi-chapter simulation rewards never mutate shared static tables");
         Check(Npc().ResetableData.DailyMissionPoints >= 100 && Npc().ResetableData.CompletedDailyMissions.Contains(10017),
@@ -126,11 +126,11 @@ try
     Check(Npc().GuildContributionByDay.GetValueOrDefault(legacyDay) == 30, "migration retains already-earned legacy guild contribution");
     Check(Npc().ID == uid && Npc().LastNormalStageCleared == originalStage && Npc().Guild.guildId == originalGuild && originalCharacters.SetEquals(Npc().Characters.Select(c => c.Csn)),
         "migration preserves NPC identity, characters, campaign and guild");
-    ManagedNpcService.Tick(now.AddMinutes(5));
-    Check(Completed() == 0, "phase cannot run before six minutes");
+    ManagedNpcService.Tick(now.AddMinutes(4));
+    Check(Completed() == 0, "phase cannot run before five minutes");
     db.Database.ExecuteSqlRaw("CREATE TRIGGER npc_test_reject BEFORE INSERT ON Triggers WHEN NEW.UserId = 1500000000 BEGIN SELECT RAISE(FAIL, 'NPC notification failure'); END;");
-    ManagedNpcService.Tick(now.AddMinutes(6));
-    Check(Completed() == 1, "exactly one phase is due at six minutes");
+    ManagedNpcService.Tick(now.AddMinutes(5));
+    Check(Completed() == 1, "first phase leaves enough time for the complete thirty-minute window");
     Check(Npc().ResetableData.WipeoutCount == 1 && Npc().GetCurrencyVal(CurrencyType.CharacterExp) > 10_000_000,
         "first phase settles actual outpost resources and spends the daily free wipeout");
     Check(Npc().userPointData.UserLevel > commanderBeforeOutpost.UserLevel ||
@@ -160,7 +160,7 @@ try
     ManagedNpcGrowth.Refresh(probe);
     Check(probe.SynchroSlots.Count <= 5 && probe.SynchroSlotsFromItems == 0, "ongoing roster growth cannot manufacture paid synchro slots");
     Check(JsonConvert.SerializeObject(State().Users.Single(u => u.ID == 1)) == human, "NPC activities preserve the human profile");
-    Console.WriteLine("PASS: migration preserves existing NPCs; phases obey the six-minute schedule");
+    Console.WriteLine("PASS: migration preserves existing NPCs; phases reserve worker polling margin inside thirty minutes");
     Save();
     using (var child = Process.Start(new ProcessStartInfo(Environment.ProcessPath!, "--resume") { UseShellExecute = false, WorkingDirectory = AppContext.BaseDirectory })!)
     {
