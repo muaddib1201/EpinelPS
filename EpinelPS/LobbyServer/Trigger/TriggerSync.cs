@@ -41,6 +41,7 @@ public class TriggerSync : LobbyMessage
             bool refreshClock = false;
             lock (user)
             {
+                AliceDiaryProgress.Reconcile(user);
                 if (packetKey != null && user.TriggerSyncClockReceipt is { } receipt && receipt.PacketKey == packetKey)
                 {
                     response = ResSyncTrigger.Parser.ParseFrom(receipt.Response);
