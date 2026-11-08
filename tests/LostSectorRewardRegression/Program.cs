@@ -14,6 +14,7 @@ using Google.Protobuf;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
@@ -63,7 +64,7 @@ builder.Services.AddControllers(o => o.OutputFormatters.Insert(0, new ProtobufOu
     .AddApplicationPart(typeof(LobbyHandler).Assembly);
 await using var app = builder.Build();
 app.Use(async (context, next) => {
-    context.Items["UserID"] = account;
+    context.Items["UserID"] = ulong.TryParse(context.Request.Headers["X-Test-User"], out var testUser) ? testUser : account;
     await next();
 });
 app.MapControllers();
@@ -81,9 +82,26 @@ if (verifySaved)
         Check(inventory.Items.Single(x => x.Isn == cube.Isn).Lv == 1, "restart inventory level");
         Check(inventory.HarmonyCubes.Single(x => x.Isn == cube.Isn).Lv == 1, "restart cube level");
     });
+    await Test("fresh process retains exactly one Lost Sector clear and no reward repair payout", async () => {
+        var wallet = JsonConvert.SerializeObject(user.Currency);
+        var items = JsonConvert.SerializeObject(user.Items);
+        RecoverStartup();
+        var sync = await Send<ResSyncTrigger>("trigger/sync", new ReqSyncTrigger());
+        Check(sync.Triggers.Count(t => t.Trigger == 53 && t.ConditionId == 1 && t.UserValue == 1) == 1, "clear lost or duplicated after restart");
+        Check(wallet == JsonConvert.SerializeObject(user.Currency) && items == JsonConvert.SerializeObject(user.Items), "restart recovery paid rewards");
+        using var db = GameContext.CreateNew();
+        Check(db.Triggers.Count(t => t.UserId == 99220 && t.Type == Trigger.LostSectorClear) == 1, "retried notification lost after restart");
+    });
 }
 else
 {
+    await Test("an opened sector cannot satisfy the actual Day By Day clear condition", async () => {
+        var mission = data.EventMissionListTable.Values.Single(m => m.Id >= 200010200 && m.Id < 200010300 && m.Trigger == Trigger.LostSectorClear);
+        Console.WriteLine($"Day By Day condition: mission={mission.Id}, trigger={(int)mission.Trigger}, sector={mission.ConditionId}, target={mission.ConditionValue}");
+        Check(mission.ConditionId == 1 && mission.ConditionValue == 1, "static Day By Day condition changed");
+        var sync = await Send<ResSyncTrigger>("trigger/sync", new ReqSyncTrigger());
+        Check(sync.Triggers.All(t => t.Trigger != 53), "opening a sector invented a clear");
+    });
     await Test("new cube reward carries a valid level through protobuf before inventory refresh", () => {
         var fixture = new User { ID = 99202 };
         var reward = new NetRewardData();
@@ -109,6 +127,13 @@ else
         Check(response.Reward.Currency.Single(x => x.Type == 3000).Value == 100 && user.GetCurrencyVal((CurrencyType)3000) == 100, "original final chest currency changed");
         Check(user.LostSectorData[1].ReceivedFinalReward && user.Items.Single(x => x.Isn == cube.Isn).Level == 1, "chest persistence");
     });
+    await Test("a real final chest delivers the missing Day By Day clear notification", async () => {
+        using var db = GameContext.CreateNew();
+        Check(db.Triggers.Count(t => t.UserId == account && t.Type == Trigger.LostSectorClear && t.ConditionId == 1 && t.Value == 1) == 1,
+            "final chest did not record LostSectorClear(53), sector 1, value 1");
+        var sync = await Send<ResSyncTrigger>("trigger/sync", new ReqSyncTrigger());
+        Check(sync.Triggers.Count(t => t.Trigger == 53 && t.ConditionId == 1 && t.UserValue == 1) == 1, "wire mission progress missing");
+    });
     await Test("inventory refresh returns the saved level-one cube without another payout", async () => {
         var cube = user.Items.Single(x => x.ItemType == cubeId);
         var inventory = await Send<ResGetInventoryData>("inventory/get", new ReqGetInventoryData());
@@ -130,20 +155,108 @@ else
         Check(second.Lv == 0 && second.Count == 5 && second.Isn == first.Isn && fixture.Items.Count == 1, "ordinary stacking changed");
         return Task.CompletedTask;
     });
+    await Test("legacy final-chest evidence repairs once across repeated startup and sync without rewards", async () => {
+        var legacy = Fixture(99210, new LostSectorData { IsOpen = true, ReceivedFinalReward = true, CompletedPerfectly = true, ObtainedRewards = 3 });
+        var before = RewardState(legacy);
+        RecoverStartup();
+        RecoverStartup();
+        var first = await Send<ResSyncTrigger>("trigger/sync", new ReqSyncTrigger(), legacy.ID);
+        await Send<ResSyncTrigger>("trigger/sync", new ReqSyncTrigger(), legacy.ID);
+        Check(first.Triggers.Count(t => t.Trigger == 53 && t.ConditionId == 1 && t.UserValue == 1) == 1, "legacy clear not recovered");
+        using var db = GameContext.CreateNew();
+        Check(db.Triggers.Count(t => t.UserId == legacy.ID && t.Type == Trigger.LostSectorClear) == 1, "startup/sync duplicated the clear");
+        Check(RewardState(legacy) == before, "legacy repair changed rewards, event claims or exploration");
+    });
+    await Test("an already delivered clear is preserved while a second completed sector is recovered", async () => {
+        var legacy = Fixture(99211, new LostSectorData { ReceivedFinalReward = true });
+        legacy.LostSectorData[2] = new LostSectorData { ReceivedFinalReward = true };
+        long id = legacy.AddTrigger(Trigger.LostSectorClear, 1, 1).Id;
+        await Send<ResSyncTrigger>("trigger/sync", new ReqSyncTrigger(), legacy.ID);
+        using var db = GameContext.CreateNew();
+        Check(db.Triggers.Count(t => t.UserId == legacy.ID && t.Type == Trigger.LostSectorClear) == 2, "per-sector recovery count incorrect");
+        Check(db.Triggers.Any(t => t.Id == id && t.ConditionId == 1) && db.Triggers.Any(t => t.UserId == legacy.ID && t.Type == Trigger.LostSectorClear && t.ConditionId == 2),
+            "existing event changed or sector 2 was not recovered");
+    });
+    await Test("partial battles, perfect reward alone and unknown sectors cannot fabricate clears", async () => {
+        var partial = Fixture(99212, new LostSectorData { IsOpen = true, IsPlaying = true, CompletedPerfectly = true });
+        foreach (var stage in data.MapData[data.LostSector[1].FieldId].StageSpawner)
+            partial.LostSectorData[1].ClearedStages[stage.PositionId] = stage.StageId;
+        partial.LostSectorData[int.MaxValue] = new LostSectorData { ReceivedFinalReward = true };
+        RecoverStartup();
+        var sync = await Send<ResSyncTrigger>("trigger/sync", new ReqSyncTrigger(), partial.ID);
+        Check(sync.Triggers.All(t => t.Trigger != 53), "unproven or unknown sector counted as a clear");
+    });
+    await Test("a failed JSON commit cannot leak an uncommitted mission notification", async () => {
+        var legacy = Fixture(99213, new LostSectorData { ReceivedFinalReward = true });
+        infoProperty.DeclaringType!.GetMethod("Save")!.Invoke(null, null);
+        string temp = savePath + ".tmp";
+        Directory.CreateDirectory(temp);
+        bool rejected = false;
+        try { await Send<ResSyncTrigger>("trigger/sync", new ReqSyncTrigger(), legacy.ID); }
+        catch { rejected = true; }
+        finally { Directory.Delete(temp); }
+        Check(rejected, "blocked JSON commit was not rejected");
+        using (var db = GameContext.CreateNew())
+            Check(!db.Triggers.Any(t => t.UserId == legacy.ID && t.Type == Trigger.LostSectorClear), "failed commit leaked a clear to SQLite");
+        Check(legacy.PendingMissionTriggers.Count == 0, "failed commit left an uncommitted outbox entry");
+        var sync = await Send<ResSyncTrigger>("trigger/sync", new ReqSyncTrigger(), legacy.ID);
+        Check(sync.Triggers.Count(t => t.Trigger == 53 && t.ConditionId == 1) == 1, "retry did not recover the committed legacy clear");
+    });
+    await Test("SQLite failure persists the new-clear outbox and retry delivers it once", async () => {
+        var fixture = Fixture(99220, new LostSectorData { IsOpen = true, IsPlaying = true });
+        using (var db = GameContext.CreateNew())
+            db.Database.ExecuteSqlRaw("CREATE TRIGGER reject_lost_clear BEFORE INSERT ON Triggers WHEN NEW.Type=53 BEGIN SELECT RAISE(FAIL, 'fixture unavailable'); END;");
+        try
+        {
+            await Send<ResObtainLostSectorItem>("lostsector/obtainitem", new ReqObtainLostSectorItem {
+                SectorId = 1, Object = new NetLostSectorFieldObject { PositionId = finalChest, Type = 1 }
+            }, fixture.ID);
+            var persisted = JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(savePath))!.Users.Single(u => u.ID == fixture.ID);
+            Check(persisted.PendingMissionTriggers.Count(t => t.Type == Trigger.LostSectorClear && t.ConditionId == 1) == 1,
+                "SQLite failure lost the durable notification");
+            await Send<ResSyncTrigger>("trigger/sync", new ReqSyncTrigger(), fixture.ID);
+            Check(fixture.PendingMissionTriggers.Count(t => t.Type == Trigger.LostSectorClear) == 1, "queued retry added another clear");
+        }
+        finally
+        {
+            using var db = GameContext.CreateNew();
+            db.Database.ExecuteSqlRaw("DROP TRIGGER reject_lost_clear;");
+        }
+        string before = RewardState(fixture);
+        var result = await Send<ResSyncTrigger>("trigger/sync", new ReqSyncTrigger(), fixture.ID);
+        await Send<ResSyncTrigger>("trigger/sync", new ReqSyncTrigger(), fixture.ID);
+        Check(result.Triggers.Count(t => t.Trigger == 53 && t.ConditionId == 1) == 1 && fixture.PendingMissionTriggers.Count == 0,
+            "queued clear not drained exactly once");
+        Check(before == RewardState(fixture), "retry paid final chest again");
+    });
 }
 await app.StopAsync();
 Console.WriteLine($"Lost Sector reward regression: {passed}/{passed + failed} passed");
 return failed == 0 ? 0 : 1;
 
-async Task<T> Send<T>(string route, IMessage request) where T : IMessage<T>, new()
+async Task<T> Send<T>(string route, IMessage request, ulong? owner = null) where T : IMessage<T>, new()
 {
     using var message = new HttpRequestMessage(HttpMethod.Post, route);
+    if (owner.HasValue) message.Headers.Add("X-Test-User", owner.Value.ToString());
     message.Content = new ByteArrayContent(request.ToByteArray());
     message.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream+protobuf");
     using var response = await client.SendAsync(message);
     Check(response.StatusCode == HttpStatusCode.OK, $"{route} returned {(int)response.StatusCode}");
     var result = new T(); result.MergeFrom(await response.Content.ReadAsByteArrayAsync()); return result;
 }
+User Fixture(ulong id, LostSectorData sector)
+{
+    var fixture = new User { ID = id, ShopMissionHistoryRepaired = true, LastReset = DateTime.UtcNow, LastWeeklyReset = DateTime.UtcNow,
+        LostSectorData = { [1] = sector } };
+    info.Users.Add(fixture);
+    using var db = GameContext.CreateNew();
+    db.Users.Add(new GameUser { ID = id, Nickname = "LostMission" + id });
+    db.SaveChanges();
+    return fixture;
+}
+void RecoverStartup() => typeof(User).Assembly.GetType("EpinelPS.LobbyServer.Mission.MissionProgressDelivery")!
+    .GetMethod("RecoverAll", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [DateTime.UtcNow]);
+string RewardState(User fixture) => JsonConvert.SerializeObject(new { fixture.Currency, fixture.Items, fixture.EventMissionInfo, fixture.LostSectorData });
 void Check(bool condition, string reason) { if (!condition) throw new Exception(reason); }
 async Task Test(string name, Func<Task> action)
 {
