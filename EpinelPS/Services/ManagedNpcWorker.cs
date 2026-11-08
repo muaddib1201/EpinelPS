@@ -13,11 +13,13 @@ internal sealed class ManagedNpcWorker(IServiceScopeFactory scopes, ILogger<Mana
             {
                 using var scope = scopes.CreateScope();
                 ManagedNpcService.Recover(scope.ServiceProvider.GetRequiredService<GameContext>());
+                LobbyServer.Ranking.RankingService.ObserveSafely();
                 ManagedNpcService.UpgradeBreakthroughs();
                 ManagedNpcService.UpgradeGrowth();
                 ManagedNpcService.UpgradeRosters(DateTime.UtcNow);
                 ManagedNpcService.UpgradeSocial(DateTime.UtcNow);
                 ManagedNpcService.Tick(DateTime.UtcNow);
+                LobbyServer.Ranking.RankingService.ObserveSafely();
             }
             catch (Exception ex) { logger.LogError(ex, "NPC 托管更新失败，将在下一轮重试。"); }
         } while (await timer.WaitForNextTickAsync(stoppingToken));

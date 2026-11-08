@@ -1,6 +1,6 @@
 namespace EpinelPS.LobbyServer.Ranking;
 
-[GameRequest("/ranking/rankinglist")]
+[GameRequest("/ranking/getlist")]
 public class GetRankingList : LobbyMessage
 {
     protected override async Task HandleAsync()
@@ -10,7 +10,7 @@ public class GetRankingList : LobbyMessage
     }
 }
 
-[GameRequest("/ranking/rankachievementleaderboard")]
+[GameRequest("/ranking/rankachievement")]
 public class GetAchievementLeaderboard : LobbyMessage
 {
     protected override async Task HandleAsync()
@@ -20,7 +20,7 @@ public class GetAchievementLeaderboard : LobbyMessage
     }
 }
 
-[GameRequest("/ranking/obtainrankachievementserverreward")]
+[GameRequest("/ranking/rankachievementserverreward")]
 public class ObtainServerReward : LobbyMessage
 {
     protected override async Task HandleAsync()
@@ -30,7 +30,7 @@ public class ObtainServerReward : LobbyMessage
     }
 }
 
-[GameRequest("/ranking/obtainallrankachievementserverreward")]
+[GameRequest("/ranking/allrankachievementserverreward")]
 public class ObtainAllServerRewards : LobbyMessage
 {
     protected override async Task HandleAsync()

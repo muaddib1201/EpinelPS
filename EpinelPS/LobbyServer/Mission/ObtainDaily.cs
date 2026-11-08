@@ -13,6 +13,9 @@ public class ObtainDaily : LobbyMessage
         ReqObtainDailyMissionReward req = await ReadData<ReqObtainDailyMissionReward>();
         User user = GetUser();
 
+        if (req.TidList.Any(id => GameData.Instance.TriggerTable.GetValueOrDefault(id)?.HandlerType == HandlerType.Ranking))
+            throw new BadHttpRequestException("Ranking rewards are delivered by mail.", 400);
+
         var response = MissionProgressDelivery.Apply(user, () => Claim(user, req));
         await WriteDataAsync(response);
     }

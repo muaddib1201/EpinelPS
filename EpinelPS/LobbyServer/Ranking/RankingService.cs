@@ -12,6 +12,25 @@ internal static class RankingService
     private sealed record Snapshot(User Owner, NetWholeUserData Profile, int[] Scores, int HardChapter, bool Eligible);
     private static readonly int[] Tiers = [1, 5, 10];
 
+    internal static int ProgressStamp(User user)
+    {
+        lock (user)
+        lock (JsonDb.SaveLock)
+        {
+            var hash = new HashCode(); hash.Add(user.LastHardStageCleared);
+            foreach (var character in user.Characters) { hash.Add(character.Csn); hash.Add(character.Tid); }
+            return hash.ToHashCode();
+        }
+    }
+
+    internal static void ObserveSafely(User? user = null)
+    {
+        user ??= JsonDb.Instance.Users.FirstOrDefault(u => !u.IsBanned && u.ManagedNpc == null);
+        if (user == null) return;
+        try { Update(user); }
+        catch (Exception ex) { Logging.WriteLine("Ranking progress remains pending: " + ex.Message, LogType.Warning); }
+    }
+
     private static void ValidateType(int type)
     {
         if (type is < 0 or > 4) throw new BadHttpRequestException("Unsupported ranking type.", 400);
@@ -128,6 +147,7 @@ internal static class RankingService
         foreach (var user in JsonDb.Instance.Users.ToArray())
         {
             lock (user)
+            lock (JsonDb.SaveLock)
             {
                 var scores = new int[5];
                 int chapter = 0;
@@ -168,10 +188,17 @@ internal static class RankingService
 
     private static Snapshot[] Settle(User requester)
     {
+        for (int attempt = 0; ; attempt++)
+        {
         var snapshots = Capture();
         lock (JsonDb.SaveLock)
         {
             if (JsonDb.GetUser(requester.ID) != requester) throw new UnauthorizedAccessException("The account was reloaded.");
+            if (snapshots.Length != JsonDb.Instance.Users.Count || snapshots.Any(s => JsonDb.GetUser(s.Owner.ID) != s.Owner))
+            {
+                if (attempt >= 4) throw new BadHttpRequestException("Ranking participants changed; retry the request.", 409);
+                continue;
+            }
             if (GameData.Instance.Rankings.Count == 0 || GameData.Instance.RankingPoints.Count == 0)
                 throw new InvalidDataException("Ranking tables are unavailable.");
             var players = snapshots.Where(s => s.Eligible).Select(s => s.Owner).ToArray();
@@ -253,6 +280,7 @@ internal static class RankingService
         // The milestone, its mail and its notification outbox are now durable.
         foreach (var snapshot in snapshots.Where(s => s.Owner.PendingMissionTriggers.Count > 0)) MissionProgressDelivery.Flush(snapshot.Owner);
         return snapshots;
+        }
     }
 
     private static NetUserMailData CreateMail(User user, List<NetUserMailData> pending, TriggerRecord definition, long ticks)

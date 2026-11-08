@@ -69,6 +69,9 @@ public static class LobbyHandler
             }
         }
 
+        var progressionUser = ctx.Items["UserID"] is ulong actor ? JsonDb.GetUser(actor) : null;
+        int? progressionStamp = progressionUser == null ? null : Ranking.RankingService.ProgressStamp(progressionUser);
+
         if (!Handlers.TryGetValue(path, out var registered))
         {
             Logging.WriteLine($"[LobbyHandler] No handler for: {path}", LogType.Error);
@@ -84,6 +87,11 @@ public static class LobbyHandler
             // LobbyMessage stores the current HTTP context and user ID on the instance.
             var handler = (LobbyMessage)Activator.CreateInstance(registered.GetType())!;
             await handler.HandleAsync(ctx);
+            // Observe after the action releases its player/save locks. This also
+            // covers character grants from mail, shops and events, not just gacha.
+            var current = progressionUser == null ? null : JsonDb.GetUser(progressionUser.ID);
+            if (current != null && progressionStamp != Ranking.RankingService.ProgressStamp(current))
+                Ranking.RankingService.ObserveSafely(current);
         }
     }
 
