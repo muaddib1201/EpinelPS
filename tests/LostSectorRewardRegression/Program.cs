@@ -96,6 +96,8 @@ if (verifySaved)
 else
 {
     await Test("an opened sector cannot satisfy the actual Day By Day clear condition", async () => {
+        foreach (var row in data.EventMissionListTable.Values.Where(m => (m.Id >= 200010200 && m.Id < 200010300) || m.Trigger == Trigger.LostSectorClear))
+            Console.WriteLine($"Mission definition: id={row.Id}, trigger={(int)row.Trigger}, condition={row.ConditionId}, target={row.ConditionValue}, name={row.NameLocalkey}");
         var mission = data.EventMissionListTable.Values.Single(m => m.Id >= 200010200 && m.Id < 200010300 && m.Trigger == Trigger.LostSectorClear);
         Console.WriteLine($"Day By Day condition: mission={mission.Id}, trigger={(int)mission.Trigger}, sector={mission.ConditionId}, target={mission.ConditionValue}");
         Check(mission.ConditionId == 1 && mission.ConditionValue == 1, "static Day By Day condition changed");
