@@ -52,6 +52,8 @@ try
             "multi-chapter simulation rewards never mutate shared static tables");
         Check(Npc().ResetableData.DailyMissionPoints >= 100 && Npc().ResetableData.CompletedDailyMissions.Contains(10017),
             "real action progress claims daily points and the unlocked hundred-point chest");
+        Check(new[] { 203005, 204001, 204002, 204003 }.All(Npc().CompletedAchievements.Contains),
+            "actual bond twenty, three stars and core one award their earned achievement rewards");
         int day = (int)Routine()["Day"]!;
         Check(Npc().Guild.ActivityByDay!.GetValueOrDefault(day) == 100 && Npc().GuildContributionByDay.GetValueOrDefault(day) == 100 &&
             State().Guilds[Npc().Guild.guildId!.Value].Data.ActivityPoint == 100,
@@ -96,6 +98,20 @@ try
     Npc().Currency[CurrencyType.CharacterExp] = 10_000_000;
     Npc().Currency[CurrencyType.CharacterExp2] = 1_000_000;
     Npc().Currency[CurrencyType.CharPremiumTicket] = 1;
+    var coreCharacter = Npc().Characters.First(c => data.CharacterTable[c.Tid].OriginalRare == OriginalRareType.SSR);
+    int coreName = data.CharacterTable[coreCharacter.Tid].NameCode;
+    coreCharacter.Tid = data.CharacterTable.Values.First(c => c.NameCode == coreName && c.GradeCoreId == 205).Id;
+    coreCharacter.Grade = 4;
+    Npc().BondInfo.Add(new NetUserAttractiveData { NameCode = coreName, Lv = 20 });
+    var evaluator = typeof(ManagedNpcService).GetMethod("RoutineMissionProgress", BindingFlags.NonPublic | BindingFlags.Static)!;
+    bool snapshotProgressValid = true;
+    foreach (var (tid, expected) in new[] { (203005, 20L), (204001, 3L), (204003, 1L) })
+    {
+        long actual = (long)evaluator.Invoke(null, [Npc(), data.TriggerTable[tid], Array.Empty<TriggerModelNew>(), now])!;
+        snapshotProgressValid &= actual == expected;
+        Console.WriteLine($"{(actual == expected ? "PASS" : "FAIL")}: owned achievement {tid} progress {actual}, expected {expected}");
+    }
+    var commanderBeforeOutpost = (Npc().userPointData.UserLevel, Npc().userPointData.ExperiencePoint);
     var startingLevel = Npc().SynchroDeviceUpgraded ? Npc().SynchroDeviceLevel : Npc().Characters.Max(c => c.Level);
     File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "reward-tables-before.json"), JsonConvert.SerializeObject(data.RewardDataRecords));
     var uid = Npc().ID;
@@ -116,6 +132,10 @@ try
     Check(Completed() == 1, "exactly one phase is due at six minutes");
     Check(Npc().ResetableData.WipeoutCount == 1 && Npc().GetCurrencyVal(CurrencyType.CharacterExp) > 10_000_000,
         "first phase settles actual outpost resources and spends the daily free wipeout");
+    Check(Npc().userPointData.UserLevel > commanderBeforeOutpost.UserLevel ||
+        Npc().userPointData.UserLevel == commanderBeforeOutpost.UserLevel && Npc().userPointData.ExperiencePoint > commanderBeforeOutpost.ExperiencePoint,
+        "outpost commander experience enters the actual level/experience fields");
+    Check(snapshotProgressValid, "bond, breakthrough stars and core achievements use actual owned progression");
     Check(Npc().PendingMissionTriggers.Count > 0 && !db.Triggers.Any(t => t.UserId == uid), "SQL failure leaves the paid phase and its durable outbox committed");
     var deferred = Snapshot();
     ManagedNpcService.Tick(now.AddMinutes(6));
@@ -199,6 +219,18 @@ try
     Check(failed && Completed() == 0 && healthy.ManagedNpc!.DailyRoutine!.CompletedPhases == 1,
         "one broken NPC rolls back its own phase without starving later healthy NPCs");
     Console.WriteLine("PASS: a persistent NPC action failure cannot block the remaining population");
+    Npc().ManagedNpc!.Enabled = false;
+    var capDay = now.AddDays(3);
+    healthy.userPointData.UserLevel = data.UserExpDataRecords.Keys.Max();
+    healthy.userPointData.ExperiencePoint = int.MaxValue - 2;
+    healthy.BattleTime = capDay.AddHours(-24);
+    healthy.UserDispatchData.dispatchDatas = [];
+    healthy.MailDatas.Clear();
+    ManagedNpcService.Tick(capDay);
+    ManagedNpcService.Tick(capDay.AddMinutes(6));
+    Check(healthy.userPointData.UserLevel == data.UserExpDataRecords.Keys.Max() && healthy.userPointData.ExperiencePoint == int.MaxValue,
+        "maximum commander level handles outpost experience without looping or integer overflow");
+    Console.WriteLine("PASS: commander experience remains bounded at the final static-data level");
     return TeamChecks.Run(root.FullName, data);
 }
 catch (Exception ex) { Console.WriteLine(ex); return 1; }
