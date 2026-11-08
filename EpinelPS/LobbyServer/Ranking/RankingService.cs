@@ -190,96 +190,96 @@ internal static class RankingService
     {
         for (int attempt = 0; ; attempt++)
         {
-        var snapshots = Capture();
-        lock (JsonDb.SaveLock)
-        {
-            if (JsonDb.GetUser(requester.ID) != requester) throw new UnauthorizedAccessException("The account was reloaded.");
-            if (snapshots.Length != JsonDb.Instance.Users.Count || snapshots.Any(s => JsonDb.GetUser(s.Owner.ID) != s.Owner))
+            var snapshots = Capture();
+            lock (JsonDb.SaveLock)
             {
-                if (attempt >= 4) throw new BadHttpRequestException("Ranking participants changed; retry the request.", 409);
-                continue;
-            }
-            if (GameData.Instance.Rankings.Count == 0 || GameData.Instance.RankingPoints.Count == 0)
-                throw new InvalidDataException("Ranking tables are unavailable.");
-            var players = snapshots.Where(s => s.Eligible).Select(s => s.Owner).ToArray();
-            if (!players.Contains(requester)) throw new UnauthorizedAccessException("Account cannot participate in rankings.");
-            var states = new Dictionary<ulong, RankingPlayerState>();
-            using var db = GameContext.CreateNew();
-            foreach (var user in players)
-            {
-                states[user.ID] = user.Ranking == null ? new RankingPlayerState
+                if (JsonDb.GetUser(requester.ID) != requester) throw new UnauthorizedAccessException("The account was reloaded.");
+                if (snapshots.Length != JsonDb.Instance.Users.Count || snapshots.Any(s => JsonDb.GetUser(s.Owner.ID) != s.Owner))
                 {
-                    LegacyCounts = db.Triggers.Where(t => t.UserId == user.ID && (t.Type == Trigger.AchieveRanking1st ||
-                        t.Type == Trigger.AchieveRanking5th || t.Type == Trigger.AchieveRanking10th)).ToArray()
-                        .Concat(user.PendingMissionTriggers.Where(t => (int)t.Type is >= 31 and <= 33))
-                        .GroupBy(t => (int)t.Type).ToDictionary(g => g.Key, g => g.Sum(t => (long)t.Value))
-                } : JsonConvert.DeserializeObject<RankingPlayerState>(JsonConvert.SerializeObject(user.Ranking))!;
-            }
-            var events = players.ToDictionary(u => u.ID, _ => new List<TriggerModelNew>());
-            var mails = players.ToDictionary(u => u.ID, _ => new List<NetUserMailData>());
-            long at = DateTime.UtcNow.Ticks;
-            foreach (var target in GameData.Instance.Rankings.Values.Where(r => (int)r.RankingType is >= 0 and <= 4).OrderBy(r => r.Id))
-            {
-                // Retain reserved places even if an old winner is now banned/offline.
-                var winners = JsonDb.Instance.Users.Where(u => u.Ranking?.Achievements.ContainsKey(target.Id) == true)
-                    .Select(u => u.Ranking!.Achievements[target.Id].Rank).ToHashSet();
-                foreach (var state in states.Values)
-                    if (state.Achievements.TryGetValue(target.Id, out var achievement)) winners.Add(achievement.Rank);
-                foreach (var snapshot in Ordered(snapshots, (int)target.RankingType))
+                    if (attempt >= 4) throw new BadHttpRequestException("Ranking participants changed; retry the request.", 409);
+                    continue;
+                }
+                if (GameData.Instance.Rankings.Count == 0 || GameData.Instance.RankingPoints.Count == 0)
+                    throw new InvalidDataException("Ranking tables are unavailable.");
+                var players = snapshots.Where(s => s.Eligible).Select(s => s.Owner).ToArray();
+                if (!players.Contains(requester)) throw new UnauthorizedAccessException("Account cannot participate in rankings.");
+                var states = new Dictionary<ulong, RankingPlayerState>();
+                using var db = GameContext.CreateNew();
+                foreach (var user in players)
                 {
-                    var state = states[snapshot.Owner.ID];
-                    if (state.Achievements.ContainsKey(target.Id)) continue;
-                    bool reached = target.RankingType == RankingType.HardCampaign ? snapshot.HardChapter >= target.ConditionId :
-                        snapshot.Scores[(int)target.RankingType] >= target.ConditionValue;
-                    if (!reached || winners.Count >= 10) continue;
-                    int rank = Enumerable.Range(1, 10).First(n => !winners.Contains(n)); winners.Add(rank);
-                    state.Achievements[target.Id] = new() { Rank = rank, Score = snapshot.Scores[(int)target.RankingType], AchievedAt = at };
-                    for (int index = 0; index < Tiers.Length; index++)
+                    states[user.ID] = user.Ranking == null ? new RankingPlayerState
                     {
-                        if (rank > Tiers[index]) continue;
-                        state.LastTriggerAt = Math.Max(at + TimeSpan.TicksPerHour * 9, Math.Max(state.LastTriggerAt, snapshot.Owner.LastMailRewardTriggerAt) + 1);
-                        events[snapshot.Owner.ID].Add(new TriggerModelNew { UserId = snapshot.Owner.ID, Type = (Trigger)(31 + index),
-                            Value = 1, CreatedAt = state.LastTriggerAt });
+                        LegacyCounts = db.Triggers.Where(t => t.UserId == user.ID && (t.Type == Trigger.AchieveRanking1st ||
+                            t.Type == Trigger.AchieveRanking5th || t.Type == Trigger.AchieveRanking10th)).ToArray()
+                            .Concat(user.PendingMissionTriggers.Where(t => (int)t.Type is >= 31 and <= 33))
+                            .GroupBy(t => (int)t.Type).ToDictionary(g => g.Key, g => g.Sum(t => (long)t.Value))
+                    } : JsonConvert.DeserializeObject<RankingPlayerState>(JsonConvert.SerializeObject(user.Ranking))!;
+                }
+                var events = players.ToDictionary(u => u.ID, _ => new List<TriggerModelNew>());
+                var mails = players.ToDictionary(u => u.ID, _ => new List<NetUserMailData>());
+                long at = DateTime.UtcNow.Ticks;
+                foreach (var target in GameData.Instance.Rankings.Values.Where(r => (int)r.RankingType is >= 0 and <= 4).OrderBy(r => r.Id))
+                {
+                    // Retain reserved places even if an old winner is now banned/offline.
+                    var winners = JsonDb.Instance.Users.Where(u => u.Ranking?.Achievements.ContainsKey(target.Id) == true)
+                        .Select(u => u.Ranking!.Achievements[target.Id].Rank).ToHashSet();
+                    foreach (var state in states.Values)
+                        if (state.Achievements.TryGetValue(target.Id, out var achievement)) winners.Add(achievement.Rank);
+                    foreach (var snapshot in Ordered(snapshots, (int)target.RankingType))
+                    {
+                        var state = states[snapshot.Owner.ID];
+                        if (state.Achievements.ContainsKey(target.Id)) continue;
+                        bool reached = target.RankingType == RankingType.HardCampaign ? snapshot.HardChapter >= target.ConditionId :
+                            snapshot.Scores[(int)target.RankingType] >= target.ConditionValue;
+                        if (!reached || winners.Count >= 10) continue;
+                        int rank = Enumerable.Range(1, 10).First(n => !winners.Contains(n)); winners.Add(rank);
+                        state.Achievements[target.Id] = new() { Rank = rank, Score = snapshot.Scores[(int)target.RankingType], AchievedAt = at };
+                        for (int index = 0; index < Tiers.Length; index++)
+                        {
+                            if (rank > Tiers[index]) continue;
+                            state.LastTriggerAt = Math.Max(at + TimeSpan.TicksPerHour * 9, Math.Max(state.LastTriggerAt, snapshot.Owner.LastMailRewardTriggerAt) + 1);
+                            events[snapshot.Owner.ID].Add(new TriggerModelNew { UserId = snapshot.Owner.ID, Type = (Trigger)(31 + index),
+                                Value = 1, CreatedAt = state.LastTriggerAt });
+                        }
                     }
                 }
-            }
-            foreach (var user in players)
-            {
-                var state = states[user.ID];
-                foreach (var definition in GameData.Instance.TriggerTable.Values.Where(t => t.HandlerType == HandlerType.Ranking && (int)t.Trigger is >= 31 and <= 33))
+                foreach (var user in players)
                 {
-                    if (state.MailedCumulativeRewards.Contains(definition.Id) || Count(state, (int)definition.Trigger - 31) < definition.ConditionValue) continue;
-                    if (!user.CompletedAchievements.Contains(definition.Id) && user.ManagedNpc == null)
-                        mails[user.ID].Add(CreateMail(user, mails[user.ID], definition, at));
-                    state.MailedCumulativeRewards.Add(definition.Id);
+                    var state = states[user.ID];
+                    foreach (var definition in GameData.Instance.TriggerTable.Values.Where(t => t.HandlerType == HandlerType.Ranking && (int)t.Trigger is >= 31 and <= 33))
+                    {
+                        if (state.MailedCumulativeRewards.Contains(definition.Id) || Count(state, (int)definition.Trigger - 31) < definition.ConditionValue) continue;
+                        if (!user.CompletedAchievements.Contains(definition.Id) && user.ManagedNpc == null)
+                            mails[user.ID].Add(CreateMail(user, mails[user.ID], definition, at));
+                        state.MailedCumulativeRewards.Add(definition.Id);
+                    }
+                }
+                var changed = players.Where(u => JsonConvert.SerializeObject(u.Ranking) != JsonConvert.SerializeObject(states[u.ID])).ToArray();
+                var before = changed.Select(u => (User: u, u.Ranking, u.MailDatas, u.PendingMissionTriggers)).ToArray();
+                try
+                {
+                    foreach (var user in changed)
+                    {
+                        user.Ranking = states[user.ID];
+                        user.MailDatas = new(user.MailDatas);
+                        foreach (var mail in mails[user.ID]) user.MailDatas.Add(mail.Msn, mail);
+                        user.PendingMissionTriggers = [.. user.PendingMissionTriggers, .. events[user.ID]];
+                    }
+                    if (changed.Length > 0) JsonDb.Save();
+                }
+                catch
+                {
+                    foreach (var previous in before)
+                    {
+                        previous.User.Ranking = previous.Ranking; previous.User.MailDatas = previous.MailDatas;
+                        previous.User.PendingMissionTriggers = previous.PendingMissionTriggers;
+                    }
+                    throw;
                 }
             }
-            var changed = players.Where(u => JsonConvert.SerializeObject(u.Ranking) != JsonConvert.SerializeObject(states[u.ID])).ToArray();
-            var before = changed.Select(u => (User: u, u.Ranking, u.MailDatas, u.PendingMissionTriggers)).ToArray();
-            try
-            {
-                foreach (var user in changed)
-                {
-                    user.Ranking = states[user.ID];
-                    user.MailDatas = new(user.MailDatas);
-                    foreach (var mail in mails[user.ID]) user.MailDatas.Add(mail.Msn, mail);
-                    user.PendingMissionTriggers = [.. user.PendingMissionTriggers, .. events[user.ID]];
-                }
-                if (changed.Length > 0) JsonDb.Save();
-            }
-            catch
-            {
-                foreach (var previous in before)
-                {
-                    previous.User.Ranking = previous.Ranking; previous.User.MailDatas = previous.MailDatas;
-                    previous.User.PendingMissionTriggers = previous.PendingMissionTriggers;
-                }
-                throw;
-            }
-        }
-        // The milestone, its mail and its notification outbox are now durable.
-        foreach (var snapshot in snapshots.Where(s => s.Owner.PendingMissionTriggers.Count > 0)) MissionProgressDelivery.Flush(snapshot.Owner);
-        return snapshots;
+            // The milestone, its mail and its notification outbox are now durable.
+            foreach (var snapshot in snapshots.Where(s => s.Owner.PendingMissionTriggers.Count > 0)) MissionProgressDelivery.Flush(snapshot.Owner);
+            return snapshots;
         }
     }
 
