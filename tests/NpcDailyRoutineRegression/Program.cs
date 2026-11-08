@@ -73,7 +73,7 @@ try
     {
         foreach (var stage in data.StageDataRecords.Values.Where(s => s.ChapterMod == ChapterMod.Normal && s.StageType == StageType.Main && s.ChapterId <= 8))
         {
-            var map = data.GetMapIdFromChapter(stage.ChapterId, stage.ChapterMod);
+            var map = (string)typeof(GameData).GetMethod("GetMapIdFromChapter", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(data, [stage.ChapterId, stage.ChapterMod])!;
             if (!player.FieldInfoNew.TryGetValue(map, out var field)) player.FieldInfoNew[map] = field = new();
             if (!field.CompletedStages.Contains(stage.Id)) field.CompletedStages.Add(stage.Id);
         }
@@ -112,7 +112,7 @@ try
     Check(Completed() == 1, "exactly one phase is due at six minutes");
     Check(Npc().ResetableData.WipeoutCount == 1 && Npc().GetCurrencyVal(CurrencyType.CharacterExp) > 10_000_000,
         "first phase settles actual outpost resources and spends the daily free wipeout");
-    Check(Npc().PendingMissionTriggers.Count > 0 && !db.Triggers.Any(t => t.UserId == Npc().ID), "SQL failure leaves the paid phase and its durable outbox committed");
+    Check(Npc().PendingMissionTriggers.Count > 0 && !db.Triggers.Any(t => t.UserId == uid), "SQL failure leaves the paid phase and its durable outbox committed");
     var deferred = Snapshot();
     ManagedNpcService.Tick(now.AddMinutes(6));
     Check(Snapshot() == deferred, "notification retry cannot rerun a committed phase");
@@ -120,14 +120,14 @@ try
     var resourcesBeforeTraining = Npc().GetCurrencyVal(CurrencyType.Gold);
     ManagedNpcService.Tick(now.AddMinutes(12));
     Check(Completed() == 2, "exactly two phases are due at twelve minutes");
-    Check(Npc().PendingMissionTriggers.Count == 0 && db.Triggers.Count(t => t.UserId == Npc().ID && t.Type == Trigger.OutpostBattleReward) == 1,
+    Check(Npc().PendingMissionTriggers.Count == 0 && db.Triggers.Count(t => t.UserId == uid && t.Type == Trigger.OutpostBattleReward) == 1,
         "SQL recovery delivers each earlier outpost action once");
     Check(Npc().BondInfo.Sum(b => b.CounseledCount) > 0 && Npc().ResetableData.DailyCounselCount.GetValueOrDefault(1) == 0,
         "counseling increases bond and consumes its actual daily budget");
     Check(Npc().GetCurrencyVal(CurrencyType.Gold) < resourcesBeforeTraining &&
         (Npc().SynchroDeviceUpgraded ? Npc().SynchroDeviceLevel : Npc().Characters.Max(c => c.Level)) > startingLevel,
         "character training pays actual gold/material costs for its level increase");
-    var probe = ManagedNpcService.Clone(Npc());
+    var probe = JsonConvert.DeserializeObject<User>(JsonConvert.SerializeObject(Npc()))!;
     foreach (var character in probe.Characters) character.Skill1Lvl = character.Skill2Lvl = character.UltimateLevel = 1;
     ManagedNpcRoster.Refresh(probe);
     Check(probe.Characters.All(c => c.Skill1Lvl == 1 && c.Skill2Lvl == 1 && c.UltimateLevel == 1), "ongoing team selection cannot grant free skill levels");
