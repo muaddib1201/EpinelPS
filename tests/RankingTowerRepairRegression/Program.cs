@@ -82,7 +82,7 @@ await Test("a reward writer failure rolls back every tower inventory and daily c
 {
     SyntheticRewards();var row=data.towerTable.Values.Single(t=>t.Type==CorporationTowerType.OVERSPEC&&t.Floor==27);
     data.towerTable[row.Id]=Clone(row);data.towerTable[row.Id].RewardId=910000002;
-    data.RewardDataRecords[910000002]=new(){Id=910000002,Rewards=[new(){RewardType=RewardType.Item,RewardId=int.MaxValue,RewardValue=1,RewardPercent=1000000}]};
+    data.RewardDataRecords[910000002]=new(){Id=910000002,Rewards=[new(){RewardType=RewardType.Bgm,RewardId=int.MaxValue,RewardValue=1,RewardPercent=1000000}]};
     string before=JsonConvert.SerializeObject(State());ExpectFailure(()=>Execute());Check(JsonConvert.SerializeObject(State())==before,"reward failure retained partial inventory or progress");return Task.CompletedTask;
 });
 await Test("duplicate historical places reject before floor rewards",()=>
