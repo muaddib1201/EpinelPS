@@ -29,22 +29,40 @@ internal static class RankingLiveProbe
                 T value = new(); value.MergeFrom(await response.Content.ReadAsByteArrayAsync()); return value;
             }
             var overview = await Read<ResGetAllTopRank>("alltoprank", new ReqGetAllTopRank());
-            if (overview.TopRankingList.Count != 5) throw new InvalidDataException("Live overview lacks five boards.");
+            if (!overview.TopRankingList.Select(r => r.Type).Order().SequenceEqual(Enumerable.Range(0, 10)) ||
+                overview.TopMuseumTotalRankingList.Count != 1 || overview.TopMuseumGroupRankingList.Count != 3)
+                throw new InvalidDataException("Live overview lacks tower or museum cards.");
             var boards = new List<object>();
-            for (int type = 0; type < 5; type++)
+            for (int type = 0; type < 10; type++)
             {
                 var board = await Read<ResGetRankingList>("getlist", new ReqGetRankingList { Type = type });
                 if (board.User?.User?.Usn != (long)id || board.RankingList.Any(r => r.Rank <= 0 || r.Score <= 0 || r.User == null))
                     throw new InvalidDataException("Live personal row or ranked profiles invalid.");
                 var history = await Read<ResGetRankAchievementLeaderBoard>("rankachievement", new ReqGetRankAchievementLeaderBoard { Type = type });
+                var top = overview.TopRankingList.Single(r => r.Type == type);
+                var first = board.RankingList.FirstOrDefault();
+                if (top.Score != (first?.Score ?? 0) || top.User?.Usn != first?.User.Usn)
+                    throw new InvalidDataException("Live overview disagrees with ranking detail.");
                 boards.Add(new { type, entries = board.RankingList.Count, personalRank = board.User.Rank, personalScore = board.User.Score,
                     rewardEnabled = board.RewardEnabled, milestones = history.RankAchievement.Count });
+            }
+            var museumTotal = await Read<ResGetMuseumTotalRankingList>("get/museumtotal/rankinglist", new ReqGetMuseumTotalRankingList { Type = 10 });
+            if (museumTotal.User?.User?.Usn != (long)id) throw new InvalidDataException("Live museum total profile is absent.");
+            var museumHalls = new List<object>();
+            foreach (var hall in overview.TopMuseumGroupRankingList)
+            {
+                var detail = await Read<ResGetMuseumGroupRankingList>("get/museumgroup/rankinglist", new ReqGetMuseumGroupRankingList { Type = 11, ConditionId = hall.ConditionId });
+                if (detail.User?.User?.Usn != (long)id || hall.Score != (detail.RankingList.FirstOrDefault()?.Score ?? 0) ||
+                    hall.User?.Usn != detail.RankingList.FirstOrDefault()?.User.Usn)
+                    throw new InvalidDataException("Live museum hall profile or overview disagrees with detail.");
+                museumHalls.Add(new { group = hall.ConditionId, entries = detail.RankingList.Count, personalRank = detail.User.Rank, personalScore = detail.User.Score });
             }
             var counts = await Read<ResGetRankAchievementTop>("rankachievementtop", new ReqGetRankAchievementTop());
             var repeat = await Read<ResGetRankAchievementTop>("rankachievementtop", new ReqGetRankAchievementTop());
             if (counts.TriggerList.Count != 3 || !counts.Equals(repeat)) throw new InvalidDataException("Cumulative counts absent or repeated on refresh.");
             var reward = await Read<ResUpdateRankingServerReward>("updateserverreward", new ReqUpdateRankingServerReward());
             var report = new { status = "passed", utc = DateTime.UtcNow, account = id, boards,
+                museumTotal = new { entries = museumTotal.RankingList.Count, personalRank = museumTotal.User.Rank, personalScore = museumTotal.User.Score }, museumHalls,
                 counts = counts.TriggerList.Select(t => new { trigger = t.Trigger, count = t.UserValue }), hasNewServerReward = reward.HasNewReward };
             string output = Environment.GetEnvironmentVariable("RANKING_PROBE_OUTPUT") ?? throw new InvalidOperationException("Explicit evidence output required.");
             File.WriteAllText(output, JsonConvert.SerializeObject(report, Formatting.Indented));

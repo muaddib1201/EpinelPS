@@ -28,12 +28,20 @@ if(args.Contains("--inspect-tables"))
 }
 string jsonPath=Path.Combine(AppContext.BaseDirectory,"db.json"),conn=$"Data Source={Path.Combine(AppContext.BaseDirectory,"ranking.db")}";
 GameContext.InitializeOptions(conn,"sqlite");
-byte[] key=Enumerable.Repeat((byte)77,32).ToArray();bool restart=args.Contains("--verify-saved");
+byte[] key=Enumerable.Repeat((byte)77,32).ToArray();bool restart=args.Contains("--verify-saved")||args.Contains("--verify-completion-saved");
 if(!restart){File.WriteAllText(jsonPath,JsonConvert.SerializeObject(Fixture()));using var db=GameContext.CreateNew();db.Database.EnsureDeleted();db.Database.EnsureCreated();db.Users.AddRange(Enumerable.Range(9801,13).Select(i=>new GameUser{ID=(ulong)i,Nickname="Rank"+i}));db.SaveChanges();}
 var property=typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb")!.GetProperty("Instance")!;
 CoreInfo State()=>(CoreInfo)property.GetValue(null)!;
 using var services=new ServiceCollection().AddDbContext<GameContext>(o=>o.UseSqlite(conn)).BuildServiceProvider();
 int passed=0,failed=0;
+if(args.Contains("--verify-completion-saved"))
+{
+    CompletionTargets();
+    Check((await Board(self,5)).User.Score==10030&&(await MuseumTotal(self)).User.Score==10,"restart lost tower or museum points");
+    await AllClaim(self);
+    Check(ItemCount()==2&&(await Achievements(self)).TriggerList.All(t=>t.UserValue==2),"restart duplicated new ranking rewards or milestones");
+    Console.WriteLine("PASS fresh process preserves tower and museum rankings and reward receipts");return 0;
+}
 if(restart){Targets(true);var top=await Achievements(self);Check(top.TriggerList.Single(x=>x.Trigger==31).UserValue==10,"restart lost counts");await AllClaim(self);await Achievements(self);Check(ItemCount()==10&&Player(self).MailDatas.Count==3,"restart reissued rewards");Console.WriteLine("PASS fresh process preserves ranking receipts");return 0;}
 await Test("overview returns all ten campaign corporation and tower cards",async()=>{Player(self).LastHardStageCleared=7001001;for(int c=1;c<=4;c++)Add(self,c,1);foreach(var type in Enum.GetValues<CorporationTowerType>())Player(self).TowerProgress[type]=1;var r=await Send<ResGetAllTopRank>(self,"alltoprank",new ReqGetAllTopRank());Check(r.TopRankingList.Select(x=>x.Type).Order().SequenceEqual(Enumerable.Range(0,10)),"tower cards missing from overview");Check(r.TopRankingList.All(x=>x.User?.Usn==(long)self&&x.User.Nickname=="Rank9801"&&x.User.UserTitleDisplayData!=null),"public profile missing");});
 await Test("company points use rarity breakthrough and core rather than level",async()=>{Add(self,1,1);Add(9802,1,11);Player(self).Characters[0].Level=999;var r=await Board(self,2);Check(r.User.Score==300&&r.User.Rank==2&&r.RankingList[0].Score==3300,"wrong points or ranking");Check((await Board(self,1)).User.Score==0,"company mapping swapped");});
@@ -151,6 +159,13 @@ await Test("museum invalid groups types and anonymous reads cannot settle or cla
     await Reject(()=>Board(self,10));await Reject(()=>MuseumTotal(0));
     Check(JsonConvert.SerializeObject(State())==before,"rejected museum request changed ranking state");
 });
+await Test("tower and museum scores milestones and reward receipts survive a fresh process",async()=>
+{
+    CompletionTargets();Player(self).TowerProgress[CorporationTowerType.ALL]=30;EarnMuseum(self,910001,101,10);
+    await AllClaim(self);Check(ItemCount()==2,"initial category rewards missing");
+    using var child=Process.Start(new ProcessStartInfo(Environment.ProcessPath!,"--verify-completion-saved"){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true})!;
+    var output=child.StandardOutput.ReadToEndAsync();var error=child.StandardError.ReadToEndAsync();await child.WaitForExitAsync();Check(child.ExitCode==0,(await output)+(await error));
+});
 Console.WriteLine($"Ranking regression: {passed} passed, {failed} failed");return failed==0?0:1;
 CoreInfo Fixture()=>new(){DbVersion=5,LauncherTokenKey=key,EncryptionTokenKey=key,BondRewardLevelsMigrated=true,Users=Enumerable.Range(9801,13).Select(i=>new User{ID=(ulong)i}).ToList()};
 User Player(ulong id)=>State().Users.Single(u=>u.ID==id);
@@ -164,6 +179,7 @@ Task<ResGetMuseumTotalRankingList> MuseumTotal(ulong id)=>Send<ResGetMuseumTotal
 Task<ResGetMuseumGroupRankingList> MuseumHall(ulong id,int group)=>Send<ResGetMuseumGroupRankingList>(id,"get/museumgroup/rankinglist",new ReqGetMuseumGroupRankingList{Type=11,ConditionId=group});
 Task<ResObtainMuseumGroupRankAchievementServerReward> HallClaim(int group)=>Send<ResObtainMuseumGroupRankAchievementServerReward>(self,"obtain/museumgroup/rankachievementserverreward",new ReqObtainMuseumGroupRankAchievementServerReward{Type=11,ConditionId=group});
 async Task Reject(Func<Task> action){try{await action();}catch(BadHttpRequestException){return;}catch(UnauthorizedAccessException){return;}throw new Exception("invalid museum request accepted");}
+void CompletionTargets(){RankingTable().Clear();RankingTable()[30101]=new(){Id=30101,RankingType=RankingType.TowerTribe,ConditionId=10030,ConditionValue=1,ServerRewardId=15000001};RankingTable()[400001]=new(){Id=400001,RankingType=RankingType.MuseumTotal,ConditionValue=10,ServerRewardId=15000001};data.MuseumMissionTable[910001]=new(){Id=910001,StageId=101,RankingPointAmount=10,ModeType=MuseumStageModeType.Challenge};}
 Task<ResGetRankingList> Board(ulong id,int type)=>Send<ResGetRankingList>(id,"getlist",new ReqGetRankingList{Type=type});
 Task<ResGetRankAchievementTop> Achievements(ulong id)=>Send<ResGetRankAchievementTop>(id,"rankachievementtop",new ReqGetRankAchievementTop());
 Task<ResObtainAllRankAchievementServerReward> AllClaim(ulong id)=>Send<ResObtainAllRankAchievementServerReward>(id,"allrankachievementserverreward",new ReqObtainAllRankAchievementServerReward());
