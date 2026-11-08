@@ -2,6 +2,7 @@ using System.Reflection;
 using EpinelPS.Data;
 using EpinelPS.Database;
 using EpinelPS.Services;
+using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 
 try

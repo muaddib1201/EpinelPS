@@ -78,6 +78,13 @@ await Test("unknown account and invalid target floor cannot mutate state",()=>
     string before=JsonConvert.SerializeObject(State());ExpectFailure(()=>Invoke("Execute",999999UL,27));ExpectFailure(()=>Invoke("Execute",self,0));
     Check(JsonConvert.SerializeObject(State())==before,"invalid repair request mutated state");return Task.CompletedTask;
 });
+await Test("a reward writer failure rolls back every tower inventory and daily counter",()=>
+{
+    SyntheticRewards();var row=data.towerTable.Values.Single(t=>t.Type==CorporationTowerType.OVERSPEC&&t.Floor==27);
+    data.towerTable[row.Id]=Clone(row);data.towerTable[row.Id].RewardId=910000002;
+    data.RewardDataRecords[910000002]=new(){Id=910000002,Rewards=[new(){RewardType=RewardType.Item,RewardId=int.MaxValue,RewardValue=1,RewardPercent=1000000}]};
+    string before=JsonConvert.SerializeObject(State());ExpectFailure(()=>Execute());Check(JsonConvert.SerializeObject(State())==before,"reward failure retained partial inventory or progress");return Task.CompletedTask;
+});
 await Test("duplicate historical places reject before floor rewards",()=>
 {
     SyntheticRewards();Me().Ranking=new(){Achievements={[10201]=new(){Rank=1}}};Other().Ranking=new(){Achievements={[10201]=new(){Rank=1}}};
@@ -121,5 +128,5 @@ void SyntheticRewards()
     data.RewardDataRecords[910000001]=new(){Id=910000001,Rewards=[new(){RewardType=RewardType.Currency,RewardId=(int)CurrencyType.FreeCash,RewardValue=2,RewardPercent=1000000},new(){RewardType=RewardType.Item,RewardId=9201001,RewardValue=3,RewardPercent=1000000}]};
     foreach(var p in originals.Where(p=>corps.Contains(p.Value.Type)&&p.Value.Floor is >=4 and <=27)){var copy=Clone(p.Value);copy.RewardId=910000001;data.towerTable[p.Key]=copy;}
 }
-static void ExpectFailure(Action action){try{action();}catch(Exception e)when(!e.Message.Contains("unavailable")){return;}throw new Exception("invalid repair request was accepted");}
+static void ExpectFailure(Action action){try{action();}catch(Exception e)when(e.Message!="Ranking tower maintenance operation is unavailable"){return;}throw new Exception("invalid repair request was accepted");}
 static void Check(bool condition,string message){if(!condition)throw new InvalidOperationException(message);}
