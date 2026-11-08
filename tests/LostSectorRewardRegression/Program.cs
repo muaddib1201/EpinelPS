@@ -207,6 +207,28 @@ else
         var sync = await Send<ResSyncTrigger>("trigger/sync", new ReqSyncTrigger(), legacy.ID);
         Check(sync.Triggers.Count(t => t.Trigger == 53 && t.ConditionId == 1) == 1, "retry did not recover the committed legacy clear");
     });
+    await Test("a committed chest still succeeds when the mission table is temporarily unreadable", async () => {
+        var fixture = Fixture(99219, new LostSectorData { IsOpen = true, IsPlaying = true });
+        using (var db = GameContext.CreateNew())
+            db.Database.ExecuteSqlRaw("ALTER TABLE Triggers RENAME TO unavailable_triggers;");
+        try
+        {
+            var response = await Send<ResObtainLostSectorItem>("lostsector/obtainitem", new ReqObtainLostSectorItem {
+                SectorId = 1, Object = new NetLostSectorFieldObject { PositionId = finalChest, Type = 1 }
+            }, fixture.ID);
+            Check(response.BoxCount == 1 && fixture.LostSectorData[1].ReceivedFinalReward &&
+                fixture.Items.Single(i => i.ItemType == cubeId).Count == 1, "committed chest did not return its successful payout");
+        }
+        finally
+        {
+            using var db = GameContext.CreateNew();
+            db.Database.ExecuteSqlRaw("ALTER TABLE unavailable_triggers RENAME TO Triggers;");
+        }
+        string before = RewardState(fixture);
+        var sync = await Send<ResSyncTrigger>("trigger/sync", new ReqSyncTrigger(), fixture.ID);
+        Check(sync.Triggers.Count(t => t.Trigger == 53 && t.ConditionId == 1 && t.UserValue == 1) == 1, "retry did not recover the saved clear");
+        Check(before == RewardState(fixture), "mission retry paid the committed chest again");
+    });
     await Test("SQLite failure persists the new-clear outbox and retry delivers it once", async () => {
         var fixture = Fixture(99220, new LostSectorData { IsOpen = true, IsPlaying = true });
         using (var db = GameContext.CreateNew())
