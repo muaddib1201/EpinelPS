@@ -20,6 +20,11 @@ var data=new GameData(Directory.GetFiles(Path.Combine(root!.FullName,"Server and
 typeof(GameData).GetField("_instance",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,data);
 await GameDataInitializer.InitializeGameData(new Progress<double>());
 var rawTargets=await data.LoadZip<RankingRecord>("RankingTable.json",new Progress<double>());
+if(args.Contains("--inspect-tables"))
+{
+    Console.WriteLine(JsonConvert.SerializeObject(new { targets = rawTargets.GroupBy(t=>t.RankingType).Select(g=>new { type=g.Key.ToString(),count=g.Count(),first=g.Take(2) }), groups=data.MuseumGroupTable.Values, missions=data.MuseumMissionTable.Values.Take(3), towers=data.towerTable.Values.GroupBy(t=>t.Type).Select(g=>new { type=g.Key.ToString(),first=g.OrderBy(t=>t.Floor).First() }) },Formatting.Indented));
+    return 0;
+}
 string jsonPath=Path.Combine(AppContext.BaseDirectory,"db.json"),conn=$"Data Source={Path.Combine(AppContext.BaseDirectory,"ranking.db")}";
 GameContext.InitializeOptions(conn,"sqlite");
 byte[] key=Enumerable.Repeat((byte)77,32).ToArray();bool restart=args.Contains("--verify-saved");
@@ -29,7 +34,7 @@ CoreInfo State()=>(CoreInfo)property.GetValue(null)!;
 using var services=new ServiceCollection().AddDbContext<GameContext>(o=>o.UseSqlite(conn)).BuildServiceProvider();
 int passed=0,failed=0;
 if(restart){Targets(true);var top=await Achievements(self);Check(top.TriggerList.Single(x=>x.Trigger==31).UserValue==10,"restart lost counts");await AllClaim(self);await Achievements(self);Check(ItemCount()==10&&Player(self).MailDatas.Count==3,"restart reissued rewards");Console.WriteLine("PASS fresh process preserves ranking receipts");return 0;}
-await Test("overview returns all five boards with public profiles",async()=>{Player(self).LastHardStageCleared=7001001;for(int c=1;c<=4;c++)Add(self,c,1);var r=await Send<ResGetAllTopRank>(self,"alltoprank",new ReqGetAllTopRank());Check(r.TopRankingList.Select(x=>x.Type).Order().SequenceEqual(Enumerable.Range(0,5)),"five boards missing");Check(r.TopRankingList.All(x=>x.User?.Usn==(long)self&&x.User.Nickname=="Rank9801"&&x.User.UserTitleDisplayData!=null),"public profile missing");});
+await Test("overview returns all ten campaign corporation and tower cards",async()=>{Player(self).LastHardStageCleared=7001001;for(int c=1;c<=4;c++)Add(self,c,1);foreach(var type in Enum.GetValues<CorporationTowerType>())Player(self).TowerProgress[type]=1;var r=await Send<ResGetAllTopRank>(self,"alltoprank",new ReqGetAllTopRank());Check(r.TopRankingList.Select(x=>x.Type).Order().SequenceEqual(Enumerable.Range(0,10)),"tower cards missing from overview");Check(r.TopRankingList.All(x=>x.User?.Usn==(long)self&&x.User.Nickname=="Rank9801"&&x.User.UserTitleDisplayData!=null),"public profile missing");});
 await Test("company points use rarity breakthrough and core rather than level",async()=>{Add(self,1,1);Add(9802,1,11);Player(self).Characters[0].Level=999;var r=await Board(self,2);Check(r.User.Score==300&&r.User.Rank==2&&r.RankingList[0].Score==3300,"wrong points or ranking");Check((await Board(self,1)).User.Score==0,"company mapping swapped");});
 await Test("duplicate variants contribute the strongest NameCode once",async()=>{Add(self,1,1);Add(self,1,11);Check((await Board(self,2)).User.Score==3300,"duplicate variants counted");});
 await Test("four company mappings exclude abnormal characters",async()=>{for(int c=1;c<=4;c++)Add(self,c,1);Add(self,7,11);foreach(int t in new[]{1,2,3,4})Check((await Board(self,t)).User.Score==300,"wrong corporation mapping");});
