@@ -37,6 +37,10 @@ try
         Check(Snapshot() == saved, "restart at the committed timestamp must not repeat resources or actions");
         ManagedNpcService.Tick(now.AddMinutes(30));
         Check(Completed() == 5, "restart resumes only the remaining three phases");
+        Check(Npc().GetCurrencyVal(CurrencyType.CharPremiumTicket) == 0 && Npc().GetGachaCountForType(GachaPremiumType.GachaPremium) == 1,
+            "recruiting consumes the owned ticket and records the actual pull");
+        Check(JsonConvert.SerializeObject(data.RewardDataRecords) == File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "reward-tables-before.json")),
+            "multi-chapter simulation rewards never mutate shared static tables");
         Console.WriteLine("PASS: separate-process restart resumes the remaining phases exactly once");
         return 0;
     }
@@ -50,6 +54,13 @@ try
     db.Database.EnsureDeleted(); db.Database.EnsureCreated();
     db.Users.Add(new GameUser { ID = 1, Nickname = "UnchangedHuman" }); db.SaveChanges();
     ManagedNpcService.CreateBatch(db, 1, "routine-fixture", now);
+    Npc().BattleTime = now.AddHours(-24);
+    Npc().Currency[CurrencyType.Gold] = 10_000_000;
+    Npc().Currency[CurrencyType.CharacterExp] = 10_000_000;
+    Npc().Currency[CurrencyType.CharacterExp2] = 1_000_000;
+    Npc().Currency[CurrencyType.CharPremiumTicket] = 1;
+    var startingLevel = Npc().SynchroDeviceUpgraded ? Npc().SynchroDeviceLevel : Npc().Characters.Max(c => c.Level);
+    File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "reward-tables-before.json"), JsonConvert.SerializeObject(data.RewardDataRecords));
     var uid = Npc().ID;
     var originalCharacters = Npc().Characters.Select(c => c.Csn).ToHashSet();
     var originalStage = Npc().LastNormalStageCleared;
@@ -64,8 +75,16 @@ try
     Check(Completed() == 0, "phase cannot run before six minutes");
     ManagedNpcService.Tick(now.AddMinutes(6));
     Check(Completed() == 1, "exactly one phase is due at six minutes");
+    Check(Npc().ResetableData.WipeoutCount == 1 && Npc().GetCurrencyVal(CurrencyType.CharacterExp) > 10_000_000,
+        "first phase settles actual outpost resources and spends the daily free wipeout");
+    var resourcesBeforeTraining = Npc().GetCurrencyVal(CurrencyType.Gold);
     ManagedNpcService.Tick(now.AddMinutes(12));
     Check(Completed() == 2, "exactly two phases are due at twelve minutes");
+    Check(Npc().BondInfo.Sum(b => b.CounseledCount) > 0 && Npc().ResetableData.DailyCounselCount.GetValueOrDefault(1) == 0,
+        "counseling increases bond and consumes its actual daily budget");
+    Check(Npc().GetCurrencyVal(CurrencyType.Gold) < resourcesBeforeTraining &&
+        (Npc().SynchroDeviceUpgraded ? Npc().SynchroDeviceLevel : Npc().Characters.Max(c => c.Level)) > startingLevel,
+        "character training pays actual gold/material costs for its level increase");
     Check(JsonConvert.SerializeObject(State().Users.Single(u => u.ID == 1)) == human, "NPC activities preserve the human profile");
     Console.WriteLine("PASS: migration preserves existing NPCs; phases obey the six-minute schedule");
     Save();
