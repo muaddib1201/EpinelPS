@@ -20,7 +20,8 @@ try
     File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "routine-definitions.json"), JsonConvert.SerializeObject(new
     {
         Contents = data.ContentsOpenTable, Missions = data.TriggerTable.Values.Where(t => t.HandlerType is HandlerType.MissionDaily or HandlerType.MissionWeekly),
-        DispatchBoards = data.DispatchBoardTable, Dispatch = data.DispatchTable.Values.Take(20), Simulation = data.SimulationRoomDifficultyTable
+        DispatchBoards = data.DispatchBoardTable, Dispatch = data.DispatchTable.Values.Take(20), Simulation = data.SimulationRoomDifficultyTable,
+        EarlyQuests = data.QuestDataRecords.Values.Where(q => q.Id <= 40), OutpostLevels = data.OutpostBattle.Keys.Take(25)
     }, Formatting.Indented));
     var json = typeof(GameContext).Assembly.GetType("EpinelPS.Database.JsonDb")!;
     var instance = json.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static)!;
