@@ -1,6 +1,7 @@
 using EpinelPS.Data;
 using EpinelPS.Database;
 using EpinelPS.LobbyServer.Mission;
+using EpinelPS.LobbyServer.SoloraidMuseum;
 using EpinelPS.Models;
 using EpinelPS.Utils;
 using Newtonsoft.Json;
@@ -9,8 +10,10 @@ namespace EpinelPS.LobbyServer.Ranking;
 
 internal static class RankingService
 {
-    private sealed record Snapshot(User Owner, NetWholeUserData Profile, int[] Scores, int HardChapter, bool Eligible);
+    private sealed record Snapshot(User Owner, NetWholeUserData Profile, int[] Scores, Dictionary<int, int> MuseumGroups, int HardChapter, bool Eligible);
     private static readonly int[] Tiers = [1, 5, 10];
+    private static readonly CorporationTowerType[] Towers = [CorporationTowerType.ALL, CorporationTowerType.MISSILIS,
+        CorporationTowerType.ELYSION, CorporationTowerType.TETRA, CorporationTowerType.OVERSPEC];
 
     internal static int ProgressStamp(User user)
     {
@@ -19,6 +22,13 @@ internal static class RankingService
         {
             var hash = new HashCode(); hash.Add(user.LastHardStageCleared);
             foreach (var character in user.Characters) { hash.Add(character.Csn); hash.Add(character.Tid); }
+            foreach (var tower in user.TowerProgress.OrderBy(t => t.Key)) { hash.Add(tower.Key); hash.Add(tower.Value); }
+            foreach (var stage in user.SoloRaidMuseumData.OrderBy(s => s.Key))
+            {
+                hash.Add(stage.Key);
+                foreach (int id in stage.Value.ReceivedChallengeMissions.Order()) { hash.Add(0); hash.Add(id); }
+                foreach (int id in stage.Value.ReceivedNoLimitMissions.Order()) { hash.Add(1); hash.Add(id); }
+            }
             return hash.ToHashCode();
         }
     }
@@ -33,17 +43,31 @@ internal static class RankingService
 
     private static void ValidateType(int type)
     {
-        if (type is < 0 or > 4) throw new BadHttpRequestException("Unsupported ranking type.", 400);
+        if (type is < 0 or > 9) throw new BadHttpRequestException("Unsupported ranking type.", 400);
+    }
+
+    private static void ValidateMuseum(int type, int? group = null)
+    {
+        if (type != (group.HasValue ? 11 : 10) || group.HasValue && !GameData.Instance.MuseumGroupTable.ContainsKey(group.Value))
+            throw new BadHttpRequestException("Unsupported museum ranking type or hall.", 400);
     }
 
     internal static ResGetAllTopRank Overview(User user)
     {
         var snapshots = Settle(user);
         var response = new ResGetAllTopRank();
-        for (int type = 0; type < 5; type++)
+        for (int type = 0; type < 10; type++)
         {
             var top = Ordered(snapshots, type).FirstOrDefault();
             response.TopRankingList.Add(new NetTopRankingData { Type = type, Score = top?.Scores[type] ?? 0, User = top?.Profile.Clone() });
+        }
+        var total = Ordered(snapshots, 10).FirstOrDefault();
+        response.TopMuseumTotalRankingList.Add(new NetTopMuseumTotalRankingData { Type = 10, Score = total?.Scores[10] ?? 0, User = total?.Profile.Clone() });
+        foreach (var group in GameData.Instance.MuseumGroupTable.Values.OrderBy(g => g.Order).ThenBy(g => g.Id))
+        {
+            var top = Ordered(snapshots, 11, group.Id).FirstOrDefault();
+            response.TopMuseumGroupRankingList.Add(new NetTopMuseumGroupRankingData { Type = 11, ConditionId = group.Id,
+                Score = top == null ? 0 : Score(top, 11, group.Id), User = top?.Profile.Clone() });
         }
         return response;
     }
@@ -51,8 +75,27 @@ internal static class RankingService
     internal static ResGetRankingList Board(User user, int type)
     {
         ValidateType(type);
+        return ReadBoard(user, type);
+    }
+
+    internal static ResGetMuseumTotalRankingList MuseumTotalBoard(User user, int type)
+    {
+        ValidateMuseum(type);
+        var board = ReadBoard(user, type);
+        return new() { User = board.User, RankingList = { board.RankingList }, RewardEnabled = board.RewardEnabled };
+    }
+
+    internal static ResGetMuseumGroupRankingList MuseumGroupBoard(User user, int type, int group)
+    {
+        ValidateMuseum(type, group);
+        var board = ReadBoard(user, type, group);
+        return new() { User = board.User, RankingList = { board.RankingList }, RewardEnabled = board.RewardEnabled };
+    }
+
+    private static ResGetRankingList ReadBoard(User user, int type, int? group = null)
+    {
         var snapshots = Settle(user);
-        var ordered = Ordered(snapshots, type).ToArray();
+        var ordered = Ordered(snapshots, type, group).ToArray();
         var own = snapshots.Single(s => s.Owner == user);
         var response = new ResGetRankingList
         {
@@ -60,11 +103,11 @@ internal static class RankingService
         };
         for (int index = 0; index < ordered.Length; index++)
         {
-            var entry = new NetRankingData { Rank = index + 1, Score = ordered[index].Scores[type], User = ordered[index].Profile.Clone() };
+            var entry = new NetRankingData { Rank = index + 1, Score = Score(ordered[index], type, group), User = ordered[index].Profile.Clone() };
             if (index < 100) response.RankingList.Add(entry);
             if (ordered[index].Owner == user) response.User = entry.Clone();
         }
-        lock (JsonDb.SaveLock) response.RewardEnabled = Available(user, type).Any();
+        lock (JsonDb.SaveLock) response.RewardEnabled = Available(user, type, group).Any();
         return response;
     }
 
@@ -83,10 +126,22 @@ internal static class RankingService
     internal static ResGetRankAchievementLeaderBoard AchievementBoard(User user, int type)
     {
         ValidateType(type);
+        return ReadAchievements(user, type);
+    }
+
+    internal static ResGetRankAchievementLeaderBoard MuseumAchievements(User user, int type, int? group = null)
+    {
+        ValidateMuseum(type, group);
+        return ReadAchievements(user, type, group);
+    }
+
+    private static ResGetRankAchievementLeaderBoard ReadAchievements(User user, int type, int? group = null)
+    {
         var snapshots = Settle(user);
         lock (JsonDb.SaveLock)
         {
-            var targetIds = GameData.Instance.Rankings.Values.Where(r => (int)r.RankingType == type).Select(r => r.Id).ToHashSet();
+            var targetIds = GameData.Instance.Rankings.Values.Where(r => (int)r.RankingType == type &&
+                (!group.HasValue || r.ConditionId == group.Value)).Select(r => r.Id).ToHashSet();
             var response = new ResGetRankAchievementLeaderBoard();
             foreach (var snapshot in snapshots.Where(s => s.Eligible))
                 foreach (var (id, achievement) in snapshot.Owner.Ranking!.Achievements.Where(a => targetIds.Contains(a.Key)))
@@ -107,11 +162,22 @@ internal static class RankingService
     internal static NetRewardData Claim(User user, int? type)
     {
         if (type.HasValue) ValidateType(type.Value);
+        return ClaimCore(user, type);
+    }
+
+    internal static NetRewardData ClaimMuseum(User user, int type, int? group = null)
+    {
+        ValidateMuseum(type, group);
+        return ClaimCore(user, type, group);
+    }
+
+    private static NetRewardData ClaimCore(User user, int? type, int? group = null)
+    {
         Settle(user);
         return MissionProgressDelivery.Apply(user, () =>
         {
             var rewards = new List<NetRewardData>();
-            foreach (var target in Available(user, type).ToArray())
+            foreach (var target in Available(user, type, group).ToArray())
             {
                 rewards.Add(RewardUtils.RegisterRewardsForUser(user, target.ServerRewardId));
                 user.Ranking!.ClaimedServerTargets.Add(target.Id);
@@ -120,21 +186,32 @@ internal static class RankingService
         });
     }
 
-    private static IEnumerable<RankingRecord> Available(User user, int? type)
+    private static IEnumerable<RankingRecord> Available(User user, int? type, int? group = null)
     {
         if (user.IsBanned || user.Ranking == null) return [];
         var unlocked = JsonDb.Instance.Users.Where(u => u.Ranking != null)
             .SelectMany(u => u.Ranking!.Achievements.Keys).ToHashSet();
-        return GameData.Instance.Rankings.Values.Where(r => (int)r.RankingType is >= 0 and <= 4 &&
+        return GameData.Instance.Rankings.Values.Where(r => (int)r.RankingType is >= 0 and <= 11 &&
             (!type.HasValue || (int)r.RankingType == type) && r.ServerRewardId > 0 && unlocked.Contains(r.Id) &&
+            (!group.HasValue || r.ConditionId == group.Value) &&
             !user.Ranking.ClaimedServerTargets.Contains(r.Id)).OrderBy(r => r.Id).ToArray();
     }
 
     private static long Count(RankingPlayerState state, int tier) =>
         state.LegacyCounts.GetValueOrDefault(31 + tier) + state.Achievements.Values.LongCount(a => a.Rank <= Tiers[tier]);
 
-    private static IEnumerable<Snapshot> Ordered(IEnumerable<Snapshot> snapshots, int type) =>
-        snapshots.Where(s => s.Eligible && s.Scores[type] > 0).OrderByDescending(s => s.Scores[type]).ThenBy(s => s.Owner.ID);
+    private static int Score(Snapshot snapshot, int type, int? group = null) => type == 11
+        ? snapshot.MuseumGroups.GetValueOrDefault(group ?? 0) : snapshot.Scores[type];
+
+    private static IEnumerable<Snapshot> Ordered(IEnumerable<Snapshot> snapshots, int type, int? group = null) =>
+        snapshots.Where(s => s.Eligible && Score(s, type, group) > 0).OrderByDescending(s => Score(s, type, group)).ThenBy(s => s.Owner.ID);
+
+    private static CorporationTowerType? TowerFromTrigger(Trigger trigger) => trigger switch
+    {
+        Trigger.TowerBasicClear => CorporationTowerType.ALL, Trigger.TowerMissilisClear => CorporationTowerType.MISSILIS,
+        Trigger.TowerElysionClear => CorporationTowerType.ELYSION, Trigger.TowerTetraClear => CorporationTowerType.TETRA,
+        Trigger.TowerOverspecClear => CorporationTowerType.OVERSPEC, _ => null
+    };
 
     // Snapshot each inventory before taking SaveLock. Other action writers lock the
     // player before saving, so taking another player's lock inside SaveLock would deadlock.
@@ -142,14 +219,18 @@ internal static class RankingService
     {
         using var db = GameContext.CreateNew();
         var names = db.Users.ToDictionary(u => u.ID, u => u.Nickname);
+        var towerClears = db.Triggers.Where(t => t.Value > 0 && (t.Type == Trigger.TowerBasicClear ||
+            t.Type == Trigger.TowerMissilisClear || t.Type == Trigger.TowerElysionClear ||
+            t.Type == Trigger.TowerTetraClear || t.Type == Trigger.TowerOverspecClear)).ToArray().ToLookup(t => t.UserId);
         var data = GameData.Instance;
+        var towerFloors = data.towerTable.Values.ToDictionary(t => (t.Type, t.Floor));
         var snapshots = new List<Snapshot>();
         foreach (var user in JsonDb.Instance.Users.ToArray())
         {
             lock (user)
             lock (JsonDb.SaveLock)
             {
-                var scores = new int[5];
+                var scores = new int[11];
                 int chapter = 0;
                 if (data.StageDataRecords.TryGetValue(user.LastHardStageCleared, out var stage) &&
                     stage.ChapterMod == ChapterMod.Hard && stage.StageType == StageType.Main)
@@ -167,11 +248,23 @@ internal static class RankingService
                         CorporationType.TETRA => 3, CorporationType.PILGRIM => 4, _ => -1 };
                     if (type > 0) scores[type] = (int)Math.Min(int.MaxValue, (long)scores[type] + character.Point);
                 }
+                var clearedFloors = new Dictionary<CorporationTowerType, int>();
+                foreach (var pair in user.TowerProgress)
+                    if (towerFloors.ContainsKey((pair.Key, pair.Value))) clearedFloors[pair.Key] = pair.Value;
+                foreach (var clear in towerClears[user.ID].Concat(user.PendingMissionTriggers))
+                    if (clear.Value > 0 && TowerFromTrigger(clear.Type) is { } tower &&
+                        data.towerTable.TryGetValue(clear.ConditionId, out var floor) && floor.Type == tower)
+                        clearedFloors[tower] = Math.Max(clearedFloors.GetValueOrDefault(tower), floor.Floor);
+                for (int index = 0; index < Towers.Length; index++)
+                    if (towerFloors.TryGetValue((Towers[index], clearedFloors.GetValueOrDefault(Towers[index])), out var floor))
+                        scores[5 + index] = floor.Id;
+                var museumGroups = SoloRaidMuseumHelper.GetRankingPointsByGroup(user);
+                scores[10] = (int)Math.Min(int.MaxValue, museumGroups.Values.Sum(value => (long)value));
                 string guild = user.Guild.guildId is int guildId && JsonDb.Instance.Guilds.TryGetValue(guildId, out var union) ? union.Data.Name : "";
                 var profile = new NetWholeUserData { Usn = (long)user.ID, Server = 1001, Nickname = names.GetValueOrDefault(user.ID, "Player"),
                     Lv = user.userPointData.UserLevel, Icon = user.ProfileIconId, IconPrism = user.ProfileIconIsPrism, Frame = user.ProfileFrame,
                     GuildName = guild, UserTitleId = user.TitleId, UserTitleDisplayData = new(), LastActionAt = user.LastLogin.Ticks };
-                snapshots.Add(new(user, profile, scores, chapter, !user.IsBanned && names.ContainsKey(user.ID)));
+                snapshots.Add(new(user, profile, scores, museumGroups, chapter, !user.IsBanned && names.ContainsKey(user.ID)));
             }
         }
         return snapshots.ToArray();
@@ -184,6 +277,16 @@ internal static class RankingService
         if (value < 0) return 0;
         return GameData.Instance.RankingPoints.Values.FirstOrDefault(p => p.OriginalRare == character.OriginalRare &&
             p.Grade == Math.Min(value, 3) && p.Core == Math.Max(value - 3, 0))?.Point ?? 0;
+    }
+
+    private static bool Reached(Snapshot snapshot, RankingRecord target)
+    {
+        int type = (int)target.RankingType;
+        if (type == 0) return snapshot.HardChapter >= target.ConditionId;
+        if (type is >= 5 and <= 9)
+            return GameData.Instance.towerTable.TryGetValue(target.ConditionId, out var required) && required.Type == Towers[type - 5] &&
+                GameData.Instance.towerTable.TryGetValue(snapshot.Scores[type], out var cleared) && cleared.Type == required.Type && cleared.Floor >= required.Floor;
+        return Score(snapshot, type, target.ConditionId) >= target.ConditionValue;
     }
 
     private static Snapshot[] Settle(User requester)
@@ -218,22 +321,21 @@ internal static class RankingService
                 var events = players.ToDictionary(u => u.ID, _ => new List<TriggerModelNew>());
                 var mails = players.ToDictionary(u => u.ID, _ => new List<NetUserMailData>());
                 long at = DateTime.UtcNow.Ticks;
-                foreach (var target in GameData.Instance.Rankings.Values.Where(r => (int)r.RankingType is >= 0 and <= 4).OrderBy(r => r.Id))
+                foreach (var target in GameData.Instance.Rankings.Values.Where(r => (int)r.RankingType is >= 0 and <= 11).OrderBy(r => r.Id))
                 {
                     // Retain reserved places even if an old winner is now banned/offline.
                     var winners = JsonDb.Instance.Users.Where(u => u.Ranking?.Achievements.ContainsKey(target.Id) == true)
                         .Select(u => u.Ranking!.Achievements[target.Id].Rank).ToHashSet();
                     foreach (var state in states.Values)
                         if (state.Achievements.TryGetValue(target.Id, out var achievement)) winners.Add(achievement.Rank);
-                    foreach (var snapshot in Ordered(snapshots, (int)target.RankingType))
+                    foreach (var snapshot in Ordered(snapshots, (int)target.RankingType, target.ConditionId))
                     {
                         var state = states[snapshot.Owner.ID];
                         if (state.Achievements.ContainsKey(target.Id)) continue;
-                        bool reached = target.RankingType == RankingType.HardCampaign ? snapshot.HardChapter >= target.ConditionId :
-                            snapshot.Scores[(int)target.RankingType] >= target.ConditionValue;
+                        bool reached = Reached(snapshot, target);
                         if (!reached || winners.Count >= 10) continue;
                         int rank = Enumerable.Range(1, 10).First(n => !winners.Contains(n)); winners.Add(rank);
-                        state.Achievements[target.Id] = new() { Rank = rank, Score = snapshot.Scores[(int)target.RankingType], AchievedAt = at };
+                        state.Achievements[target.Id] = new() { Rank = rank, Score = Score(snapshot, (int)target.RankingType, target.ConditionId), AchievedAt = at };
                         for (int index = 0; index < Tiers.Length; index++)
                         {
                             if (rank > Tiers[index]) continue;

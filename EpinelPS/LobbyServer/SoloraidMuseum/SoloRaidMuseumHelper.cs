@@ -136,20 +136,27 @@ internal static class SoloRaidMuseumHelper
     {
         var groupId = GameData.Instance.MuseumStageTable.TryGetValue(stageId, out var selectedStage)
             ? selectedStage.GroupId : 0;
-        var total = 0;
-        var group = 0;
-        foreach (var stage in user.SoloRaidMuseumData.Values)
+        var points = GetRankingPointsByGroup(user);
+        return ((int)Math.Min(int.MaxValue, points.Values.Sum(value => (long)value)), points.GetValueOrDefault(groupId));
+    }
+
+    internal static Dictionary<int, int> GetRankingPointsByGroup(User user)
+    {
+        var groups = new Dictionary<int, long>();
+        foreach (var (stageId, stage) in user.SoloRaidMuseumData)
         {
-            foreach (var missionId in stage.ReceivedChallengeMissions.Concat(stage.ReceivedNoLimitMissions))
+            if (!GameData.Instance.MuseumStageTable.TryGetValue(stageId, out var definition) ||
+                !GameData.Instance.MuseumGroupTable.ContainsKey(definition.GroupId)) continue;
+            foreach (var (receipts, mode) in new[] { (stage.ReceivedChallengeMissions, MuseumStageModeType.Challenge),
+                         (stage.ReceivedNoLimitMissions, MuseumStageModeType.NoLimit) })
+            foreach (var missionId in receipts.Distinct())
             {
-                if (!GameData.Instance.MuseumMissionTable.TryGetValue(missionId, out var mission)) continue;
-                total += mission.RankingPointAmount;
-                if (GameData.Instance.MuseumStageTable.TryGetValue(mission.StageId, out var missionStage) &&
-                    missionStage.GroupId == groupId)
-                    group += mission.RankingPointAmount;
+                if (!GameData.Instance.MuseumMissionTable.TryGetValue(missionId, out var mission) ||
+                    mission.StageId != stageId || mission.ModeType != mode || mission.RankingPointAmount <= 0) continue;
+                groups[definition.GroupId] = Math.Min(int.MaxValue, groups.GetValueOrDefault(definition.GroupId) + mission.RankingPointAmount);
             }
         }
-        return (total, group);
+        return groups.ToDictionary(pair => pair.Key, pair => (int)pair.Value);
     }
 
     public static NetUserSoloRaidMuseumStageMode SetMode(User user, int stageId, SoloRaidMuseumStageMode mode)
