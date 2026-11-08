@@ -52,13 +52,13 @@ public static partial class ManagedNpcService
             double minutes = Math.Clamp((now - user.BattleTime).TotalMinutes, 0, 24 * 60);
             if (minutes > 0)
             {
-                NetUtils.GetOutpostReward(user, TimeSpan.FromMinutes(minutes), true);
+                GrantDailyOutpost(user, TimeSpan.FromMinutes(minutes));
                 user.BattleTime = now;
                 user.AddTrigger(Trigger.OutpostBattleReward, 1);
             }
             if (user.ResetableData.WipeoutCount == 0)
             {
-                NetUtils.GetOutpostReward(user, TimeSpan.FromHours(2), true);
+                GrantDailyOutpost(user, TimeSpan.FromHours(2));
                 user.ResetableData.WipeoutCount++;
                 user.AddTrigger(Trigger.OutpostFastBattleReward, 1);
             }
@@ -86,6 +86,28 @@ public static partial class ManagedNpcService
                 claimed++;
             }
             DailyLog(user, now, $"领取可用邮件 {claimed} 封");
+        }
+    }
+
+    private static void GrantDailyOutpost(User user, TimeSpan duration)
+    {
+        // Keep the same table rates/boosts, but commander experience has its own progression fields.
+        var amounts = NetUtils.GetOutpostReward(user, duration);
+        foreach (var currency in amounts.Currency)
+        {
+            if (currency.Type != (int)CurrencyType.UserExp)
+            { user.AddCurrency((CurrencyType)currency.Type, currency.Value); continue; }
+            long experience = checked((long)Math.Max(0, user.userPointData.ExperiencePoint) + Math.Max(0, currency.Value));
+            var levels = GameData.Instance.UserExpDataRecords;
+            while (levels.ContainsKey(user.userPointData.UserLevel + 1) &&
+                levels.TryGetValue(user.userPointData.UserLevel, out var current) && current.Exp > 0 && experience >= current.Exp)
+            {
+                experience -= current.Exp;
+                user.userPointData.UserLevel++;
+                user.AddCurrency(CurrencyType.FreeCash, 30);
+                user.AddTrigger(Trigger.UserLevel, user.userPointData.UserLevel);
+            }
+            user.userPointData.ExperiencePoint = (int)Math.Min(int.MaxValue, experience);
         }
     }
 

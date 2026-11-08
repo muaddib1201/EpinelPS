@@ -83,14 +83,21 @@ public static partial class ManagedNpcService
         long end = until.AddHours(9).Ticks;
         var values = history.Where(t => t.Type == record.Trigger && (record.ConditionId == 0 || t.ConditionId == record.ConditionId) &&
             t.CreatedAt >= start && t.CreatedAt < end).Select(t => (long)t.Value);
+        var characters = user.Characters.Where(c => GameData.Instance.CharacterTable.TryGetValue(c.Tid, out var row) &&
+            (record.ConditionId == 0 || row.NameCode == record.ConditionId || c.Tid == record.ConditionId)).ToArray();
+        var ownedNames = characters.Select(c => GameData.Instance.CharacterTable[c.Tid].NameCode).ToHashSet();
         return record.Trigger switch
         {
             Trigger.UserLevel => Math.Max(user.userPointData.UserLevel, values.DefaultIfEmpty().Max()),
             Trigger.CharacterLevelMax => Math.Max(user.Characters.Select(c => (long)user.GetCharacterLevel(c.Csn, c.Level)).DefaultIfEmpty().Max(), values.DefaultIfEmpty().Max()),
             Trigger.SyncroDeviceLevelMax => Math.Max(user.GetSynchroLevel(), values.DefaultIfEmpty().Max()),
             Trigger.OutpostBattleBoxLevel => Math.Max(user.OutpostBattleLevel.Level, values.DefaultIfEmpty().Max()),
-            Trigger.CharacterAttractiveLevelMax => user.BondInfo.Count(b => b.Lv >= user.GetMaxAttractiveLevel(b.NameCode)),
-            Trigger.CharacterLevel or Trigger.CharacterGrade or Trigger.CharacterCore or Trigger.CharacterAttractiveLevel or
+            Trigger.CharacterAttractiveLevelMax => Math.Max(user.BondInfo.Where(b => ownedNames.Contains(b.NameCode))
+                .Select(b => (long)b.Lv).DefaultIfEmpty().Max(), values.DefaultIfEmpty().Max()),
+            Trigger.CharacterGradeMax => Math.Max(characters.Select(c => (long)Math.Clamp(c.Grade, 0, 3)).DefaultIfEmpty().Max(),
+                Math.Min(3, values.DefaultIfEmpty().Max())),
+            Trigger.CharacterCore => Math.Max(characters.Select(c => (long)Math.Clamp(c.Grade - 3, 0, 7)).DefaultIfEmpty().Max(), values.DefaultIfEmpty().Max()),
+            Trigger.CharacterLevel or Trigger.CharacterGrade or Trigger.CharacterAttractiveLevel or
                 Trigger.CharacterSkillLevel or Trigger.SpecialArenaTier or Trigger.EquipItemLevel or Trigger.RecycleResearchLevel or Trigger.HarmonyCubeLevel => values.DefaultIfEmpty().Max(),
             _ => values.Sum()
         };

@@ -15,8 +15,11 @@ public static partial class ManagedNpcService
         ulong[] ids;
         lock (JsonDb.SaveLock)
             ids = JsonDb.Instance.Users.Where(u => u.ManagedNpc != null).Select(u => u.ID).Order().ToArray();
+        Exception? firstFailure = null;
         foreach (ulong id in ids)
         {
+            try
+            {
             var user = JsonDb.GetUser(id);
             if (user == null) continue;
             lock (user)
@@ -61,7 +64,15 @@ public static partial class ManagedNpcService
                     });
                 }
             }
+            }
+            catch (Exception ex)
+            {
+                firstFailure ??= ex;
+                Logging.WriteLine($"Managed NPC {id} phase failed and remains pending: {ex.Message}", LogType.Error);
+            }
         }
+        // Surface infrastructure failures to the worker after every healthy NPC had its turn.
+        if (firstFailure != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(firstFailure).Throw();
     }
 
     // One owner for resources, phase checkpoint, guild mutations and durable trigger outbox.
