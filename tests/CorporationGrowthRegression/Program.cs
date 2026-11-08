@@ -78,6 +78,8 @@ await Test("unenhanced Synchro follows the fifth native level", async () =>
     Player().SynchroSlots.Add(new() { Slot = 1, CharacterSerialNumber = c.Csn });
     Check((await Board()).User.Score == 461, "fifth native level missing");
     Player().Characters.Last().Level = 165; Check((await Board()).User.Score == 466, "Synchro level change not reflected");
+    Player().Characters.Add(new() { Csn = 99, Tid = int.MaxValue, Level = 1000 });
+    Check((await Board()).User.Score == 466, "unknown definition inflated the fifth native level");
 });
 await Test("manufacturer and matching class research count once per owned character", async () =>
 {
