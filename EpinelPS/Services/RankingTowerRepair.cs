@@ -1,5 +1,6 @@
 using EpinelPS.Data;
 using EpinelPS.Database;
+using EpinelPS.LobbyServer.Mission;
 using EpinelPS.LobbyServer.Ranking;
 using EpinelPS.Models;
 using EpinelPS.Utils;
@@ -57,13 +58,17 @@ public static class RankingTowerRepair
         }).ToArray();
         var currencyBefore = new Dictionary<CurrencyType, long>(user.Currency);
         var itemsBefore = ItemCounts(user);
-        foreach (var tower in plan)
+        MissionProgressDelivery.Apply(user, () =>
         {
-            user.TowerProgress[tower.Tower] = tower.Before;
-            if (tower.RewardedFloors.Length == 0) continue;
-            var result = AdminCommands.SkipTowerFloor(account, $"{tower.Tower}-{targetFloor}");
-            if (!result.ok) throw new InvalidDataException(result.error);
-        }
+            foreach (var tower in plan)
+            {
+                user.TowerProgress[tower.Tower] = tower.Before;
+                if (tower.RewardedFloors.Length == 0) continue;
+                var result = AdminCommands.SkipTowerFloor(account, $"{tower.Tower}-{targetFloor}");
+                if (!result.ok) throw new InvalidDataException(result.error);
+            }
+            return true;
+        });
         // Settle ordinary newly reached tower milestones before transferring old
         // firsts, so only the additional cumulative tiers get manual notifications.
         RankingService.Update(user);

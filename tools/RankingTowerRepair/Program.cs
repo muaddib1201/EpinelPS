@@ -27,7 +27,13 @@ try
         if (!db.Users.Any(u => u.ID == id && u.Nickname == "ZOLRATH")) throw new InvalidDataException("ZOLRATH profile/account mismatch.");
     var result = RankingTowerRepair.Execute(id, int.Parse(args[5]));
     using (var db = GameContext.CreateNew()) db.Database.ExecuteSqlRaw("PRAGMA wal_checkpoint(TRUNCATE)");
-    File.WriteAllText(report, JsonConvert.SerializeObject(new { status = "repaired", result }, Formatting.Indented));
+    File.WriteAllText(report, JsonConvert.SerializeObject(new { status = "repaired", result,
+        currencyTypes = Enum.GetValues<CurrencyType>().ToDictionary(value => (int)value, value => value.ToString()),
+        towerTypes = Enum.GetValues<CorporationTowerType>().ToDictionary(value => (int)value, value => value.ToString()),
+        rewardKinds = new { currency = (int)RewardType.Currency, item = (int)RewardType.Item },
+        towerFloors = data.towerTable.Values.Select(t => new { id = t.Id, type = (int)t.Type, floor = t.Floor }),
+        targets = data.Rankings.Values.Select(t => new { id = t.Id, type = (int)t.RankingType, conditionId = t.ConditionId, conditionValue = t.ConditionValue })
+    }, Formatting.Indented));
     Console.WriteLine("Private staged repair completed: " + report);
     return 0;
 }

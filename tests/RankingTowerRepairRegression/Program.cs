@@ -98,6 +98,14 @@ await Test("transfer credits only newly gained cumulative tiers and never repeat
     using var db=GameContext.CreateNew();Check(db.Triggers.Where(t=>t.UserId==self&&t.Type==Trigger.AchieveRanking1st).Sum(t=>t.Value)==1&&db.Triggers.Where(t=>t.UserId==self&&t.Type==Trigger.AchieveRanking5th).Sum(t=>t.Value)==1&&!db.Triggers.Any(t=>t.UserId==self&&t.Type==Trigger.AchieveRanking10th),"cumulative events duplicated an already earned tier");
     int count=db.Triggers.Count();int mails=Me().MailDatas.Count;Execute();Check(db.Triggers.Count()==count&&Me().MailDatas.Count==mails&&Me().Ranking!.ClaimedServerTargets.SetEquals([10201]),"retry repeated cumulative rewards or erased a gift receipt");return Task.CompletedTask;
 });
+await Test("maintenance CLI rejects a data root outside a private worktree before loading saves",async()=>
+{
+    string tool=Path.Combine(root!.FullName,"src/EpinelPS/tools/RankingTowerRepair/bin/Release/net10.0/win-x64/RankingTowerRepair.exe");
+    var start=new ProcessStartInfo(tool){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+    foreach(string arg in new[]{"--workspace",Path.GetTempPath(),"--account",self.ToString(),"--floor","27","--report",Path.Combine(AppContext.BaseDirectory,"rejected.json")})start.ArgumentList.Add(arg);
+    using var child=Process.Start(start)!;var output=child.StandardOutput.ReadToEndAsync();var error=child.StandardError.ReadToEndAsync();await child.WaitForExitAsync();
+    Check(child.ExitCode!=0&&(await error).Contains("private worktree")&&!File.Exists(Path.Combine(AppContext.BaseDirectory,"rejected.json")),"CLI accepted an unisolated data path");await output;
+});
 Console.WriteLine($"Ranking tower repair regression: {passed} passed, {failed} failed");return failed==0?0:1;
 
 CoreInfo State()=>(CoreInfo)instance.GetValue(null)!;
