@@ -31,6 +31,7 @@ try
         currencyTypes = Enum.GetValues<CurrencyType>().ToDictionary(value => (int)value, value => value.ToString()),
         towerTypes = Enum.GetValues<CorporationTowerType>().ToDictionary(value => (int)value, value => value.ToString()),
         rewardKinds = new { currency = (int)RewardType.Currency, item = (int)RewardType.Item },
+        userExpTable = data.UserExpDataRecords.Values.Select(t => new { level = t.Level, exp = t.Exp }),
         towerFloors = data.towerTable.Values.Select(t => new { id = t.Id, type = (int)t.Type, floor = t.Floor }),
         targets = data.Rankings.Values.Select(t => new { id = t.Id, type = (int)t.RankingType, conditionId = t.ConditionId, conditionValue = t.ConditionValue })
     }, Formatting.Indented));

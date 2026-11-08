@@ -106,6 +106,17 @@ await Test("maintenance CLI rejects a data root outside a private worktree befor
     using var child=Process.Start(start)!;var output=child.StandardOutput.ReadToEndAsync();var error=child.StandardError.ReadToEndAsync();await child.WaitForExitAsync();
     Check(child.ExitCode!=0&&(await error).Contains("private worktree")&&!File.Exists(Path.Combine(AppContext.BaseDirectory,"rejected.json")),"CLI accepted an unisolated data path");await output;
 });
+await Test("first transfer outbox survives a failed second tier delivery without duplicate counters",()=>
+{
+    data.Rankings.Clear();data.Rankings[10201]=new(){Id=10201,RankingType=RankingType.GroupPointElysion,ConditionValue=300};
+    foreach(var company in corps)Me().TowerProgress[company]=27;
+    Me().Ranking=new(){Achievements={[10201]=new(){Rank=7,Score=900,AchievedAt=300}}};Other().Ranking=new(){Achievements={[10201]=new(){Rank=1,Score=600,AchievedAt=100}}};
+    using var db=GameContext.CreateNew();db.Database.ExecuteSqlRaw("CREATE TRIGGER repair_fail_second_tier BEFORE INSERT ON Triggers WHEN NEW.Type=32 BEGIN SELECT RAISE(ABORT,'injected tier delivery failure'); END");
+    try{Execute();Check(Me().Ranking!.Achievements[10201].Rank==1&&Me().PendingMissionTriggers.Count==2,"first assignment and durable outbox were not committed together");}
+    finally{db.Database.ExecuteSqlRaw("DROP TRIGGER repair_fail_second_tier");}
+    instance.SetValue(null,JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(save))!);Execute();
+    Check(Me().PendingMissionTriggers.Count==0&&db.Triggers.Where(t=>t.UserId==self&&t.Type==Trigger.AchieveRanking1st).Sum(t=>t.Value)==1&&db.Triggers.Where(t=>t.UserId==self&&t.Type==Trigger.AchieveRanking5th).Sum(t=>t.Value)==1,"outbox recovery repeated the first tier");return Task.CompletedTask;
+});
 Console.WriteLine($"Ranking tower repair regression: {passed} passed, {failed} failed");return failed==0?0:1;
 
 CoreInfo State()=>(CoreInfo)instance.GetValue(null)!;
