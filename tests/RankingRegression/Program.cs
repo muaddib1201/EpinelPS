@@ -175,6 +175,39 @@ await Test("tower and museum scores milestones and reward receipts survive a fre
     using var child=Process.Start(new ProcessStartInfo(Environment.ProcessPath!,"--verify-completion-saved"){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true})!;
     var output=child.StandardOutput.ReadToEndAsync();var error=child.StandardError.ReadToEndAsync();await child.WaitForExitAsync();Check(child.ExitCode==0,(await output)+(await error));
 });
+await Test("ranking profiles expose each representative team without changing growth scores",()=>WithCombatTables(async()=>
+{
+    Targets(true);
+    CombatCharacter(self,1,99000001,2);Player(self).RepresentationTeamDataNew=[1,0,0,0,0];
+    CombatCharacter(9802,1,99000001,1);CombatCharacter(9802,2,99000002,2);
+    Player(9802).ManagedNpc=new();Player(9802).RepresentationTeamDataNew=[1,0,999,0,0];
+    CombatCharacter(9803,1,99000002,2);Player(9803).ManagedNpc=new();Player(9803).RepresentationTeamDataNew=[1,0,0,0,0];
+    CombatCharacter(9804,1,99000001,1);Player(9804).ManagedNpc=new();
+    var board=await Board(self,2);
+    Check(board.User.User.TeamCombat==236,"personal ranking profile lost team combat");
+    Check(board.RankingList.Single(r=>r.User.Usn==9802).User.TeamCombat==118,"NPC combat must use valid selected characters, not its whole roster");
+    Check(board.RankingList.Single(r=>r.User.Usn==9803).User.TeamCombat==236,"distinct NPC teams were assigned the same or zero combat");
+    Check(board.RankingList.Single(r=>r.User.Usn==9804).User.TeamCombat==0,"empty representative team invented combat");
+    int score=board.RankingList.Single(r=>r.User.Usn==9802).Score;
+    Player(9802).RepresentationTeamDataNew=[2,0,0,0,0];
+    var changed=(await Board(self,2)).RankingList.Single(r=>r.User.Usn==9802);
+    Check(changed.User.TeamCombat==236&&changed.Score==score,"team change must refresh combat independently of corporation growth points");
+}));
+await Test("overview achievements and museum profiles include current Synchro team combat",()=>WithCombatTables(async()=>
+{
+    Targets(true);CombatCharacter(9802,1,99000001,1);var npc=Player(9802);npc.ManagedNpc=new();
+    npc.RepresentationTeamDataNew=[1,0,0,0,0];npc.LastHardStageCleared=7001001;npc.TowerProgress[CorporationTowerType.ALL]=30;
+    EarnMuseum(9802,910001,101,10);
+    Check((await Board(self,2)).RankingList.Single().User.TeamCombat==118,"initial NPC combat absent");
+    npc.SynchroDeviceUpgraded=true;npc.SynchroDeviceLevel=2;npc.SynchroSlots.Add(new(){Slot=1,CharacterSerialNumber=1});
+    var overview=await Send<ResGetAllTopRank>(self,"alltoprank",new ReqGetAllTopRank());
+    foreach(int type in new[]{0,2,5})Check(overview.TopRankingList.Single(r=>r.Type==type).User.TeamCombat==236,"overview used missing or stale Synchro combat");
+    Check(overview.TopMuseumTotalRankingList.Single().User.TeamCombat==236&&overview.TopMuseumGroupRankingList.Single(r=>r.ConditionId==1).User.TeamCombat==236,"museum overview lost team combat");
+    var history=await Send<ResGetRankAchievementLeaderBoard>(self,"rankachievement",new ReqGetRankAchievementLeaderBoard{Type=2});
+    Check(history.RankAchievement.Count>0&&history.RankAchievement.All(r=>r.User.TeamCombat==236),"achievement profiles lost current team combat");
+    Check((await MuseumTotal(self)).RankingList.Single().User.TeamCombat==236&&(await MuseumHall(self,1)).RankingList.Single().User.TeamCombat==236,"museum detail profiles lost team combat");
+    Check((await Board(self,0)).RankingList.Single().User.TeamCombat==236&&(await Board(self,5)).RankingList.Single().User.TeamCombat==236,"campaign or tower detail lost team combat");
+}));
 Console.WriteLine($"Ranking regression: {passed} passed, {failed} failed");return failed==0?0:1;
 CoreInfo Fixture()=>new(){DbVersion=5,LauncherTokenKey=key,EncryptionTokenKey=key,BondRewardLevelsMigrated=true,Users=Enumerable.Range(9801,13).Select(i=>new User{ID=(ulong)i}).ToList()};
 User Player(ulong id)=>State().Users.Single(u=>u.ID==id);
@@ -194,3 +227,15 @@ Task<ResGetRankAchievementTop> Achievements(ulong id)=>Send<ResGetRankAchievemen
 Task<ResObtainAllRankAchievementServerReward> AllClaim(ulong id)=>Send<ResObtainAllRankAchievementServerReward>(id,"allrankachievementserverreward",new ReqObtainAllRankAchievementServerReward());
 async Task<T> Send<T>(ulong id,string route,IMessage req)where T:IMessage<T>,new(){using var scope=services.CreateScope();var ctx=new DefaultHttpContext{RequestServices=scope.ServiceProvider};ctx.Request.Path=route.StartsWith('/')?"/v1"+route:"/v1/ranking/"+route;ctx.Request.Body=new MemoryStream(req.ToByteArray());ctx.Response.Body=new MemoryStream();if(id!=0)ctx.Request.Headers.Authorization="Bearer "+new PasetoBuilder().Use(ProtocolVersion.V4,Purpose.Local).WithKey(key,Encryption.SymmetricKey).AddClaim("userId",id).Expiration(DateTime.UtcNow.AddMinutes(10)).Encode();await LobbyHandler.DispatchSingle(ctx);T reply=new();reply.MergeFrom(((MemoryStream)ctx.Response.Body).ToArray());return reply;}
 static void Check(bool b,string m){if(!b)throw new InvalidOperationException(m);}
+void CombatCharacter(ulong id,int csn,int tid,int level)=>Player(id).Characters.Add(new(){Csn=csn,Tid=tid,Level=level});
+async Task WithCombatTables(Func<Task> test)
+{
+    int[] ids=[99000001,99000002];
+    Check(ids.All(id=>!data.CharacterTable.ContainsKey(id)&&!data.characterStatTable.ContainsKey(id)),"combat fixture IDs overlap shipped tables");
+    foreach(int id in ids)data.CharacterTable.Add(id,new(){Id=id,NameCode=id,OriginalRare=OriginalRareType.SSR,GradeCoreId=1,Corporation=CorporationType.ELYSION,StatEnhanceId=99000001});
+    // With no critical bonus/core and level-one skills: (100*18 + 10000*.7)*1.34/100 = 117.92 -> 118 CP.
+    // Doubling the level stats gives 235.84 -> 236 CP, independently of the implementation.
+    data.characterStatTable.Add(99000001,new(){Id=99000001,Group=99000001,Level=1,LevelHp=10000,LevelAttack=100});
+    data.characterStatTable.Add(99000002,new(){Id=99000002,Group=99000001,Level=2,LevelHp=20000,LevelAttack=200});
+    try{await test();}finally{foreach(int id in ids){data.CharacterTable.Remove(id);data.characterStatTable.Remove(id);}}
+}
