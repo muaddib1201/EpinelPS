@@ -14,6 +14,15 @@ internal static class RankingLiveProbe
         {
             var root = Environment.GetEnvironmentVariable("RANKING_LIVE_ROOT") ?? throw new InvalidOperationException("Explicit live root required.");
             var state = JObject.Parse(File.ReadAllText(Path.Combine(root, "Server and Server selector/db.json")));
+            var npcIds = state["Users"]!.Where(u => u["ManagedNpc"]?.Type is not null and not JTokenType.Null)
+                .Select(u => (long)u["ID"]!).ToHashSet();
+            var npcCombat = new Dictionary<long, int>();
+            void CheckCombat(NetWholeUserData? profile)
+            {
+                if (profile == null || !npcIds.Contains(profile.Usn)) return;
+                if (profile.TeamCombat <= 0) throw new InvalidDataException("Live NPC ranking profile lacks representative team combat: " + profile.Usn);
+                npcCombat[profile.Usn] = profile.TeamCombat;
+            }
             var user = state["Users"]!.First(u => u["ManagedNpc"]?.Type is null or JTokenType.Null);
             ulong id = (ulong)user["ID"]!;
             var key = Convert.FromBase64String((string)state["LauncherTokenKey"]!);
@@ -32,18 +41,25 @@ internal static class RankingLiveProbe
             if (!overview.TopRankingList.Select(r => r.Type).Order().SequenceEqual(Enumerable.Range(0, 10)) ||
                 overview.TopMuseumTotalRankingList.Count != 1 || overview.TopMuseumGroupRankingList.Count != 3)
                 throw new InvalidDataException("Live overview lacks tower or museum cards.");
+            foreach (var row in overview.TopRankingList) CheckCombat(row.User);
+            foreach (var row in overview.TopMuseumTotalRankingList) CheckCombat(row.User);
+            foreach (var row in overview.TopMuseumGroupRankingList) CheckCombat(row.User);
             var boards = new List<object>();
             var firstAchievements = new List<object>();
             void AddFirsts(IEnumerable<NetRankAchievementData> rows, int type, int? group = null)
             {
-                foreach (var row in rows.Where(r => r.Rank == 1))
-                    firstAchievements.Add(new { type, group, target = row.RankId, account = row.User.Usn, score = row.Score, achievedAt = row.AchievedAt });
+                foreach (var row in rows)
+                {
+                    CheckCombat(row.User);
+                    if (row.Rank == 1) firstAchievements.Add(new { type, group, target = row.RankId, account = row.User.Usn, score = row.Score, achievedAt = row.AchievedAt });
+                }
             }
             for (int type = 0; type < 10; type++)
             {
                 var board = await Read<ResGetRankingList>("getlist", new ReqGetRankingList { Type = type });
                 if (board.User?.User?.Usn != (long)id || board.RankingList.Any(r => r.Rank <= 0 || r.Score <= 0 || r.User == null))
                     throw new InvalidDataException("Live personal row or ranked profiles invalid.");
+                foreach (var row in board.RankingList) CheckCombat(row.User);
                 var history = await Read<ResGetRankAchievementLeaderBoard>("rankachievement", new ReqGetRankAchievementLeaderBoard { Type = type });
                 AddFirsts(history.RankAchievement, type);
                 var top = overview.TopRankingList.Single(r => r.Type == type);
@@ -55,6 +71,7 @@ internal static class RankingLiveProbe
             }
             var museumTotal = await Read<ResGetMuseumTotalRankingList>("get/museumtotal/rankinglist", new ReqGetMuseumTotalRankingList { Type = 10 });
             if (museumTotal.User?.User?.Usn != (long)id) throw new InvalidDataException("Live museum total profile is absent.");
+            foreach (var row in museumTotal.RankingList) CheckCombat(row.User);
             var museumTop = overview.TopMuseumTotalRankingList.Single();
             if (museumTop.Type != 10 || museumTop.Score != (museumTotal.RankingList.FirstOrDefault()?.Score ?? 0) ||
                 museumTop.User?.Usn != museumTotal.RankingList.FirstOrDefault()?.User.Usn)
@@ -65,6 +82,7 @@ internal static class RankingLiveProbe
             foreach (var hall in overview.TopMuseumGroupRankingList)
             {
                 var detail = await Read<ResGetMuseumGroupRankingList>("get/museumgroup/rankinglist", new ReqGetMuseumGroupRankingList { Type = 11, ConditionId = hall.ConditionId });
+                foreach (var row in detail.RankingList) CheckCombat(row.User);
                 if (detail.User?.User?.Usn != (long)id || hall.Score != (detail.RankingList.FirstOrDefault()?.Score ?? 0) ||
                     hall.User?.Usn != detail.RankingList.FirstOrDefault()?.User.Usn)
                     throw new InvalidDataException("Live museum hall profile or overview disagrees with detail.");
@@ -78,6 +96,8 @@ internal static class RankingLiveProbe
             var reward = await Read<ResUpdateRankingServerReward>("updateserverreward", new ReqUpdateRankingServerReward());
             var towerData = await Read<ResGetTowerData>("../tower/gettowerdata", new ReqGetTowerData());
             var report = new { status = "passed", utc = DateTime.UtcNow, account = id, boards, firstAchievements,
+                npcCombat = new { profiles = npcCombat.Count, minimum = npcCombat.Values.DefaultIfEmpty().Min(), maximum = npcCombat.Values.DefaultIfEmpty().Max(),
+                    samples = npcCombat.OrderBy(p => p.Key).Take(10).Select(p => new { account = p.Key, combat = p.Value }) },
                 towerData = towerData.Data.Select(t => new { type = t.Type, floor = t.Floor, remainCount = t.RemainCount }),
                 museumTotal = new { entries = museumTotal.RankingList.Count, personalRank = museumTotal.User.Rank, personalScore = museumTotal.User.Score }, museumHalls,
                 counts = counts.TriggerList.Select(t => new { trigger = t.Trigger, count = t.UserValue }), hasNewServerReward = reward.HasNewReward };

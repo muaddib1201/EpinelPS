@@ -270,6 +270,7 @@ internal static class RankingService
                 string guild = user.Guild.guildId is int guildId && JsonDb.Instance.Guilds.TryGetValue(guildId, out var union) ? union.Data.Name : "";
                 var profile = new NetWholeUserData { Usn = (long)user.ID, Server = 1001, Nickname = names.GetValueOrDefault(user.ID, "Player"),
                     Lv = user.userPointData.UserLevel, Icon = user.ProfileIconId, IconPrism = user.ProfileIconIsPrism, Frame = user.ProfileFrame,
+                    TeamCombat = NetUtils.GetDisplayedTeam(user).TeamCombat,
                     GuildName = guild, UserTitleId = user.TitleId, UserTitleDisplayData = new(), LastActionAt = user.LastLogin.Ticks };
                 snapshots.Add(new(user, profile, scores, museumGroups, chapter, !user.IsBanned && names.ContainsKey(user.ID)));
             }
