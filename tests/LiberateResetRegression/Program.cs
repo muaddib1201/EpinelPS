@@ -55,6 +55,9 @@ foreach (var row in await data.LoadZip<LiberateMissionRecord>("LiberateMissionTa
 foreach (var row in await data.LoadZip<InfraCoreGradeRecord>("InfraCoreGradeTable.json", new Progress<double>())) data.InfracoreTable.Add(row.Id, row);
 foreach (var row in await data.LoadZip<DispatchBoardRecord>("DispatchBoardTable.json", new Progress<double>())) data.DispatchBoardTable.Add(row.Id, row);
 foreach (var row in await data.LoadZip<AttractiveLevelRecord>("AttractiveLevelTable.json", new Progress<double>())) data.AttractiveLevelTable.Add(row.Id, row);
+foreach (var row in await data.LoadZip<CharacterRecord>("CharacterTable.json", new Progress<double>())) data.CharacterTable.Add(row.Id, row);
+foreach (var row in await data.LoadZip<RewardRecord>("RewardTable.json", new Progress<double>()))
+    if (row.Id == 3003001) data.RewardDataRecords.Add(row.Id, row);
 var character = data.LiberateCharacterTable.Values.OrderBy(c => c.Id).First();
 var group = data.LiberateMissionGroupTable.Values.Single(g => g.MissionStepGroup == character.MissionStepGroup && g.MissionStep == 2);
 var first = new User { ID = target, InfraCoreLvl = 17, CurCharacterIdId = character.Id };
@@ -215,7 +218,137 @@ Check(Current(target).LiberateDatas[curId].RewardedCount == 0 && Current(target)
     "overlapping resets corrupted the batch");
 Check(JToken.DeepEquals(otherSnapshot, JToken.FromObject(Current(other))), "overlapping resets changed another player");
 Console.WriteLine("PASS: empty legacy lists and overlapping button requests remain usable");
-Console.WriteLine("LiberateReset: 8 PASS, 0 FAIL");
+int refreshChecks = await VerifyDailyRefresh();
+Console.WriteLine($"LiberateReset: {8 + refreshChecks} PASS, 0 FAIL");
+
+async Task<int> VerifyDailyRefresh()
+{
+    var baseline = JToken.FromObject(Current(target));
+    var definition = data.LiberateCharacterTable[2];
+    var finalGroup = data.LiberateMissionGroupTable.Values.Single(g => g.MissionStepGroup == definition.MissionStepGroup && g.MissionStep == 5);
+    var resetPool = data.LiberateMissionTable.Values.Where(m => m.GroupId == finalGroup.ResetMissionGroupId).OrderBy(m => m.Id).ToArray();
+    Check(resetPool.Length == 39, "real Quency fixture does not contain the reported 39-task reset pool");
+    var failures = new List<string>();
+    int passed = 0;
+
+    User Setup(bool completed, int count, DateTime created)
+    {
+        var core = (CoreInfo)jsonDb.GetProperty("Instance")!.GetValue(null)!;
+        var user = baseline.ToObject<User>()!;
+        user.CurCharacterIdId = 2;
+        user.Characters.Add(new CharacterModel { Csn = 5555001, Tid = 140201, Level = 1, Skill1Lvl = 1, Skill2Lvl = 1, UltimateLevel = 1 });
+        user.BondInfo.Add(new() { NameCode = 5078, Lv = 1 });
+        var lib = new NetLiberateData { CharacterId = 2, Step = 5, ProgressPoint = completed ? 1450 : 1430,
+            IsCompleted = completed, RewardedCount = count == 0 ? 0 : 1 };
+        for (int i = 0; i < count; i++)
+            lib.MissionData.Add(new NetLiberateMissionData { Id = i + 1, MissionTid = resetPool[i].Id, LiberateCharacterId = 2,
+                MissionState = i == 1 ? LiberateMissionState.Rewarded : LiberateMissionState.Running,
+                CreatedAt = created.Ticks, ReceivedAt = created.Ticks, TriggerStartAt = created.Ticks, TriggerEndAt = created.AddHours(24).Ticks });
+        user.LiberateDatas[2] = lib;
+        core.Users[core.Users.FindIndex(u => u.ID == target)] = user;
+        jsonDb.GetMethod("Save")!.Invoke(null, null);
+        return user;
+    }
+
+    async Task Case(string name, Func<Task> run)
+    {
+        try { await run(); passed++; Console.WriteLine("PASS: " + name); }
+        catch (Exception error) { failures.Add(name + ": " + error.Message); Console.WriteLine("FAIL: " + failures[^1]); }
+    }
+
+    await Case("expired refreshed missions regenerate three tasks from Quency's default daily group", async () =>
+    {
+        var user = Setup(false, 3, DateTime.UtcNow.AddHours(-48));
+        var beforeRead = JToken.FromObject(user);
+        var result = await Send<ResGetLiberateData>("/liberate/get", new ReqGetLiberateData());
+        Check(result.LiberateData.MissionData.Count == 3, "expired reset-pool tasks expanded into the 39-entry candidate pool");
+        Check(result.LiberateData.MissionData.All(m => data.LiberateMissionTable[m.MissionTid].GroupId == finalGroup.DefaultMissionGroupId),
+            "daily refresh retained a reset-pool group instead of the stage's default group");
+        var expectedRead = beforeRead.DeepClone();
+        expectedRead["LiberateDatas"]!["2"]!["MissionData"] = JToken.FromObject(result.LiberateData.MissionData);
+        expectedRead["LiberateDatas"]!["2"]!["RewardedCount"] = 0;
+        Check(JToken.DeepEquals(expectedRead, JToken.FromObject(Current(target))), "daily refresh changed character, bond, points, stage or wallet");
+    });
+
+    await Case("refreshing the first slot cannot postpone the expiry of the other daily slots", async () =>
+    {
+        var user = Setup(false, 3, DateTime.UtcNow.AddHours(-48));
+        var firstSlot = user.LiberateDatas[2].MissionData[0];
+        firstSlot.CreatedAt = firstSlot.ReceivedAt = firstSlot.TriggerStartAt = DateTime.UtcNow.Ticks;
+        firstSlot.TriggerEndAt = DateTime.UtcNow.AddHours(24).Ticks;
+        var result = await Send<ResGetLiberateData>("/liberate/get", new ReqGetLiberateData());
+        Check(result.LiberateData.MissionData.Count == 3 && result.LiberateData.RewardedCount == 0 &&
+            result.LiberateData.MissionData.All(m => data.LiberateMissionTable[m.MissionTid].GroupId == finalGroup.DefaultMissionGroupId),
+            "a fresh first slot hid the expired daily slots");
+    });
+
+    await Case("an empty legacy daily list returns three missions without indexing an absent first slot", async () =>
+    {
+        Setup(false, 0, DateTime.UtcNow);
+        var result = await Send<ResGetLiberateData>("/liberate/get", new ReqGetLiberateData());
+        Check(result.LiberateData.MissionData.Count == 3 && result.LiberateData.ProgressPoint == 1430 && result.LiberateData.Step == 5,
+            "empty-list recovery erased progress or returned an invalid batch");
+    });
+
+    foreach (int hours in new[] { -1, -48 })
+        await Case($"completed liberation trims a 39-task list while preserving claimed slots ({hours}h)", async () =>
+        {
+            var user = Setup(true, 39, DateTime.UtcNow.AddHours(hours));
+            var expectedRead = JToken.FromObject(user);
+            expectedRead["LiberateDatas"]!["2"]!["MissionData"] = JToken.FromObject(user.LiberateDatas[2].MissionData.Take(3));
+            var result = await Send<ResGetLiberateData>("/liberate/get", new ReqGetLiberateData());
+            Check(result.LiberateData.MissionData.Count == 3, "completed liberation still exposes 39 tasks");
+            Check(JToken.DeepEquals(expectedRead, JToken.FromObject(Current(target))), "completed repair changed points, reward count, ownership or claimed task metadata");
+            await Send<ResGetLiberateData>("/liberate/get", new ReqGetLiberateData());
+            Reload();
+            Check(JToken.DeepEquals(expectedRead, JToken.FromObject(Current(target))), "repeated or persisted completed reads renewed claimed tasks");
+        });
+
+    await Case("a failed legacy-list save restores the entire previous liberation state", async () =>
+    {
+        var beforeRead = JToken.FromObject(Setup(true, 39, DateTime.UtcNow.AddHours(-1)));
+        Directory.CreateDirectory(save + ".tmp");
+        bool failed = false;
+        try { await Send<ResGetLiberateData>("/liberate/get", new ReqGetLiberateData()); }
+        catch (IOException) { failed = true; }
+        finally { Directory.Delete(save + ".tmp"); }
+        Check(failed, "blocked save did not fail");
+        Check(JToken.DeepEquals(beforeRead, JToken.FromObject(Current(target))), "failed normalization left an in-memory partial repair");
+    });
+
+    await Case("a valid fresh mixed daily/reset list is not rerolled on read", async () =>
+    {
+        var user = Setup(false, 3, DateTime.UtcNow.AddHours(-1));
+        var daily = data.LiberateMissionTable.Values.First(m => m.GroupId == finalGroup.DefaultMissionGroupId);
+        user.LiberateDatas[2].MissionData[0].MissionTid = daily.Id;
+        var beforeRead = JToken.FromObject(user);
+        await Send<ResGetLiberateData>("/liberate/get", new ReqGetLiberateData());
+        Check(JToken.DeepEquals(beforeRead, JToken.FromObject(Current(target))), "normal reading rerolled legitimate mixed tasks");
+    });
+
+    await Case("retrying a completed final reward never grants another character copy", async () =>
+    {
+        var beforeClaim = JToken.FromObject(Setup(true, 3, DateTime.UtcNow.AddHours(-1)));
+        var result = await Send<ResObtainLiberateStepReward>("/liberate/obtainstepreward", new ReqObtainLiberateStepReward());
+        Check(JToken.DeepEquals(beforeClaim, JToken.FromObject(Current(target))), "completed reward retry granted another copy or changed the save");
+        Check(result.Reward == null || result.Reward.Character.Count == 0 && result.Reward.Item.Count == 0 && result.Reward.Currency.Count == 0,
+            "completed reward retry returned another grant");
+    });
+
+    await Case("a mission retry cannot modify a completed liberation's retained progress", async () =>
+    {
+        var beforeClaim = JToken.FromObject(Setup(true, 3, DateTime.UtcNow.AddHours(-1)));
+        await Send<ResCompleteLiberateMission>("/liberate/completemission", new ReqCompleteLiberateMission { MissionId = 1 });
+        Check(JToken.DeepEquals(beforeClaim, JToken.FromObject(Current(target))), "completed mission retry changed retained points or claim count");
+    });
+
+    var core = (CoreInfo)jsonDb.GetProperty("Instance")!.GetValue(null)!;
+    core.Users[core.Users.FindIndex(u => u.ID == target)] = baseline.ToObject<User>()!;
+    jsonDb.GetMethod("Save")!.Invoke(null, null);
+    Check(JToken.DeepEquals(otherSnapshot, JToken.FromObject(Current(other))), "refresh tests changed another account");
+    if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
+    return passed;
+}
 
 async Task<T> Send<T>(string route, IMessage body) where T : IMessage<T>, new()
 {
