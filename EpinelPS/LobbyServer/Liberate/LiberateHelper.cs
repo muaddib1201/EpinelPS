@@ -23,8 +23,7 @@ public class LiberateHelper
             (row.GroupId == group.DefaultMissionGroupId || row.GroupId == group.ResetMissionGroupId);
 
         if (!expired && stored.MissionData.Count == MissionSlots && visible.Length == MissionSlots &&
-            visible.Select(m => m.Id).Distinct().Count() == MissionSlots &&
-            visible.Select(m => m.MissionTid).Distinct().Count() == MissionSlots && visible.All(Valid))
+            visible.Select(m => m.Id).Distinct().Count() == MissionSlots && visible.All(Valid))
             return stored;
 
         var repaired = stored.Clone();
@@ -39,18 +38,16 @@ public class LiberateHelper
         // The legacy list contains the reset candidate pool. Retain the three slots
         // the client actually displayed, including any already claimed mission.
         List<NetLiberateMissionData>? replacements = null;
-        var used = new HashSet<int>();
         for (int slot = 1; slot <= MissionSlots; slot++)
         {
-            var mission = visible.FirstOrDefault(m => m.Id == slot && Valid(m) && !used.Contains(m.MissionTid));
+            var mission = visible.FirstOrDefault(m => m.Id == slot && Valid(m));
             if (mission == null)
             {
                 replacements ??= CreateDailyMissions(stored.CharacterId, group);
-                mission = replacements.First(m => !used.Contains(m.MissionTid));
+                mission = replacements[slot - 1];
             }
             var retained = mission.Clone();
             retained.Id = slot;
-            used.Add(retained.MissionTid);
             repaired.MissionData.Add(retained);
         }
         return repaired;
