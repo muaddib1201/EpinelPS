@@ -30,9 +30,9 @@
 
 **Files:** `EpinelPS/LobbyServer/Liberate/{LiberateHelper,GetLiberateData,CompleteMission,ObtainStepReward}.cs`, `tests/LiberateResetRegression/Program.cs`; ignored session-owned maintenance/installer artifacts in `.nikke`.
 
-- [ ] Add failing handler regressions for expired reset-pool tasks, completed oversized/expired lists, empty lists, save rollback and completed reward/mission retries.
-- [ ] Run the regression through `nikke_workflow.py test --suite LiberateResetRegression`; confirm behavioral failures on the old implementation.
-- [ ] Implement minimal canonical generation, conservative oversized-list normalization, rollback and completed-state guards. Run the targeted regression.
+- [x] Add failing handler regressions for expired reset-pool tasks, completed oversized/expired lists, empty lists, save rollback and completed reward/mission retries.
+- [x] Run the regression through `nikke_workflow.py test --suite LiberateResetRegression`; confirm behavioral failures on the old implementation.
+- [x] Implement minimal canonical generation, conservative oversized-list normalization, rollback and completed-state guards. Run the targeted regression.
 - [ ] Commit, request an independent review, address important findings, integrate and sync through the project workflow.
 - [ ] Run `nikke_workflow.py test --suite all`, inspect results, scan the new commit history for sensitive files and push the exact integration commit; verify the remote SHA.
 - [ ] Publish, prepare and review a new installer that changes only the authorized mission list alongside the tested program, seal and check-release, deploy, then verify the persisted full save and server health.
@@ -46,3 +46,5 @@ RED evidence: the original handlers expanded expired refreshed tasks to 39 entri
 Ruling: use the project workflow instead of the skill's Bash bookkeeping wrappers on this Windows project; preserve the single-task brief and evidence in this ledger. This follows the user's required test/integration/deployment entrypoints.
 
 Review ruling: slot IDs, not mission definition IDs, identify the three displayed tasks. The existing paid-refresh endpoint permits repeated mission definitions across slots. Preserve all existing slot records in that case, including claimed later slots during partial-list recovery; add regression coverage before correcting the initial uniqueness check.
+
+Implementation evidence: `.nikke/checks/20261111-233120-873290/tests.json` records 22 handler/config regression groups and one independent saved-state verification passing at `77eaeef8a045dcedf24937837632b3b31303fcca`. Independent review confirmed the Important slot-preservation finding resolved and found no remaining code blocker. The new list-only helper and installer also passed read-only review; final publish identities and operational checks remain required by the later steps.
