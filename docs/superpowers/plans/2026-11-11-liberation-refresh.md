@@ -40,3 +40,7 @@
 ## Ledger
 
 Pre-flight: no shared interfaces beyond the existing liberation protobuf handlers and mission records.
+
+RED evidence: the original handlers expanded expired refreshed tasks to 39 entries, failed empty reads, retained oversized completed lists, granted a duplicate spare body and changed completed mission points. The regression run at `.nikke/checks/20261111-231821-575223` recorded these failures before production edits.
+
+Ruling: use the project workflow instead of the skill's Bash bookkeeping wrappers on this Windows project; preserve the single-task brief and evidence in this ledger. This follows the user's required test/integration/deployment entrypoints.

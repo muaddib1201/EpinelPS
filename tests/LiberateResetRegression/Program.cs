@@ -244,6 +244,7 @@ async Task<int> VerifyDailyRefresh()
             lib.MissionData.Add(new NetLiberateMissionData { Id = i + 1, MissionTid = resetPool[i].Id, LiberateCharacterId = 2,
                 MissionState = i == 1 ? LiberateMissionState.Rewarded : LiberateMissionState.Running,
                 CreatedAt = created.Ticks, ReceivedAt = created.Ticks, TriggerStartAt = created.Ticks, TriggerEndAt = created.AddHours(24).Ticks });
+        if (count == 39) lib.MissionData[0].MissionTid = resetPool[^1].Id;
         user.LiberateDatas[2] = lib;
         core.Users[core.Users.FindIndex(u => u.ID == target)] = user;
         jsonDb.GetMethod("Save")!.Invoke(null, null);
@@ -290,6 +291,26 @@ async Task<int> VerifyDailyRefresh()
             "empty-list recovery erased progress or returned an invalid batch");
     });
 
+    await Case("an unfinished oversized list retains its three displayed slots and earned count", async () =>
+    {
+        var user = Setup(false, 39, DateTime.UtcNow.AddHours(-1));
+        var expectedRead = JToken.FromObject(user);
+        expectedRead["LiberateDatas"]!["2"]!["MissionData"] = JToken.FromObject(user.LiberateDatas[2].MissionData.Take(3));
+        await Send<ResGetLiberateData>("/liberate/get", new ReqGetLiberateData());
+        Check(JToken.DeepEquals(expectedRead, JToken.FromObject(Current(target))), "oversized-list recovery rerolled earned or displayed tasks");
+    });
+
+    await Case("completed empty-list recovery preserves the completed flag, count and all rewards", async () =>
+    {
+        var user = Setup(true, 0, DateTime.UtcNow);
+        user.LiberateDatas[2].RewardedCount = 1;
+        var expectedRead = JToken.FromObject(user);
+        var result = await Send<ResGetLiberateData>("/liberate/get", new ReqGetLiberateData());
+        Check(result.LiberateData.MissionData.Count == 3, "completed empty list did not recover three UI slots");
+        expectedRead["LiberateDatas"]!["2"]!["MissionData"] = JToken.FromObject(result.LiberateData.MissionData);
+        Check(JToken.DeepEquals(expectedRead, JToken.FromObject(Current(target))), "completed empty-list recovery changed completed progress or rewards");
+    });
+
     foreach (int hours in new[] { -1, -48 })
         await Case($"completed liberation trims a 39-task list while preserving claimed slots ({hours}h)", async () =>
         {
@@ -310,7 +331,7 @@ async Task<int> VerifyDailyRefresh()
         Directory.CreateDirectory(save + ".tmp");
         bool failed = false;
         try { await Send<ResGetLiberateData>("/liberate/get", new ReqGetLiberateData()); }
-        catch (IOException) { failed = true; }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { failed = true; }
         finally { Directory.Delete(save + ".tmp"); }
         Check(failed, "blocked save did not fail");
         Check(JToken.DeepEquals(beforeRead, JToken.FromObject(Current(target))), "failed normalization left an in-memory partial repair");
