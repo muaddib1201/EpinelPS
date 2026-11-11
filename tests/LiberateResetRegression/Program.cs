@@ -347,6 +347,40 @@ async Task<int> VerifyDailyRefresh()
         Check(JToken.DeepEquals(beforeRead, JToken.FromObject(Current(target))), "normal reading rerolled legitimate mixed tasks");
     });
 
+    foreach (bool completed in new[] { false, true })
+        await Case($"legitimate repeated task types preserve both slot records (completed={completed})", async () =>
+        {
+            var user = Setup(completed, 3, DateTime.UtcNow.AddHours(-1));
+            user.LiberateDatas[2].MissionData[2].MissionTid = user.LiberateDatas[2].MissionData[1].MissionTid;
+            user.LiberateDatas[2].MissionData[2].MissionState = LiberateMissionState.Rewarded;
+            user.LiberateDatas[2].RewardedCount = 2;
+            var beforeRead = JToken.FromObject(user);
+            await Send<ResGetLiberateData>("/liberate/get", new ReqGetLiberateData());
+            Check(JToken.DeepEquals(beforeRead, JToken.FromObject(Current(target))), "a legitimate repeated task type lost its original slot state");
+        });
+
+    await Case("filling a missing first slot preserves a claimed later slot of the same task type", async () =>
+    {
+        var user = Setup(false, 3, DateTime.UtcNow.AddHours(-1));
+        var dailyRows = data.LiberateMissionTable.Values.Where(m => m.GroupId == finalGroup.DefaultMissionGroupId).OrderBy(m => m.Id).ToArray();
+        var selected = dailyRows[0].SubGroupId;
+        var removed = dailyRows.Where(m => m.SubGroupId != selected).ToArray();
+        user.LiberateDatas[2].MissionData.RemoveAt(0);
+        user.LiberateDatas[2].MissionData[0].MissionTid = dailyRows[0].Id;
+        var claimed = user.LiberateDatas[2].MissionData[0].Clone();
+        var last = user.LiberateDatas[2].MissionData[1].Clone();
+        try
+        {
+            foreach (var row in removed) data.LiberateMissionTable.Remove(row.Id);
+            var result = await Send<ResGetLiberateData>("/liberate/get", new ReqGetLiberateData());
+            Check(result.LiberateData.MissionData.Count == 3 && result.LiberateData.MissionData[1].Equals(claimed) &&
+                result.LiberateData.MissionData[2].Equals(last), "filling an earlier slot replaced a retained later slot");
+            Check(result.LiberateData.ProgressPoint == 1430 && result.LiberateData.RewardedCount == 1,
+                "partial recovery changed progress or claim count");
+        }
+        finally { foreach (var row in removed) data.LiberateMissionTable[row.Id] = row; }
+    });
+
     await Case("retrying a completed final reward never grants another character copy", async () =>
     {
         var beforeClaim = JToken.FromObject(Setup(true, 3, DateTime.UtcNow.AddHours(-1)));
