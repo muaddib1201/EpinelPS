@@ -21,7 +21,12 @@ public class CompleteMission : LobbyMessage
             if (user.LiberateDatas.TryGetValue(user.CurCharacterIdId, out var liberateData))
             {
                 NetLiberateMissionData? missionState = liberateData.MissionData.FirstOrDefault(x => x.Id == req.MissionId);
-                if (missionState.CreatedAt.IsOlderThan24Hours())
+                if (liberateData.IsCompleted)
+                {
+                    response.Data = liberateData;
+                    response.Error = LiberateDataExpiredError.Expired;
+                }
+                else if (missionState.CreatedAt.IsOlderThan24Hours())
                 {
                     missionState.MissionState = LiberateMissionState.Closed;
                     response.Data = liberateData;

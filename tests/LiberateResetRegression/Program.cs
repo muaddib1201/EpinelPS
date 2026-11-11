@@ -422,4 +422,22 @@ static async Task ProbeLive(string root)
     }
     Console.WriteLine("PASS: live authenticated account page exposes the Liberation reset button, status and four translations");
     Console.WriteLine("PASS: live reset endpoint requires POST; no player reset was submitted");
+
+    var savedPlayer = saved["Users"]!.Single(u => u.Value<ulong>("ID") == player)!;
+    var activeId = savedPlayer.Value<int>("CurCharacterIdId");
+    var expectedLiberation = savedPlayer["LiberateDatas"]![activeId.ToString()]!.ToObject<NetLiberateData>()!;
+    string playerAuth = new PasetoBuilder().Use(ProtocolVersion.V4, Purpose.Local)
+        .WithKey(Convert.FromBase64String(saved.Value<string>("LauncherTokenKey")!), Encryption.SymmetricKey)
+        .AddClaim("userId", player).IssuedAt(DateTime.UtcNow).Expiration(DateTime.UtcNow.AddMinutes(5)).Encode();
+    http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", playerAuth);
+    using var body = new ByteArrayContent(new ReqGetLiberateData().ToByteArray());
+    body.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream+protobuf");
+    using var packetResponse = await http.PostAsync("/v1/liberate/get", body);
+    packetResponse.EnsureSuccessStatusCode();
+    var packet = ResGetLiberateData.Parser.ParseFrom(await packetResponse.Content.ReadAsByteArrayAsync());
+    Check(packet.LiberateData != null && packet.LiberateData.MissionData.Count == 3 && packet.LiberateData.Equals(expectedLiberation),
+        "live client packet does not preserve the repaired three-slot liberation state");
+    var afterRead = JObject.Parse(File.ReadAllText(Path.Combine(runtime, "db.json")));
+    Check(JToken.DeepEquals(saved, afterRead), "read-only live protocol verification changed the save");
+    Console.WriteLine("PASS: live protobuf read returns three unchanged missions with the saved progress and completion status");
 }

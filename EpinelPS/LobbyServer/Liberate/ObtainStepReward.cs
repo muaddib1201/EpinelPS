@@ -18,27 +18,36 @@ public class ObtainStepReward : LobbyMessage
             NetRewardData ret = new();
             if (user.LiberateDatas.TryGetValue(user.CurCharacterIdId, out var liberateData))
             {
-                LiberateCharacterRecord? liberatechar = GameData.Instance.LiberateCharacterTable.Values
-                .Where(x => x.Id == user.CurCharacterIdId).FirstOrDefault();
-
-                LiberateMissionGroupRecord? group = GameData.Instance.LiberateMissionGroupTable.Values
-                    .Where(x => x.MissionStepGroup == liberatechar.MissionStepGroup && x.MissionStep == liberateData.Step)
-                    .FirstOrDefault();
-
-                ret = RewardUtils.RegisterRewardsForUser(user, group.RewardId);
-
-                if (liberateData.Step < 5)
+                if (liberateData.IsCompleted)
                 {
-                    liberateData.Step += 1;
-                    liberateData.ProgressPoint = 0;
+                    response.Data = liberateData.Clone();
+                    response.Error = LiberateDataExpiredError.Success;
+                    response.Reward = ret;
                 }
                 else
                 {
-                    liberateData.IsCompleted = true;
+                    LiberateCharacterRecord? liberatechar = GameData.Instance.LiberateCharacterTable.Values
+                    .Where(x => x.Id == user.CurCharacterIdId).FirstOrDefault();
+
+                    LiberateMissionGroupRecord? group = GameData.Instance.LiberateMissionGroupTable.Values
+                        .Where(x => x.MissionStepGroup == liberatechar.MissionStepGroup && x.MissionStep == liberateData.Step)
+                        .FirstOrDefault();
+
+                    ret = RewardUtils.RegisterRewardsForUser(user, group.RewardId);
+
+                    if (liberateData.Step < 5)
+                    {
+                        liberateData.Step += 1;
+                        liberateData.ProgressPoint = 0;
+                    }
+                    else
+                    {
+                        liberateData.IsCompleted = true;
+                    }
+                    response.Data = liberateData;
+                    response.Error = LiberateDataExpiredError.Success;
+                    response.Reward = ret;
                 }
-                response.Data = liberateData;
-                response.Error = LiberateDataExpiredError.Success;
-                response.Reward = ret;
             }
 
             // TODO
