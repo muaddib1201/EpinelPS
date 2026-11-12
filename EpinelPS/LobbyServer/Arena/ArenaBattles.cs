@@ -116,7 +116,10 @@ internal sealed partial class ArenaService
     {
         var (battle, enemy) = Pending(req.EnemyUsn, true);
         var rounds = req.Result.OrderBy(r => r.Round).ToArray();
-        if (rounds.Length is < 2 or > 3 || !rounds.Select(r => r.Round).SequenceEqual(Enumerable.Range(1, rounds.Length)) ||
+        // Client simulation numbers rounds from zero; existing NPC settlement uses one-based rounds.
+        int firstRound = rounds.Length == 0 ? -1 : rounds[0].Round;
+        if (rounds.Length is < 2 or > 3 || firstRound is < 0 or > 1 ||
+            !rounds.Select(r => r.Round).SequenceEqual(Enumerable.Range(firstRound, rounds.Length)) ||
             (rounds.Length == 2 && rounds[0].IsWin != rounds[1].IsWin))
             throw new BadHttpRequestException("Special arena requires distinct completed best-of-three rounds.", 400);
         bool won = rounds.Count(r => r.IsWin) >= 2;
