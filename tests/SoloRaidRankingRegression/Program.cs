@@ -340,6 +340,14 @@ else
         finally { config.SoloRaidSeason = season; }
         return Task.CompletedTask;
     });
+    await Test("late damage without a current-season open run cannot create a fresh season score", async () =>
+    {
+        Best(self, 123_456, season: data.SoloRaidManagerTable.Keys.First(id => id != raidId));
+        string snapshot = JsonConvert.SerializeObject(State().Users);
+        var rejected = await Damage(self, 999_999);
+        Check(rejected.PeriodResult == SoloRaidPeriodResult.Failure && JsonConvert.SerializeObject(State().Users) == snapshot,
+            "an old or missing run created a score in the current season");
+    });
     // The last fixture is saved by real damage-submission handlers, then verified by a fresh process.
     Reset(); Best(other, 10_000_000_000); await Open(self);
     for (int i = 0; i < 5; i++) await Damage(self, 1_800_000_000);

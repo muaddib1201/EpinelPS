@@ -20,6 +20,8 @@ public class GameConfigRoot
     public bool? ArchiveUnlockAll { get; set; }
     /// <summary>Fixed solo raid manager and UTC season dates. Update explicitly for each new season.</summary>
     public EpinelPS.LobbyServer.Soloraid.SoloRaidSeasonConfig SoloRaidSeason { get; set; } = new();
+    /// <summary>Automatically read NikkeHub seasons at startup and hourly; false keeps the explicit fixed configuration.</summary>
+    public bool SoloRaidAutoSync { get; set; } = true;
     /// <summary>
     /// this is only for displaying the target version in admin console or cli
     /// </summary>
