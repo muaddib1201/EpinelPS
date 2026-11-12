@@ -73,8 +73,11 @@ internal sealed partial class ArenaService
         if (!battle.AttackTeams.Contains(req.TeamNumber)) throw new BadHttpRequestException("Invalid arena attack team number.", 400);
         var result = new NetArenaResult { User = new NetArenaRankData { BeforeRank = Rank(user, false), BeforeRating = Own.Rating },
             Enemy = new NetArenaRankData { BeforeRank = Rank(enemy, false), BeforeRating = enemy.Arena!.Rating } };
-        Own.Rating = Math.Max(0, Own.Rating + (req.IsWin ? 20 : -20));
-        enemy.Arena!.Rating = Math.Max(0, enemy.Arena.Rating + (req.IsWin ? -20 : 20));
+        int transfer = req.IsWin ? RookieRatingTransfer(Own.Rating, enemy.Arena!.Rating)
+            : RookieRatingTransfer(enemy.Arena!.Rating, Own.Rating);
+        int delta = req.IsWin ? transfer : -transfer;
+        Own.Rating = (int)Math.Clamp((long)Own.Rating + delta, 0L, int.MaxValue);
+        enemy.Arena!.Rating = (int)Math.Clamp((long)enemy.Arena.Rating - delta, 0L, int.MaxValue);
         result.User.AfterRank = Rank(user, false); result.User.AfterRating = Own.Rating;
         result.Enemy.AfterRank = Rank(enemy, false); result.Enemy.AfterRating = enemy.Arena.Rating;
         var reward = new NetRewardData();
@@ -93,6 +96,15 @@ internal sealed partial class ArenaService
         Own.Pending = null;
         return new ResArenaResult { ArenaCount = Own.RookieCount, ArenaResult = result, Reward = reward,
             Currency = new NetUserCurrencyData { Type = 5000, Value = user.Currency.GetValueOrDefault(CurrencyType.ArenaChip) }, User = Profile(user, false), Enemy = Profile(enemy, false) };
+    }
+    private static int RookieRatingTransfer(int winnerRating, int loserRating)
+    {
+        // Elo approximation: official coefficients/rounding are unverified. K=40 keeps
+        // the existing equal-rating +/-20 baseline; scale=400 and bounds are local choices.
+        const int maximumChange = 40;
+        const double ratingScale = 400;
+        double gain = maximumChange / (1 + Math.Pow(10, ((double)winnerRating - loserRating) / ratingScale));
+        return Math.Clamp((int)Math.Round(gain, MidpointRounding.AwayFromZero), 1, maximumChange);
     }
     internal ResSpecialArenaResult SpecialResult(ReqSpecialArenaResult req)
     {

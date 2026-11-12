@@ -31,10 +31,10 @@
 
 **Interfaces:** Existing Result / FinishRookie / RunNpcRoutine remain unchanged. Add a private static winner-transfer helper to ArenaService.
 
-- [ ] Add table-driven HTTP cases for equal ratings, +/-80 and +/-400 gaps, both outcomes, human/NPC combinations, floor and integer ceiling. Assert literal before/after ratings, both records, durable saves, and idempotent replies.
-- [ ] Add a restarted receipt assertion and one autonomous NPC match with 1720 vs 1800 -> 1745 vs 1775.
-- [ ] Run `nikke_workflow.py test --worktree <session source> --suite ArenaRegression`. Expected: new dynamic cases fail against the old fixed scoring.
-- [ ] Implement the spec's single-transfer calculation with wide addition and score bounds.
+- [x] Add table-driven HTTP cases for equal ratings, +/-80 and +/-400 gaps, both outcomes, human/NPC combinations, floor and integer ceiling. Assert literal before/after ratings, both records, durable saves, and idempotent replies.
+- [x] Add a restarted receipt assertion and one autonomous NPC match with 1720 vs 1800 -> 1745 vs 1775.
+- [x] Run `nikke_workflow.py test --worktree <session source> --suite ArenaRegression`. Observed: 28 passed, 11 expected rating failures against fixed scoring (20261113-012256-376510).
+- [x] Implement the spec's single-transfer calculation with wide addition and score bounds.
 - [ ] Repeat ArenaRegression. Expected: all default and saved-state cases pass.
 - [ ] Obtain independent review, address material findings, then commit.
 - [ ] Integrate and sync through nikke_workflow.py, run ArenaRegression, ArenaCubeRegression, NpcDailyRoutineRegression, and ManagedNpcRegression. Expected: no failures.
