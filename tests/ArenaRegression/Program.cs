@@ -667,20 +667,17 @@ if (!restarting)
     {
         var (attacker, defender) = await RatingPair(false, false);
         await Post<ResSpecialArenaStart>(attacker.ID, "arena/special/start", new ReqSpecialArenaStart { EnemyUsn = (long)defender.ID });
-        string before = JsonConvert.SerializeObject(State());
+        var before = JToken.FromObject(State());
         foreach (var ids in new[] { Array.Empty<int>(), new[] { 0 }, new[] { 0, 0 }, new[] { 0, 2 },
             new[] { -1, 0 }, new[] { 2, 3 }, new[] { 0, 1, 3 }, new[] { 0, 1, 2, 3 } })
         {
             await Status(attacker.ID, "arena/special/result", new ReqSpecialArenaResult { EnemyUsn = (long)defender.ID,
                 Result = { ids.Select(round => new NetSpecialArenaRoundResult { Round = round, IsWin = true }) } }, 400);
-            string after = JsonConvert.SerializeObject(State());
-            if (before != after) File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "malformed-round-state-diff.json"),
-                JsonConvert.SerializeObject(new { Before = JToken.Parse(before), After = JToken.Parse(after) }));
-            Check(JToken.DeepEquals(JToken.Parse(before), JToken.Parse(after)), "invalid round sequence changed saved state");
+            Check(JToken.DeepEquals(before, JToken.FromObject(State())), "invalid round sequence changed saved state");
         }
         await Status(attacker.ID, "arena/special/result", new ReqSpecialArenaResult { EnemyUsn = (long)defender.ID,
             Result = { new NetSpecialArenaRoundResult { Round = 0, IsWin = true }, new NetSpecialArenaRoundResult { Round = 1, IsWin = false } } }, 400);
-        Check(before == JsonConvert.SerializeObject(State()), "unfinished tied match changed saved state");
+        Check(JToken.DeepEquals(before, JToken.FromObject(State())), "unfinished tied match changed saved state");
     });
 }
 Console.WriteLine($"Arena: {passed} PASS, {failed} FAIL");
@@ -719,7 +716,9 @@ async Task<(User Attacker, User Defender)> RatingPair(bool attackerNpc, bool def
     User Add(bool npc)
     {
         var player = JsonConvert.DeserializeObject<User>(JsonConvert.SerializeObject(template))!;
-        player.ID = ++ratingFixtureId; player.Arena = null; player.Currency.Clear();
+        player.ID = ++ratingFixtureId; player.Arena = null;
+        // Retain constructor currency defaults so rollback deserialization does not repair an artificial empty wallet.
+        player.Currency = new User().Currency;
         if (!npc) player.ManagedNpc = null;
         else player.ManagedNpc!.Enabled = true;
         State().Users.Add(player);
