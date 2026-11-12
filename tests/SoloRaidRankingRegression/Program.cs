@@ -44,14 +44,27 @@ if (args.Contains("--probe-live-readonly"))
     Check(ranking.TotalUserCount == ranking.Rankings.Count && ranking.Rankings.All(r => r.Ranking > 0 && r.Damage > 0 && r.User != null),
         "live participant count or ranked profiles invalid");
     var deployedConfig = JsonConvert.DeserializeObject<GameConfigRoot>(File.ReadAllText(Path.Combine(liveRoot, "Server and Server selector/gameconfig.json")))!;
+    // Read only static data/cache in this probe process; do not initialize JsonDb or a live player database.
+    typeof(GameConfig).GetField("_root", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, deployedConfig);
+    string liveCache = Path.Combine(liveRoot, "Server and Server selector/cache");
+    string staticPath = Path.GetFullPath(Path.Combine(liveCache, new Uri(deployedConfig.StaticDataMpk.Url).GetComponents(UriComponents.Path, UriFormat.Unescaped).Replace('/', Path.DirectorySeparatorChar)));
+    Check(staticPath.StartsWith(Path.GetFullPath(liveCache) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase), "static-data path escaped the live cache");
+    var liveData = new GameData(staticPath);
+    typeof(GameData).GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, liveData);
+    await GameDataInitializer.InitializeGameData(new Progress<double>());
+    var liveCatalog = new SoloRaidSeasonCatalog(() => liveData, Path.Combine(liveCache, "solo-raid-nikkehub.json"));
+    bool hasCache = liveCatalog.LoadCache();
+    if (deployedConfig.SoloRaidAutoSync) Check(hasCache, "automatic solo raid synchronization has no durable source cache");
+    var expectedSeason = deployedConfig.SoloRaidAutoSync ? liveCatalog.Resolve(deployedConfig.SoloRaidSeason, DateTimeOffset.UtcNow)! : deployedConfig.SoloRaidSeason;
     using var periodBody = new ByteArrayContent(new ReqGetSoloRaidPeriod().ToByteArray());
     periodBody.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream+protobuf");
     using var periodReply = await client.PostAsync("soloraid/getperiod", periodBody);
     periodReply.EnsureSuccessStatusCode();
     var actualPeriod = ResGetSoloRaidPeriod.Parser.ParseFrom(await periodReply.Content.ReadAsByteArrayAsync()).Period;
-    Check(actualPeriod.Equals(deployedConfig.SoloRaidSeason.ToNet()), "live solo raid period does not match the fixed configured season");
+    Check(actualPeriod.Equals(expectedSeason.ToNet()), "live solo raid period does not match the resolved fixed season");
     Console.WriteLine($"PASS live authenticated solo raid ranking: participants={ranking.TotalUserCount}, personalRank={own.Ranking}, personalDamage={own.Damage}, profile={own.User!.Nickname}");
-    Console.WriteLine($"PASS live fixed solo raid period: manager={deployedConfig.SoloRaidSeason.RaidId}, endUtc={deployedConfig.SoloRaidSeason.EndAt:O}");
+    Console.WriteLine($"PASS live fixed solo raid period: manager={expectedSeason.RaidId}, endUtc={expectedSeason.EndAt:O}");
+    if (deployedConfig.SoloRaidAutoSync) Console.WriteLine($"PASS live automatic solo raid source cache: {JsonConvert.SerializeObject(liveCatalog.GetStatus(deployedConfig.SoloRaidSeason, DateTimeOffset.UtcNow))}");
     return 0;
     }
     catch (Exception ex)

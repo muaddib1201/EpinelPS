@@ -20,13 +20,16 @@ var future = new RemoteSoloRaidSeason(44, "Future Boss", DateTimeOffset.Parse("2
 var fallback = new SoloRaidSeasonConfig();
 string fixtures = Path.Combine(AppContext.BaseDirectory, "auto-sync-fixtures"); Directory.CreateDirectory(fixtures);
 int passed = 0, failed = 0, serial = 0;
-if (args.FirstOrDefault(a => a.StartsWith("--probe-source-file=")) is { } probe)
+string? probe = args.FirstOrDefault(a => a.StartsWith("--probe-source-file="));
+if (probe is not null || args.Contains("--probe-source-http"))
 {
-    var season = NikkeHubSoloRaidSource.ParseHtml(File.ReadAllText(probe.Split('=', 2)[1]));
+    using var handler = new SocketsHttpHandler { AutomaticDecompression = DecompressionMethods.All, AllowAutoRedirect = false, UseCookies = false };
+    using var client = new HttpClient(handler);
+    var season = probe is not null ? NikkeHubSoloRaidSource.ParseHtml(File.ReadAllText(probe.Split('=', 2)[1])) : await NikkeHubSoloRaidSource.FetchAsync(client);
     var catalog = Catalog(); catalog.Apply(season, DateTimeOffset.UtcNow);
     var status = catalog.GetStatus(fallback, DateTimeOffset.UtcNow);
-    Check(!status.NeedsGameDataUpdate && status.RemoteSeasonNo == 43 && status.CurrentRaidId == 1000044, "Actual source did not match local Boss");
-    Console.WriteLine($"PASS actual NikkeHub page: season={season.SeasonNo}, manager={status.CurrentRaidId}, startUtc={season.StartAt:O}, endUtc={season.EndAt:O}"); return 0;
+    Check(status.RemoteSeasonNo == season.SeasonNo, "Actual source season did not reach the catalog");
+    Console.WriteLine($"PASS actual NikkeHub page: season={season.SeasonNo}, manager={status.CurrentRaidId}, needsGameDataUpdate={status.NeedsGameDataUpdate}, startUtc={season.StartAt:O}, endUtc={season.EndAt:O}"); return 0;
 }
 await Test("UTC source dates and inclusive final second are preserved", () =>
 {
@@ -66,6 +69,30 @@ await Test("stale responses and overlapping dates cannot replace the active seas
     Check(catalog.Resolve(fallback, future.StartAt)!.RaidId == FutureData.ManagerId, "stale response rolled back the season");
     Throws(() => catalog.Apply(future with { StartAt = current.StartAt.AddDays(1) }, now));
     Check(catalog.Resolve(fallback, future.StartAt)!.EndAt == future.EndAt, "overlap changed the fixed end"); return Task.CompletedTask;
+});
+await Test("an active season cannot be postponed back into the previous season", () =>
+{
+    var (catalog, path) = CatalogWithPath(); using var local = new FutureData(data);
+    catalog.Apply(current, now); catalog.Apply(future, future.StartAt);
+    var activeAt = future.StartAt.AddHours(1);
+    Check(catalog.Resolve(fallback, activeAt)!.RaidId == FutureData.ManagerId, "future fixture was not active");
+    Throws(() => catalog.Apply(future with { StartAt = future.StartAt.AddDays(1), EndAt = future.EndAt.AddDays(1) }, activeAt));
+    var restarted = new SoloRaidSeasonCatalog(() => data, path);
+    Check(restarted.LoadCache() && restarted.Resolve(fallback, activeAt)!.RaidId == FutureData.ManagerId &&
+        restarted.Resolve(fallback, activeAt)!.EndAt == future.EndAt, "correction rolled back the active season after restart");
+    return Task.CompletedTask;
+});
+await Test("first source entry cannot overlap the known configured fallback", () =>
+{
+    var catalog = Catalog(); using var local = new FutureData(data);
+    Throws(() => catalog.Apply(future with { StartAt = current.StartAt.AddDays(1), EndAt = current.EndAt.AddDays(1) }, now));
+    Check(catalog.Resolve(fallback, now)!.RaidId == 1000044, "first conflicting entry replaced the current Boss");
+    return Task.CompletedTask;
+});
+await Test("excessive model frames are rejected even inside the response byte limit", () =>
+{
+    string excessive = Html(current) + "<script>" + string.Concat(Enumerable.Repeat("self.__next_f.push([1,\"\"]);", 300)) + "</script>";
+    Throws(() => NikkeHubSoloRaidSource.ParseHtml(excessive)); return Task.CompletedTask;
 });
 await Test("HTTP and malformed HTML failures preserve the exact durable deadline", async () =>
 {
