@@ -2,6 +2,7 @@ using EpinelPS.Controllers.AdminPanel;
 using EpinelPS.Data;
 using EpinelPS.Database;
 using EpinelPS.LobbyServer.SoloraidMuseum;
+using EpinelPS.LobbyServer.Soloraid;
 using EpinelPS.Models.Admin;
 using EpinelPS.Utils;
 using EpinelPS.Commands.Core;
@@ -153,6 +154,13 @@ public class AdminApiController(GameContext DbContext) : ControllerBase
         ctx.Save();
 
         return result.ToRunCmdResponse();
+    }
+
+    [HttpGet("soloRaidSync")]
+    public ActionResult<SoloRaidSyncStatus> GetSoloRaidSyncStatus()
+    {
+        if (!AdminController.CheckAuth(HttpContext)) return Unauthorized();
+        return SoloRaidSeasonSource.GetStatus();
     }
 
     [HttpGet("soloRaidMuseum")]

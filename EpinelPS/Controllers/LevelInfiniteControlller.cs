@@ -2,6 +2,8 @@
 using EpinelPS.Utils;
 using Microsoft.AspNetCore.Mvc;
 using System.Reflection;
+using EpinelPS.LobbyServer.Soloraid;
+using System.Net;
 
 namespace EpinelPS.Controllers;
 
@@ -143,6 +145,10 @@ public class LevelInfiniteControlller : Controller
             msg = "success"
         };
 
+        var soloRaidStatus = SoloRaidSeasonSource.GetStatus();
+        if (soloRaidStatus.NeedsGameDataUpdate)
+            rsp.notice_list.Add(CreateNotice(100000 + soloRaidStatus.RemoteSeasonNo.GetValueOrDefault(), NoticeType.System,
+                WebUtility.HtmlEncode(soloRaidStatus.Message), "个人突袭：请先更新游戏数据"));
         rsp.notice_list.Add(CreateNotice(2, NoticeType.System, "You are running EpinelPS v" + Assembly.GetExecutingAssembly().GetName().Version, "Server version"));
 
         return rsp;

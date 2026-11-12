@@ -6,6 +6,7 @@ using EpinelPS.Networking;
 using EpinelPS.Services;
 using EpinelPS.Utils;
 using EpinelPS.LobbyServer.Stage;
+using EpinelPS.LobbyServer.Soloraid;
 using log4net.Config;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
@@ -46,6 +47,9 @@ internal class Program
             }
 
             await GameData.CreateAsync();
+            var soloRaidCatalog = new SoloRaidSeasonCatalog(() => GameData.Instance, SoloRaidSeasonCatalog.DefaultCachePath);
+            soloRaidCatalog.LoadCache();
+            SoloRaidSeasonSource.Bind(soloRaidCatalog);
             foreach (var user in JsonDb.Instance.Users)
             {
                 if (user.ManagedNpc != null) continue;
@@ -100,6 +104,8 @@ internal class Program
             builder.Services.AddScoped<IUserService, UserService>();
             builder.Services.AddSingleton<MessengerAdminService>();
             builder.Services.AddHostedService<ManagedNpcWorker>();
+            builder.Services.AddSingleton(soloRaidCatalog);
+            builder.Services.AddHostedService<SoloRaidSeasonSyncWorker>();
             builder.Services.AddDbContext<GameContext>(options =>
             {
                 switch (connectionType?.ToLowerInvariant())
@@ -130,6 +136,9 @@ internal class Program
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddRouting();
             builder.Services.AddHttpClient();
+            builder.Services.AddHttpClient("SoloRaidNikkeHub", client => client.Timeout = TimeSpan.FromSeconds(20))
+                .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+                { AutomaticDecompression = DecompressionMethods.All, AllowAutoRedirect = false, UseCookies = false });
 
             builder.Logging.ClearProviders();
             builder.Logging.AddColorConsoleLogger(configuration =>

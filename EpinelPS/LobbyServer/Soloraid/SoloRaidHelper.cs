@@ -21,8 +21,8 @@ public class SoloRaidHelper
 
     private static int OpenSoloRaidCore(User user, int raidId, int raidLevel, SoloRaidType type)
     {
-        RequirePlayable(raidId);
-        if (raidId == 0) raidId = GetRaidId();
+        int activeRaid = RequirePlayable(raidId);
+        if (raidId == 0) raidId = activeRaid;
 
         // Check if the raid manager exists, if not, exit
         if (!GameData.Instance.SoloRaidManagerTable.TryGetValue(raidId, out var manager)) return 0;
@@ -87,9 +87,9 @@ public class SoloRaidHelper
 
     private static void CloseSoloRaidCore(User user, int raidId, int raidLevel, SoloRaidType type)
     {
-        RequirePlayable(raidId);
+        int activeRaid = RequirePlayable(raidId);
         Logging.WriteLine($"CloseSoloRaid: raidId: {raidId}, raidLevel: {raidLevel}, type: {type}");
-        if (raidId == 0) raidId = GetRaidId();
+        if (raidId == 0) raidId = activeRaid;
 
         var raid = GetSoloRaidData(user, raidId, isAdd: false);
         // Reset the raid data
@@ -127,13 +127,15 @@ public class SoloRaidHelper
     /// </summary>
     public static NetUserSoloRaidInfo GetUserSoloRaidInfo(User user)
     {
-        int SoloRaidManagerTid = GetRaidId();
+        var season = SoloRaidSeasonSource.Current();
+        if (season is null || !season.IsValid) throw new SoloRaidPeriodException();
+        int SoloRaidManagerTid = season.RaidId;
         NetUserSoloRaidInfo info = new()
         {
             SoloRaidManagerTid = SoloRaidManagerTid,
             LastClearLevel = 0, // set the last clear level
             RaidOpenCount = 0, // set the raid open count
-            Period = GetSoloRaidPeriod(),
+            Period = season.ToNet(),
         };
 
         var raidData = GetSoloRaidData(user, SoloRaidManagerTid);
@@ -382,8 +384,8 @@ public class SoloRaidHelper
 
     private static void FastBattleCore(User user, ref ResFastBattleSoloRaid response, int raidId, int raidLevel, int clearCount)
     {
-        RequirePlayable(raidId);
-        if (raidId == 0) raidId = GetRaidId();
+        int activeRaid = RequirePlayable(raidId);
+        if (raidId == 0) raidId = activeRaid;
         var raidData = GetSoloRaidData(user, raidId, isAdd: true);
         raidData.RaidOpenCount += clearCount;
         user.SoloRaidData[raidId] = raidData;
@@ -420,20 +422,20 @@ public class SoloRaidHelper
         SetDamageCore(User user, int raidLevel, long damage, int waveId,
             RepeatedField<NetAntiCheatCharacter> characters, SoloRaidType type)
     {
-        RequirePlayable();
+        int raidId = RequirePlayable();
         int rewardId = 0;
         int FirstRewardId = 0;
-        int raidId = GetRaidId();
-
-        var raidData = GetSoloRaidData(user, raidId, isAdd: true);
-        var levelData = GetSoloRaidLevelData(raidData, raidLevel, type, isOpen: true);
+        // Damage packets carry no raid ID. Never create a fresh season's run from a late old packet.
+        if (!user.SoloRaidData.TryGetValue(raidId, out var savedRaid)) throw new SoloRaidPeriodException();
+        var levelData = GetSoloRaidLevelData(savedRaid, raidLevel, type, isOpen: true);
+        if (levelData is null) throw new SoloRaidPeriodException();
+        if (waveId != 0 && (!GameData.Instance.SoloRaidManagerTable.TryGetValue(raidId, out var manager) ||
+            !GameData.Instance.SoloRaidPresetTable.Values.Any(p => p.PresetGroupId == manager.MonsterPreset &&
+                p.WaveOrder == raidLevel && p.Wave == waveId))) throw new SoloRaidPeriodException();
+        var raidData = GetSoloRaidData(user, raidId, isAdd: false)!;
         var oldLevel = GetSoloRaidLevelData(raidData, raidLevel, type, isOpen: false);
 
-        // Remove existing level data 
-        if (levelData is not null)
-            raidData.SoloRaidLevels.Remove(levelData);
-        else
-            levelData = new SoloRaidLevelData() { RaidLevel = raidLevel, Type = type, IsOpen = true };
+        raidData.SoloRaidLevels.Remove(levelData);
 
         levelData.TotalDamage += damage;
         levelData.RaidJoinCount++;
@@ -576,25 +578,31 @@ public class SoloRaidHelper
     /// <returns></returns>
     public static NetSoloRaidPeriodData GetSoloRaidPeriod()
     {
-        var season = GameConfig.Root.SoloRaidSeason;
+        var season = SoloRaidSeasonSource.Current();
         if (season is null || !season.IsValid) throw new SoloRaidPeriodException();
         return season.ToNet();
     }
 
     public static SoloRaidPeriodResult GetPeriodResult(int raidId = 0, DateTimeOffset? utcNow = null)
     {
-        var season = GameConfig.Root.SoloRaidSeason;
         var now = utcNow ?? DateTimeOffset.UtcNow;
-        return season is not null && season.IsValid &&
-               (raidId == 0 || raidId == season.RaidId) &&
-               GameData.Instance.SoloRaidManagerTable.ContainsKey(season.RaidId) &&
-               now >= season.StartAt && now < season.EndAt
+        return IsPlayable(SoloRaidSeasonSource.Current(now), raidId, now)
             ? SoloRaidPeriodResult.Success : SoloRaidPeriodResult.Failure;
     }
 
-    private static void RequirePlayable(int raidId = 0)
+    private static bool IsPlayable(SoloRaidSeasonConfig? season, int raidId, DateTimeOffset now)
     {
-        if (GetPeriodResult(raidId) != SoloRaidPeriodResult.Success) throw new SoloRaidPeriodException();
+        return season is not null && season.IsValid &&
+               (raidId == 0 || raidId == season.RaidId) &&
+               SoloRaidSeasonSource.IsAvailable(season.RaidId) && now >= season.StartAt && now < season.EndAt;
+    }
+
+    private static int RequirePlayable(int raidId = 0)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var season = SoloRaidSeasonSource.Current(now);
+        if (!IsPlayable(season, raidId, now)) throw new SoloRaidPeriodException();
+        return season!.RaidId;
     }
 
     private static int GetStatEnhanceIdByWave(int wave)
@@ -614,7 +622,7 @@ public class SoloRaidHelper
 
     public static int GetRaidId()
     {
-        var season = GameConfig.Root.SoloRaidSeason;
+        var season = SoloRaidSeasonSource.Current();
         if (season is null || !season.IsValid || !GameData.Instance.SoloRaidManagerTable.ContainsKey(season.RaidId))
             throw new SoloRaidPeriodException();
         return season.RaidId;

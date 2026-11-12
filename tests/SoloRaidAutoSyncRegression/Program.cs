@@ -34,8 +34,9 @@ await Test("UTC source dates and inclusive final second are preserved", () =>
 });
 await Test("split model fragments and explicit timezone offsets parse without script execution", () =>
 {
-    string html = Html(current, true).Replace("2026-11-12T03:00:00.000Z", "2026-11-12T12:00:00+09:00");
-    Check(NikkeHubSoloRaidSource.ParseHtml(html) == current, "split or timezone parsing failed"); return Task.CompletedTask;
+    string html = Html(current).Replace("2026-11-12T03:00:00.000Z", "2026-11-12T12:00:00+09:00");
+    Check(NikkeHubSoloRaidSource.ParseHtml(html) == current && NikkeHubSoloRaidSource.ParseHtml(Html(current, true)) == current,
+        "split or timezone parsing failed"); return Task.CompletedTask;
 });
 await Test("invalid ambiguous and oversized source fails closed", () =>
 {
