@@ -632,6 +632,54 @@ else
         }
     });
 }
+if (!restarting)
+{
+    foreach (var scenario in new[]
+    {
+        (Name: "two wins", Wins: new[] { true, true }, Won: true),
+        (Name: "two losses", Wins: new[] { false, false }, Won: false),
+        (Name: "three-round win", Wins: new[] { false, true, true }, Won: true),
+        (Name: "three-round loss", Wins: new[] { true, false, false }, Won: false)
+    })
+    await Test("special client zero-based rounds settle " + scenario.Name + " exactly once", async () =>
+    {
+        var (attacker, defender) = await RatingPair(false, false);
+        // Put the attacker below this opponent so a win must exchange both ranks.
+        (attacker.Arena!.SpecialRank, defender.Arena!.SpecialRank) = (defender.Arena!.SpecialRank, attacker.Arena!.SpecialRank);
+        long attackRank = attacker.Arena.SpecialRank, defendRank = defender.Arena.SpecialRank;
+        await Post<ResSpecialArenaStart>(attacker.ID, "arena/special/start", new ReqSpecialArenaStart { EnemyUsn = (long)defender.ID });
+        var request = new ReqSpecialArenaResult { EnemyUsn = (long)defender.ID,
+            Result = { scenario.Wins.Select((won, round) => new NetSpecialArenaRoundResult { Round = round, IsWin = won }) } };
+        string nonce = Guid.NewGuid().ToString("N");
+        var result = await Post<ResSpecialArenaResult>(attacker.ID, "arena/special/result", request, nonce);
+        Check(result.Battle.User.After.Rank == (scenario.Won ? defendRank : attackRank) &&
+            result.Battle.Enemy.After.Rank == (scenario.Won ? attackRank : defendRank), "wrong best-of-three rank settlement");
+        Check(attacker.Arena.SpecialCount == 1 && attacker.Arena.Pending == null, "completed battle remained pending or charged again");
+        var attackRecord = NetSpecialArenaRecordData.Parser.ParseFrom(attacker.Arena.SpecialRecords.Single());
+        var defendRecord = NetSpecialArenaRecordData.Parser.ParseFrom(defender.Arena.SpecialRecords.Single());
+        Check(attackRecord.IsWin == scenario.Won && defendRecord.IsWin != scenario.Won &&
+            attackRecord.IsAttack && !defendRecord.IsAttack, "attack and defense records disagree with client outcome");
+        string settled = JsonConvert.SerializeObject(State());
+        Check(result.Equals(await Post<ResSpecialArenaResult>(attacker.ID, "arena/special/result", request, nonce)) &&
+            settled == JsonConvert.SerializeObject(State()), "retried zero-based result settled twice");
+    });
+    await Test("special malformed round sequences preserve the pending battle and both ranks", async () =>
+    {
+        var (attacker, defender) = await RatingPair(false, false);
+        await Post<ResSpecialArenaStart>(attacker.ID, "arena/special/start", new ReqSpecialArenaStart { EnemyUsn = (long)defender.ID });
+        string before = JsonConvert.SerializeObject(State());
+        foreach (var ids in new[] { Array.Empty<int>(), new[] { 0 }, new[] { 0, 0 }, new[] { 0, 2 },
+            new[] { -1, 0 }, new[] { 2, 3 }, new[] { 0, 1, 3 }, new[] { 0, 1, 2, 3 } })
+        {
+            await Status(attacker.ID, "arena/special/result", new ReqSpecialArenaResult { EnemyUsn = (long)defender.ID,
+                Result = { ids.Select(round => new NetSpecialArenaRoundResult { Round = round, IsWin = true }) } }, 400);
+            Check(before == JsonConvert.SerializeObject(State()), "invalid round sequence changed saved state");
+        }
+        await Status(attacker.ID, "arena/special/result", new ReqSpecialArenaResult { EnemyUsn = (long)defender.ID,
+            Result = { new NetSpecialArenaRoundResult { Round = 0, IsWin = true }, new NetSpecialArenaRoundResult { Round = 1, IsWin = false } } }, 400);
+        Check(before == JsonConvert.SerializeObject(State()), "unfinished tied match changed saved state");
+    });
+}
 Console.WriteLine($"Arena: {passed} PASS, {failed} FAIL");
 return failed == 0 ? 0 : 1;
 
