@@ -13,6 +13,8 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Paseto;
 using Paseto.Builder;
+using EpinelPS.Utils;
+using EpinelPS.LobbyServer.Soloraid;
 
 const ulong self = 9701, other = 9702, third = 9703;
 var root = new DirectoryInfo(AppContext.BaseDirectory);
@@ -56,6 +58,10 @@ typeof(GameData).GetField("_instance", BindingFlags.Static | BindingFlags.NonPub
 await GameDataInitializer.InitializeGameData(new Progress<double>());
 int raidId = data.SoloRaidManagerTable.Keys.Max();
 int tid = data.CharacterTable.Keys.First();
+var shippedConfig = GameConfig.Root;
+var configField = typeof(GameConfig).GetField("_root", BindingFlags.Static | BindingFlags.NonPublic)!;
+// Battle regression fixtures remain playable when this test is run after the real season.
+SetSeason(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
 string save = Path.Combine(AppContext.BaseDirectory, "db.json");
 string connection = $"Data Source={Path.Combine(AppContext.BaseDirectory, "solo-raid-ranking.db")}";
 bool restarting = args.Contains("--verify-saved");
@@ -227,6 +233,71 @@ else
         await Task.WhenAll(readings.Append(Task.Run(async () => { for (int i = 0; i < 5; i++) await Damage(self, 200); })));
         Check((await Ranking(self)).User.Damage == 1_000, "final completed result missing");
     });
+    await Test("default season has the official fixed deadline and retains it after config reload", async () =>
+    {
+        var fixtureConfig = GameConfig.Root;
+        try
+        {
+            configField.SetValue(null, JsonConvert.DeserializeObject<GameConfigRoot>("{}"));
+            var period = (await Send<ResGetSoloRaidPeriod>(self, "/soloraid/getperiod", new ReqGetSoloRaidPeriod())).Period;
+            Check(period.StartDate == new DateTime(2026, 11, 12, 3, 0, 0, DateTimeKind.Utc).Ticks &&
+                  period.EndDate == new DateTime(2026, 11, 18, 20, 0, 0, DateTimeKind.Utc).Ticks,
+                "season window is still based on today's date rather than the fixed official schedule");
+            configField.SetValue(null, JsonConvert.DeserializeObject<GameConfigRoot>("{}"));
+            Check(SoloRaidHelper.GetSoloRaidPeriod().Equals(period), "season dates changed after a fresh config load");
+        }
+        finally { configField.SetValue(null, fixtureConfig); }
+    });
+    await Test("a preloaded higher manager cannot silently select an unscheduled boss", async () =>
+    {
+        data.SoloRaidManagerTable.Add(int.MaxValue, new SoloRaidManagerRecord { Id = int.MaxValue });
+        try
+        {
+            var info = await Send<ResGetSoloRaidInfo>(self, "/soloraid/get", new ReqGetSoloRaidInfo());
+            Check(info.Info.SoloRaidManagerTid == raidId, "highest static manager replaced the explicitly scheduled boss");
+        }
+        finally { data.SoloRaidManagerTable.Remove(int.MaxValue); }
+    });
+    await Test("future and expired seasons reject every battle mutation while preserving standings", async () =>
+    {
+        foreach (bool expired in new[] { false, true })
+        {
+            Reset(); Best(self, 123_456); Best(self, 999, open: true);
+            var fixtureConfig = GameConfig.Root;
+            try
+            {
+                var now = DateTimeOffset.UtcNow;
+                SetSeason(now.AddDays(expired ? -2 : 1), now.AddDays(expired ? -1 : 2));
+                string snapshot = JsonConvert.SerializeObject(State().Users);
+                await Rejected<ResOpenSoloRaid>("/soloraid/open", new ReqOpenSoloRaid { RaidId = raidId, RaidLevel = 1 });
+                await Rejected<ResOpenSoloRaidTrial>("/soloraid/trial/open", new ReqOpenSoloRaidTrial { RaidLevel = 8 });
+                await Rejected<ResOpenSoloRaidPractice>("/soloraid/practice/open", new ReqOpenSoloRaidPractice { RaidLevel = 8 });
+                await Rejected<ResEnterSoloRaid>("/soloraid/enter", new ReqEnterSoloRaid { RaidId = raidId, RaidLevel = 1 });
+                await Rejected<ResEnterSoloRaidTrial>("/soloraid/trial/enter", new ReqEnterSoloRaidTrial { RaidId = raidId, RaidLevel = 8 });
+                await Rejected<ResSetSoloRaidDamage>("/soloraid/setdamage", new ReqSetSoloRaidDamage { RaidLevel = 1, Damage = long.MaxValue });
+                await Rejected<ResSetSoloRaidTrialDamage>("/soloraid/trial/setdamage", new ReqSetSoloRaidTrialDamage { RaidLevel = 8, Damage = long.MaxValue });
+                await Rejected<ResSetSoloRaidPracticeDamage>("/soloraid/practice/setdamage", new ReqSetSoloRaidPracticeDamage { RaidLevel = 8, Damage = long.MaxValue });
+                await Rejected<ResCloseSoloRaid>("/soloraid/close", new ReqCloseSoloRaid { RaidId = raidId, RaidLevel = 1 });
+                await Rejected<ResCloseSoloRaidTrial>("/soloraid/trial/close", new ReqCloseSoloRaidTrial { RaidId = raidId, RaidLevel = 8 });
+                await Rejected<ResCloseSoloRaidPractice>("/soloraid/practice/close", new ReqCloseSoloRaidPractice { RaidId = raidId, RaidLevel = 8 });
+                await Rejected<ResFastBattleSoloRaid>("/soloraid/fastbattle", new ReqFastBattleSoloRaid { RaidId = raidId, RaidLevel = 1, ClearCount = 3 });
+                Check(JsonConvert.SerializeObject(State().Users) == snapshot, "rejected battle changed saved scores, teams, attempts or rewards");
+                Check((await Ranking(self)).User.Damage == 123_456, "final standings became unreadable");
+                var info = await Send<ResGetSoloRaidInfo>(self, "/soloraid/get", new ReqGetSoloRaidInfo());
+                Check(info.Info.TrialDamage == 123_456 && info.Info.Period.EndDate == now.AddDays(expired ? -1 : 2).UtcTicks,
+                    "overview lost the score or the fixed configured deadline");
+            }
+            finally { configField.SetValue(null, fixtureConfig); }
+        }
+    });
+    await Test("an active season rejects explicit requests for another raid", async () =>
+    {
+        int oldRaid = data.SoloRaidManagerTable.Keys.Where(id => id != raidId).First();
+        string snapshot = JsonConvert.SerializeObject(State().Users);
+        await Rejected<ResOpenSoloRaid>("/soloraid/open", new ReqOpenSoloRaid { RaidId = oldRaid, RaidLevel = 1 });
+        await Rejected<ResFastBattleSoloRaid>("/soloraid/fastbattle", new ReqFastBattleSoloRaid { RaidId = oldRaid, RaidLevel = 1, ClearCount = 3 });
+        Check(JsonConvert.SerializeObject(State().Users) == snapshot, "out-of-season raid granted rewards or changed attempts");
+    });
     // The last fixture is saved by real damage-submission handlers, then verified by a fresh process.
     Reset(); Best(other, 10_000_000_000); await Open(self);
     for (int i = 0; i < 5; i++) await Damage(self, 1_800_000_000);
@@ -277,3 +348,18 @@ async Task Test(string name, Func<Task> action)
 static string Token(ulong id, byte[] key) => new PasetoBuilder().Use(ProtocolVersion.V4, Purpose.Local)
     .WithKey(key, Encryption.SymmetricKey).AddClaim("userId", id).Expiration(DateTime.UtcNow.AddMinutes(5)).Encode();
 static void Check(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
+
+void SetSeason(DateTimeOffset start, DateTimeOffset end)
+{
+    var config = JObject.FromObject(shippedConfig);
+    config["SoloRaidSeason"] = JObject.FromObject(new { RaidId = raidId, VisibleAt = start,
+        StartAt = start, EndAt = end, SettleAt = end, DisableAt = end.AddDays(7) });
+    configField.SetValue(null, config.ToObject<GameConfigRoot>());
+}
+
+async Task Rejected<T>(string route, IMessage request) where T : IMessage<T>, new()
+{
+    var response = await Send<T>(self, route, request);
+    var result = (SoloRaidPeriodResult)typeof(T).GetProperty("PeriodResult")!.GetValue(response)!;
+    Check(result == SoloRaidPeriodResult.Failure, route + " accepted play outside the configured season");
+}
