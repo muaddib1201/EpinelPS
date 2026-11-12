@@ -138,6 +138,7 @@ app.MapPost("/v1/mail/allobtain", c => new EpinelPS.LobbyServer.LobbyUser.Mail.A
 await app.StartAsync();
 using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single() + "/v1/") };
 int passed = 0, failed = 0;
+ulong ratingFixtureId = 8100;
 if (restarting)
 {
     clock.Now = new DateTimeOffset(2026, 11, 6, 13, 0, 0, TimeSpan.Zero).AddDays(14);
@@ -172,6 +173,18 @@ if (restarting)
         var receipt = ResBuyTicket.Parser.ParseFrom(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "ticket-receipt.bin")));
         Check(replay.Equals(receipt) && JsonConvert.SerializeObject(Player(7009).Currency) == before,
             "restarted purchase retry charged or granted again");
+    });
+    await Test("restart replays a dynamic rating receipt without changing either participant", async () =>
+    {
+        var saved = JObject.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "rating-retry.json")));
+        ulong id = (ulong)saved["attacker"]!, enemyId = (ulong)saved["defender"]!;
+        var request = new ReqArenaResult { EnemyUsn = (long)enemyId, TeamNumber = 1, IsWin = true };
+        var receipt = ResArenaResult.Parser.ParseFrom(Convert.FromBase64String((string)saved["response"]!));
+        var replay = await Post<ResArenaResult>(id, "arena/result", request, (string)saved["nonce"]!);
+        Check(replay.Equals(receipt) && Player(id).Arena!.Rating == 1745 && Player(enemyId).Arena!.Rating == 1775,
+            "restart changed or repeated the dynamic rating settlement");
+        Check(Player(id).Arena!.RookieRecords.Count == 1 && Player(enemyId).Arena!.RookieRecords.Count == 1,
+            "restart duplicated attack or defense records");
     });
 }
 else
@@ -537,6 +550,87 @@ else
         var pending = saved["Users"]!.Single(u => (ulong)u["ID"]! == 7014)["Arena"]!["Pending"]!;
         Check((long)pending["EnemyId"]! == target && Convert.FromBase64String((string)pending["Enemy"]!).SequenceEqual(start.Enemy.ToByteArray()), "pending snapshot missing from disk");
     });
+    foreach (var sample in new (string Name, int Attacker, int Defender, bool Won, int AfterAttacker, int AfterDefender, bool NpcAttack, bool NpcDefense)[]
+    {
+        ("equal ratings", 1000, 1000, true, 1020, 980, false, false),
+        ("underdog win", 1720, 1800, true, 1745, 1775, false, true),
+        ("underdog loss", 1720, 1800, false, 1705, 1815, false, true),
+        ("NPC favorite win", 1800, 1720, true, 1815, 1705, true, false),
+        ("NPC favorite loss", 1800, 1720, false, 1775, 1745, true, false),
+        ("NPC upset at a 400 point gap", 1000, 1400, true, 1036, 1364, true, true),
+        ("NPC favorite at a 400 point gap", 1400, 1000, true, 1404, 996, true, true),
+        ("zero floor", 10, 10, true, 30, 0, false, false),
+        ("extreme upset", 0, int.MaxValue, true, 40, int.MaxValue - 40, false, true),
+        ("integer ceiling", int.MaxValue, int.MaxValue, true, int.MaxValue, int.MaxValue - 20, true, false),
+        ("minimum transfer", 2000, 0, true, 2001, 0, false, true)
+    })
+    {
+        await Test("rookie dynamic rating: " + sample.Name, async () =>
+        {
+            var (attacker, defender) = await RatingPair(sample.NpcAttack, sample.NpcDefense);
+            attacker.Arena!.Rating = sample.Attacker;
+            defender.Arena!.Rating = sample.Defender;
+            await Post<ResArenaStart>(attacker.ID, "arena/start", new ReqArenaStart { EnemyUsn = (long)defender.ID });
+            var request = new ReqArenaResult { EnemyUsn = (long)defender.ID, TeamNumber = 1, IsWin = sample.Won };
+            string nonce = Guid.NewGuid().ToString("N");
+            var result = await Post<ResArenaResult>(attacker.ID, "arena/result", request, nonce);
+            Check(result.ArenaResult.User.BeforeRating == sample.Attacker && result.ArenaResult.Enemy.BeforeRating == sample.Defender &&
+                result.ArenaResult.User.AfterRating == sample.AfterAttacker && result.ArenaResult.Enemy.AfterRating == sample.AfterDefender,
+                $"expected {sample.AfterAttacker}/{sample.AfterDefender}, got {result.ArenaResult.User.AfterRating}/{result.ArenaResult.Enemy.AfterRating}");
+            Check(attacker.Arena.Rating == sample.AfterAttacker && defender.Arena.Rating == sample.AfterDefender,
+                "response and participant ratings disagree");
+            var attack = NetRookieArenaRecordData.Parser.ParseFrom(attacker.Arena.RookieRecords.Single());
+            var defense = NetRookieArenaRecordData.Parser.ParseFrom(defender.Arena.RookieRecords.Single());
+            Check(attack.IsAttack && !defense.IsAttack && attack.IsWin == sample.Won && defense.IsWin != sample.Won &&
+                attack.BeforeRating == sample.Attacker && attack.AfterRating == sample.AfterAttacker &&
+                defense.BeforeRating == sample.Defender && defense.AfterRating == sample.AfterDefender && attack.MatchId == defense.MatchId,
+                "attack/defense history disagrees with the actual rating transfer");
+            var persisted = JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(save))!;
+            Check(persisted.Users.Single(u => u.ID == attacker.ID).Arena!.Rating == sample.AfterAttacker &&
+                persisted.Users.Single(u => u.ID == defender.ID).Arena!.Rating == sample.AfterDefender, "ratings were not durably saved");
+            var replay = await Post<ResArenaResult>(attacker.ID, "arena/result", request, nonce);
+            Check(replay.Equals(result) && attacker.Arena.Rating == sample.AfterAttacker && defender.Arena.Rating == sample.AfterDefender &&
+                attacker.Arena.RookieRecords.Count == 1 && defender.Arena.RookieRecords.Count == 1, "retry applied the transfer twice");
+            if (sample.Name == "underdog win")
+                File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "rating-retry.json"), JsonConvert.SerializeObject(new
+                { attacker = attacker.ID, defender = defender.ID, nonce, response = Convert.ToBase64String(result.ToByteArray()) }));
+        });
+    }
+    await Test("rookie rating uses both current ratings when a started battle settles", async () =>
+    {
+        var (attacker, defender) = await RatingPair(false, true);
+        await Post<ResArenaStart>(attacker.ID, "arena/start", new ReqArenaStart { EnemyUsn = (long)defender.ID });
+        attacker.Arena!.Rating = 1720; defender.Arena!.Rating = 1800;
+        var result = await Post<ResArenaResult>(attacker.ID, "arena/result", new ReqArenaResult { EnemyUsn = (long)defender.ID, TeamNumber = 1, IsWin = true });
+        Check(result.ArenaResult.User.BeforeRating == 1720 && result.ArenaResult.Enemy.BeforeRating == 1800 &&
+            attacker.Arena.Rating == 1745 && defender.Arena.Rating == 1775, "settlement used stale ratings or updated one side before calculating the other");
+    });
+    await Test("autonomous NPC rookie matches use the same dynamic rating transfer", async () =>
+    {
+        var enabled = State().Users.Where(u => u.ManagedNpc != null).ToDictionary(u => u.ID, u => u.ManagedNpc!.Enabled);
+        try
+        {
+            foreach (var id in enabled.Keys) Player(id).ManagedNpc!.Enabled = false;
+            var (attacker, defender) = await RatingPair(true, true);
+            attacker.Arena!.Rating = 1720; defender.Arena!.Rating = 1800;
+            attacker.Arena.RookieCount = 4; attacker.Arena.SpecialCount = 2;
+            var assembly = typeof(User).Assembly;
+            var scopeType = assembly.GetType("EpinelPS.Utils.RewardMutationScope")!;
+            var serviceType = assembly.GetType("EpinelPS.LobbyServer.Arena.ArenaService")!;
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            using var scope = (IDisposable)Activator.CreateInstance(scopeType, flags, null, [attacker, clock.Now.UtcDateTime], null)!;
+            var service = Activator.CreateInstance(serviceType, flags, null, [attacker, clock.Now.UtcDateTime, null], null)!;
+            int played = (int)serviceType.GetMethod("RunNpcRoutine", flags)!.Invoke(service, null)!;
+            Check(played == 1 && attacker.Arena.RookieCount == 5 && attacker.Arena.Rating == 1745 && defender.Arena.Rating == 1775,
+                $"NPC routine did not share rating settlement: {played} matches, {attacker.Arena.Rating}/{defender.Arena.Rating}");
+            Check(NetRookieArenaRecordData.Parser.ParseFrom(defender.Arena.RookieRecords.Single()).AfterRating == 1775,
+                "autonomous defense record lost the dynamic rating");
+        }
+        finally
+        {
+            foreach (var entry in enabled) Player(entry.Key).ManagedNpc!.Enabled = entry.Value;
+        }
+    });
 }
 Console.WriteLine($"Arena: {passed} PASS, {failed} FAIL");
 return failed == 0 ? 0 : 1;
@@ -567,5 +661,25 @@ async Task<long> Target(ulong id, bool special)
 {
     if (special) return (await Post<ResGetSpecialArenaEnemyList>(id, "arena/special/getenemylist", new ReqGetSpecialArenaEnemyList())).List2.First().User.User.Usn;
     return (await Post<ResGetArenaEnemyList>(id, "arena/getenemylist", new ReqGetArenaEnemyList())).List2.First().User.User.Usn;
+}
+async Task<(User Attacker, User Defender)> RatingPair(bool attackerNpc, bool defenderNpc)
+{
+    var template = State().Users.Where(u => u.ManagedNpc != null).OrderByDescending(u => u.LastNormalStageCleared).First();
+    User Add(bool npc)
+    {
+        var player = JsonConvert.DeserializeObject<User>(JsonConvert.SerializeObject(template))!;
+        player.ID = ++ratingFixtureId; player.Arena = null; player.Currency.Clear();
+        if (!npc) player.ManagedNpc = null;
+        else player.ManagedNpc!.Enabled = true;
+        State().Users.Add(player);
+        using var db = GameContext.CreateNew();
+        db.Users.Add(new GameUser { ID = player.ID, Nickname = "Rating" + player.ID, LastAction = clock.Now.UtcDateTime });
+        db.SaveChanges();
+        return player;
+    }
+    var attacker = Add(attackerNpc); var defender = Add(defenderNpc);
+    await Post<ResGetArena>(attacker.ID, "arena/get", new ReqGetArena());
+    await Post<ResGetArena>(defender.ID, "arena/get", new ReqGetArena());
+    return (attacker, defender);
 }
 sealed class ArenaClock : TimeProvider { public DateTimeOffset Now; public override DateTimeOffset GetUtcNow() => Now; }
