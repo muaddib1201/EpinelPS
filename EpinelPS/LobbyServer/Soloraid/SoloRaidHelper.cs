@@ -157,6 +157,7 @@ public class SoloRaidHelper
 
     public static void SetDamage(User user, ref ResSetSoloRaidDamage response, ReqSetSoloRaidDamage req)
     {
+        RequirePlayable();
         (int rewardId, int FirstRewardId, var levelData) =
             SetDamage(user, req.RaidLevel, req.Damage, req.AntiCheatBattleData.WaveId, req.AntiCheatBattleData.Characters);
 
@@ -177,6 +178,7 @@ public class SoloRaidHelper
 
     public static void SetDamagePractice(User user, ref ResSetSoloRaidPracticeDamage response, ReqSetSoloRaidPracticeDamage req)
     {
+        RequirePlayable();
         (_, _, var levelData) =
             SetDamage(user, req.RaidLevel, req.Damage, req.AntiCheatBattleData.WaveId, req.AntiCheatBattleData.Characters, SoloRaidType.Practice);
 
@@ -194,6 +196,7 @@ public class SoloRaidHelper
 
     public static void SetDamageTrial(User user, ref ResSetSoloRaidTrialDamage response, ReqSetSoloRaidTrialDamage req)
     {
+        RequirePlayable();
         (_, _, var levelData) =
             SetDamage(user, req.RaidLevel, req.Damage, req.AntiCheatBattleData.WaveId, req.AntiCheatBattleData.Characters, SoloRaidType.Trial);
 
