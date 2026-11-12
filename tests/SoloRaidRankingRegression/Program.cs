@@ -47,7 +47,7 @@ if (args.Contains("--probe-live-readonly"))
     // Read only static data/cache in this probe process; do not initialize JsonDb or a live player database.
     typeof(GameConfig).GetField("_root", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, deployedConfig);
     string liveCache = Path.Combine(liveRoot, "Server and Server selector/cache");
-    string staticPath = Path.GetFullPath(Path.Combine(liveCache, new Uri(deployedConfig.StaticDataMpk.Url).GetComponents(UriComponents.Path, UriFormat.Unescaped).Replace('/', Path.DirectorySeparatorChar)));
+    string staticPath = Path.GetFullPath(Path.Combine(liveCache, new Uri(deployedConfig.StaticDataMpk.Url).GetComponents(UriComponents.Path, UriFormat.Unescaped).TrimStart('/').Replace('/', Path.DirectorySeparatorChar)));
     Check(staticPath.StartsWith(Path.GetFullPath(liveCache) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase), "static-data path escaped the live cache");
     var liveData = new GameData(staticPath);
     typeof(GameData).GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, liveData);

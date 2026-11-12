@@ -18,6 +18,7 @@ public static class NikkeHubSoloRaidSource
 {
     public const string PageUrl = "https://nikkehub.com/zh-tw/raids/solo";
     public const int MaxHtmlBytes = 2 * 1024 * 1024;
+    private const int MaxModelFrames = 128;
     private const string PushMarker = "self.__next_f.push(";
     private static readonly Regex Scripts = new(@"<script\b[^>]*>(.*?)</script\s*>",
         RegexOptions.Singleline | RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
@@ -28,26 +29,35 @@ public static class NikkeHubSoloRaidSource
     {
         if (Encoding.UTF8.GetByteCount(html) > MaxHtmlBytes) throw new InvalidDataException("NikkeHub page is too large");
         var models = new StringBuilder();
+        int scriptCount = 0, frameCount = 0;
         foreach (Match script in Scripts.Matches(html))
         {
+            if (++scriptCount > 256) throw new InvalidDataException("Too many NikkeHub scripts");
             string body = script.Groups[1].Value;
             int cursor = 0, start;
             while ((start = body.IndexOf(PushMarker, cursor, StringComparison.Ordinal)) >= 0)
             {
+                if (++frameCount > MaxModelFrames) throw new InvalidDataException("Too many NikkeHub model frames");
                 cursor = start + PushMarker.Length;
                 try
                 {
-                    using var reader = new JsonTextReader(new StringReader(body[cursor..])) { MaxDepth = 128, DateParseHandling = DateParseHandling.None };
+                    using var reader = new JsonTextReader(new StringSliceReader(body, cursor)) { MaxDepth = 128, DateParseHandling = DateParseHandling.None };
                     var frame = JArray.Load(reader);
-                    if (frame.Count >= 2 && frame[0].Type == JTokenType.Integer && (int)frame[0] == 1 && frame[1].Type == JTokenType.String)
-                        models.Append((string?)frame[1]);
+                    if (frame.Count >= 2 && frame[0].Type == JTokenType.Integer && frame[0].ToString() == "1" && frame[1].Type == JTokenType.String)
+                    {
+                        string payload = (string)frame[1]!;
+                        if (models.Length + payload.Length > MaxHtmlBytes) throw new InvalidDataException("NikkeHub models are too large");
+                        models.Append(payload);
+                    }
                 }
                 catch (JsonException) { /* Non-model scripts and malformed frames are not executable input. */ }
             }
         }
         var seasons = new List<JObject>();
+        int recordCount = 0;
         foreach (string line in models.ToString().Split('\n'))
         {
+            if (++recordCount > 8192) throw new InvalidDataException("Too many NikkeHub model records");
             int colon = line.IndexOf(':');
             if (colon < 1) continue;
             string value = line[(colon + 1)..];
@@ -70,7 +80,8 @@ public static class NikkeHubSoloRaidSource
     private static RemoteSoloRaidSeason ParseSeason(JObject season)
     {
         if (season["seasonNo"]?.Type != JTokenType.Integer) throw new InvalidDataException("Missing solo season number");
-        int number = (int)season["seasonNo"]!;
+        if (!int.TryParse(season["seasonNo"]!.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int number))
+            throw new InvalidDataException("Invalid solo season number");
         if ((string?)season["id"] != "solo-" + number) throw new InvalidDataException("Inconsistent solo season identity");
         DateTimeOffset start = ParseDate(season["startAt"]);
         DateTimeOffset end = ParseDate(season["endAt"]);
@@ -101,6 +112,7 @@ public static class NikkeHubSoloRaidSource
         timeout.CancelAfter(TimeSpan.FromSeconds(15));
         using var request = new HttpRequestMessage(HttpMethod.Get, PageUrl);
         request.Headers.Accept.ParseAdd("text/html");
+        request.Headers.UserAgent.ParseAdd("EpinelPS-SoloRaidSync/1.0");
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
         response.EnsureSuccessStatusCode();
         if (response.RequestMessage?.RequestUri is { } final && final.AbsoluteUri != PageUrl)
@@ -117,5 +129,20 @@ public static class NikkeHubSoloRaidSource
             output.Write(buffer, 0, count);
         }
         return ParseHtml(new UTF8Encoding(false, true).GetString(output.ToArray()));
+    }
+
+    // Read a JSON prefix directly from the original script instead of copying every remaining suffix.
+    private sealed class StringSliceReader(string text, int offset) : TextReader
+    {
+        private int position = offset;
+        public override int Peek() => position < text.Length ? text[position] : -1;
+        public override int Read() => position < text.Length ? text[position++] : -1;
+        public override int Read(char[] buffer, int index, int count)
+        {
+            int available = Math.Min(count, text.Length - position);
+            text.CopyTo(position, buffer, index, available);
+            position += available;
+            return available;
+        }
     }
 }

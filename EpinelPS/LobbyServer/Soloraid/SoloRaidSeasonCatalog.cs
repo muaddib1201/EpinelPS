@@ -1,5 +1,6 @@
 using EpinelPS.Data;
 using Newtonsoft.Json;
+using EpinelPS.Utils;
 
 namespace EpinelPS.LobbyServer.Soloraid;
 
@@ -8,12 +9,14 @@ public sealed record SoloRaidSyncStatus(bool Enabled, string State, string Messa
     DateTimeOffset? StartAtUtc, DateTimeOffset? EndAtUtc);
 
 /// <summary>An immutable, atomically persisted schedule catalog. It never reads or changes player saves.</summary>
-public sealed class SoloRaidSeasonCatalog(Func<GameData> currentData, string cachePath)
+public sealed class SoloRaidSeasonCatalog(Func<GameData> currentData, string cachePath,
+    Func<SoloRaidSeasonConfig?>? configuredFallback = null)
 {
     private sealed record Cache(int SchemaVersion, DateTimeOffset LastSuccessAtUtc, RemoteSoloRaidSeason[] Seasons);
     private Cache snapshot = new(1, DateTimeOffset.MinValue, []);
     private readonly object gate = new();
     private readonly SemaphoreSlim refreshGate = new(1, 1);
+    private readonly Func<SoloRaidSeasonConfig?> fallbackSource = configuredFallback ?? (() => GameConfig.Root.SoloRaidSeason);
     private DateTimeOffset? lastAttempt;
     private string? lastError;
     public static string DefaultCachePath => Path.Combine(AppContext.BaseDirectory, "cache", "solo-raid-nikkehub.json");
@@ -30,6 +33,7 @@ public sealed class SoloRaidSeasonCatalog(Func<GameData> currentData, string cac
                 var cache = JsonConvert.DeserializeObject<Cache>(File.ReadAllText(cachePath))
                     ?? throw new InvalidDataException("Empty solo raid cache");
                 ValidateCache(cache);
+                ValidateFallback(cache);
                 Volatile.Write(ref snapshot, cache);
                 return true;
             }
@@ -44,10 +48,19 @@ public sealed class SoloRaidSeasonCatalog(Func<GameData> currentData, string cac
         lock (gate)
         {
             var old = Volatile.Read(ref snapshot);
+            var previous = old.Seasons.FirstOrDefault(s => s.SeasonNo == season.SeasonNo);
+            var known = ReadFallback();
+            if (previous is null && known?.SeasonNo == season.SeasonNo) previous = known;
+            var clockNow = DateTimeOffset.UtcNow;
+            var evaluatedAt = fetchedAt > clockNow ? fetchedAt : clockNow;
+            if (previous is not null && previous.StartAt <= evaluatedAt && season.StartAt > evaluatedAt &&
+                Map(currentData(), previous) is not null)
+                throw new InvalidDataException("An already started solo raid cannot be postponed into a previous season");
             var entries = old.Seasons.Where(s => s.SeasonNo != season.SeasonNo).Append(season)
                 .OrderByDescending(s => s.SeasonNo).Take(16).OrderBy(s => s.SeasonNo).ToArray();
             var next = new Cache(1, fetchedAt.ToUniversalTime(), entries);
             ValidateCache(next);
+            ValidateFallback(next);
             string fullPath = Path.GetFullPath(cachePath);
             Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
             string temporary = fullPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
@@ -76,6 +89,23 @@ public sealed class SoloRaidSeasonCatalog(Func<GameData> currentData, string cac
                 throw new InvalidDataException("Solo raid schedules overlap or go backwards");
     }
 
+    private RemoteSoloRaidSeason? ReadFallback()
+    {
+        var fallback = fallbackSource();
+        if (fallback is not { IsValid: true } || !currentData().SoloRaidManagerTable.TryGetValue(fallback.RaidId, out var manager)) return null;
+        int number = manager.MonsterPreset - 10000;
+        return number > 0 ? new RemoteSoloRaidSeason(number, "Configured Boss", fallback.StartAt, fallback.EndAt) : null;
+    }
+
+    private void ValidateFallback(Cache cache)
+    {
+        var fallback = ReadFallback();
+        // A confirmed source entry for the same season supersedes its manual fallback.
+        if (fallback is null || cache.Seasons.Any(s => s.SeasonNo == fallback.SeasonNo)) return;
+        if (cache.Seasons.Any(s => s.StartAt < fallback.EndAt && fallback.StartAt < s.EndAt))
+            throw new InvalidDataException("NikkeHub season overlaps the configured solo raid season");
+    }
+
     public async Task<bool> RefreshAsync(HttpClient client, DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         await refreshGate.WaitAsync(cancellationToken);
@@ -88,7 +118,7 @@ public sealed class SoloRaidSeasonCatalog(Func<GameData> currentData, string cac
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException or OperationCanceledException or
-                                      UnauthorizedAccessException or InvalidDataException or ArgumentException)
+                                      UnauthorizedAccessException or InvalidDataException or ArgumentException or TimeoutException or OverflowException)
         { lock (gate) lastError = "暂时无法同步 NikkeHub，继续使用已确认赛季。"; return false; }
         finally { refreshGate.Release(); }
     }
