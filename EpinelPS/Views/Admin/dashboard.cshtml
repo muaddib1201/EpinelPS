@@ -1,5 +1,6 @@
 ﻿@{
     ViewData["Title"] = "Dashboard";
+    var soloRaidSync = EpinelPS.LobbyServer.Soloraid.SoloRaidSeasonSource.GetStatus();
 }
 
 <div class="adminui-dashboard">
@@ -162,6 +163,12 @@
         </div>
     </div>-->
 
+    <div id="solo-raid-sync" class="alert @(soloRaidSync.NeedsGameDataUpdate ? "alert-warning" : "alert-info")" role="status">
+        <strong>个人突袭自动同步</strong>
+        <p id="solo-raid-sync-message" class="mb-1">@soloRaidSync.Message</p>
+        <small>来源：<a href="https://nikkehub.com/zh-tw/raids/solo" target="_blank" rel="noopener noreferrer">NikkeHub</a></small>
+    </div>
+
     <!-- 快速访问卡片 -->
     <div class="row mt-4">
         <div class="col-md-6 col-lg-3 mb-4">
@@ -228,6 +235,18 @@
 </div>
 
 @section Scripts {
+    <script>
+        async function refreshSoloRaidSync() {
+            try {
+                const response = await fetch('/adminapi/soloRaidSync');
+                if (!response.ok) return;
+                const status = await response.json();
+                document.getElementById('solo-raid-sync-message').textContent = status.message;
+                document.getElementById('solo-raid-sync').className = 'alert ' + (status.needsGameDataUpdate ? 'alert-warning' : 'alert-info');
+            } catch { }
+        }
+        setInterval(refreshSoloRaidSync, 60000);
+    </script>
     <script>
       
             // 周/月切换按钮
