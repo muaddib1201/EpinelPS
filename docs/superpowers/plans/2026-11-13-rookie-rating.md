@@ -35,8 +35,8 @@
 - [x] Add a restarted receipt assertion and one autonomous NPC match with 1720 vs 1800 -> 1745 vs 1775.
 - [x] Run `nikke_workflow.py test --worktree <session source> --suite ArenaRegression`. Observed: 28 passed, 11 expected rating failures against fixed scoring (20261113-012256-376510).
 - [x] Implement the spec's single-transfer calculation with wide addition and score bounds.
-- [ ] Repeat ArenaRegression. Expected: all default and saved-state cases pass.
-- [ ] Obtain independent review, address material findings, then commit.
-- [ ] Integrate and sync through nikke_workflow.py, run ArenaRegression, ArenaCubeRegression, NpcDailyRoutineRegression, and ManagedNpcRegression. Expected: no failures.
+- [x] Repeat ArenaRegression. Observed: 39 default + 4 saved-state cases passed (20261113-012540-859059).
+- [x] Obtain independent review: no actionable findings; NPC phase durability remains covered by NpcDailyRoutineRegression below. Implementation committed as c9ada30.
+- [ ] Integrate and sync through nikke_workflow.py, run ArenaRegression, ArenaCubeRegression, NpcDailyRoutineRegression, ManagedNpcRegression, and SoloRaidAutoSyncRegression (the integration baseline includes not-yet-installed solo raid changes). Expected: no failures.
 - [ ] Check added history for secrets and saves; push the exact integration commit to the authorized Fork branch and verify via ls-remote.
 - [ ] Publish and seal an installer with game-exit checks, backup, rollback, and health checks. Install only within current authorization using deploy.
