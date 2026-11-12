@@ -19,6 +19,7 @@ public class ClosePractice : LobbyMessage
         {
             SoloRaidHelper.CloseSoloRaid(user, req.RaidId, req.RaidLevel, SoloRaidType.Practice);
         }
+        catch (SoloRaidPeriodException) { response.PeriodResult = SoloRaidPeriodResult.Failure; }
         catch (Exception ex)
         {
             Logging.WriteLine($"CloseSoloRaidPractice Error: {ex.Message}", LogType.Error);

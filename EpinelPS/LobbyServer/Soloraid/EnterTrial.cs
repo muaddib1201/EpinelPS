@@ -13,7 +13,7 @@ public class EnterTrial : LobbyMessage
 
         ResEnterSoloRaidTrial response = new()
         {
-            PeriodResult = SoloRaidPeriodResult.Success,
+            PeriodResult = SoloRaidHelper.GetPeriodResult(req.RaidId),
         };
 
         await WriteDataAsync(response);

@@ -19,6 +19,7 @@ public class CloseTrial : LobbyMessage
         {
             SoloRaidHelper.CloseSoloRaid(user, req.RaidId, req.RaidLevel, SoloRaidType.Trial);
         }
+        catch (SoloRaidPeriodException) { response.PeriodResult = SoloRaidPeriodResult.Failure; }
         catch (Exception ex)
         {
             Logging.WriteLine($"CloseSoloRaidTrial Error: {ex.Message}", LogType.Error);

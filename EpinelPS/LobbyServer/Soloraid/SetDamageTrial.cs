@@ -18,12 +18,13 @@ public class SetDamageTrial : LobbyMessage
         {
             SoloRaidHelper.SetDamageTrial(user, ref response, req);
         }
+        catch (SoloRaidPeriodException) { response.PeriodResult = SoloRaidPeriodResult.Failure; }
         catch (Exception ex)
         {
             Logging.WriteLine($"SetDamageTrial Error: {ex.Message}", LogType.Error);
         }
 
-        JsonDb.Save();
+        if (response.PeriodResult == SoloRaidPeriodResult.Success) JsonDb.Save();
         await WriteDataAsync(response);
     }
 }

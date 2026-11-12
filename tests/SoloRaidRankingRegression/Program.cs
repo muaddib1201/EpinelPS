@@ -43,7 +43,15 @@ if (args.Contains("--probe-live-readonly"))
         "live ranking reply still lacks the personal profile");
     Check(ranking.TotalUserCount == ranking.Rankings.Count && ranking.Rankings.All(r => r.Ranking > 0 && r.Damage > 0 && r.User != null),
         "live participant count or ranked profiles invalid");
+    var deployedConfig = JsonConvert.DeserializeObject<GameConfigRoot>(File.ReadAllText(Path.Combine(liveRoot, "Server and Server selector/gameconfig.json")))!;
+    using var periodBody = new ByteArrayContent(new ReqGetSoloRaidPeriod().ToByteArray());
+    periodBody.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream+protobuf");
+    using var periodReply = await client.PostAsync("soloraid/getperiod", periodBody);
+    periodReply.EnsureSuccessStatusCode();
+    var actualPeriod = ResGetSoloRaidPeriod.Parser.ParseFrom(await periodReply.Content.ReadAsByteArrayAsync()).Period;
+    Check(actualPeriod.Equals(deployedConfig.SoloRaidSeason.ToNet()), "live solo raid period does not match the fixed configured season");
     Console.WriteLine($"PASS live authenticated solo raid ranking: participants={ranking.TotalUserCount}, personalRank={own.Ranking}, personalDamage={own.Damage}, profile={own.User!.Nickname}");
+    Console.WriteLine($"PASS live fixed solo raid period: manager={deployedConfig.SoloRaidSeason.RaidId}, endUtc={deployedConfig.SoloRaidSeason.EndAt:O}");
     return 0;
     }
     catch (Exception ex)
@@ -57,6 +65,11 @@ var data = new GameData(Directory.GetFiles(Path.Combine(root.FullName, "Server a
 typeof(GameData).GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, data);
 await GameDataInitializer.InitializeGameData(new Progress<double>());
 int raidId = data.SoloRaidManagerTable.Keys.Max();
+foreach (var manager in data.SoloRaidManagerTable.Values.OrderByDescending(m => m.Id).Take(2))
+{
+    var preset = data.SoloRaidPresetTable.Values.Single(p => p.PresetGroupId == manager.MonsterPreset && p.WaveOrder == 8);
+    Console.WriteLine($"SoloRaidStatic manager={manager.Id}, preset={JsonConvert.SerializeObject(preset)}");
+}
 int tid = data.CharacterTable.Keys.First();
 var shippedConfig = GameConfig.Root;
 var configField = typeof(GameConfig).GetField("_root", BindingFlags.Static | BindingFlags.NonPublic)!;
@@ -297,6 +310,35 @@ else
         await Rejected<ResOpenSoloRaid>("/soloraid/open", new ReqOpenSoloRaid { RaidId = oldRaid, RaidLevel = 1 });
         await Rejected<ResFastBattleSoloRaid>("/soloraid/fastbattle", new ReqFastBattleSoloRaid { RaidId = oldRaid, RaidLevel = 1, ClearCount = 3 });
         Check(JsonConvert.SerializeObject(State().Users) == snapshot, "out-of-season raid granted rewards or changed attempts");
+    });
+    await Test("UTC start is inclusive and end is exclusive across midnight and timezone offsets", () =>
+    {
+        var season = GameConfig.Root.SoloRaidSeason;
+        foreach (var instant in new[] { season.StartAt.AddTicks(-1), season.EndAt, season.EndAt.AddTicks(1), season.EndAt.AddDays(1) })
+            Check(SoloRaidHelper.GetPeriodResult(raidId, instant) == SoloRaidPeriodResult.Failure, "closed boundary accepted play");
+        var period = SoloRaidHelper.GetSoloRaidPeriod();
+        foreach (var instant in new[] { season.StartAt, season.StartAt.AddHours(8), season.EndAt.AddTicks(-1) })
+        {
+            Check(SoloRaidHelper.GetPeriodResult(raidId, instant) == SoloRaidPeriodResult.Success &&
+                  SoloRaidHelper.GetPeriodResult(raidId, instant.ToOffset(TimeSpan.FromHours(8))) == SoloRaidPeriodResult.Success,
+                "active UTC instant was treated differently across dates/timezones");
+            Check(SoloRaidHelper.GetSoloRaidPeriod().Equals(period), "checking another day moved the deadline");
+        }
+        return Task.CompletedTask;
+    });
+    await Test("invalid or missing season configuration fails closed", () =>
+    {
+        var config = GameConfig.Root;
+        var season = config.SoloRaidSeason;
+        try
+        {
+            config.SoloRaidSeason = new() { StartAt = season.EndAt, EndAt = season.StartAt };
+            Check(SoloRaidHelper.GetPeriodResult() == SoloRaidPeriodResult.Failure, "reversed dates accepted play");
+            config.SoloRaidSeason = null!;
+            Check(SoloRaidHelper.GetPeriodResult() == SoloRaidPeriodResult.Failure, "null season accepted play");
+        }
+        finally { config.SoloRaidSeason = season; }
+        return Task.CompletedTask;
     });
     // The last fixture is saved by real damage-submission handlers, then verified by a fresh process.
     Reset(); Best(other, 10_000_000_000); await Open(self);

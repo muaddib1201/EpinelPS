@@ -22,12 +22,13 @@ public class OpenPractice : LobbyMessage
         {
             SoloRaidHelper.OpenSoloRaid(user, 0, req.RaidLevel, type: SoloRaidType.Practice);
         }
+        catch (SoloRaidPeriodException) { response.PeriodResult = SoloRaidPeriodResult.Failure; }
         catch (Exception ex)
         {
             Logging.WriteLine($"OpenSoloRaid error: {ex.Message}", LogType.Error);
         }
 
-        JsonDb.Save();
+        if (response.PeriodResult == SoloRaidPeriodResult.Success) JsonDb.Save();
         await WriteDataAsync(response);
     }
 }

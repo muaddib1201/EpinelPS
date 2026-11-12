@@ -18,6 +18,8 @@ public class GameConfigRoot
     /// archive unlocks are determined from the user's archive progress.
     /// </summary>
     public bool? ArchiveUnlockAll { get; set; }
+    /// <summary>Fixed solo raid manager and UTC season dates. Update explicitly for each new season.</summary>
+    public EpinelPS.LobbyServer.Soloraid.SoloRaidSeasonConfig SoloRaidSeason { get; set; } = new();
     /// <summary>
     /// this is only for displaying the target version in admin console or cli
     /// </summary>

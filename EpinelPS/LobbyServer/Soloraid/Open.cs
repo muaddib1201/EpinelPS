@@ -21,12 +21,13 @@ public class Open : LobbyMessage
             int openCount = SoloRaidHelper.OpenSoloRaid(user, req.RaidId, req.RaidLevel);
             response.RaidOpenCount = openCount;
         }
+        catch (SoloRaidPeriodException) { response.PeriodResult = SoloRaidPeriodResult.Failure; }
         catch (Exception ex)
         {
             Logging.WriteLine($"OpenSoloRaid error: {ex.Message}", LogType.Error);
         }
 
-        JsonDb.Save();
+        if (response.PeriodResult == SoloRaidPeriodResult.Success) JsonDb.Save();
         await WriteDataAsync(response);
     }
 }

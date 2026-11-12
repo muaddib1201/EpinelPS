@@ -15,6 +15,7 @@ public class FastBattle : LobbyMessage
         {
             SoloRaidHelper.FastBattle(user, ref response, req.RaidId, req.RaidLevel, req.ClearCount);
         }
+        catch (SoloRaidPeriodException) { response.PeriodResult = SoloRaidPeriodResult.Failure; }
         catch (Exception e)
         {
             Logging.WriteLine($"FastBattle Error {e.Message}");
