@@ -3,6 +3,7 @@
 @{
     ViewData["Title"] = "Event configuration";
     var allBanners = GameData.Instance.LobbyPrivateBannerTable.Values.Reverse().ToList();
+    var bannerNames = allBanners.ToDictionary(b => b.Id, EventBannerNameResolver.Resolve);
     var activeIds = Model;
 }
 
@@ -33,28 +34,26 @@
         <div class="card mb-4">
             <div class="card-body py-3">
                 <div class="d-flex align-items-center flex-wrap gap-2">
-                    <strong class="me-2" style="min-width: 100px;"><span data-i18n="events.activeCount">Currently active</span> (@activeIds.Count)</strong>
+                    <strong class="me-2" style="min-width: 100px;"><span data-i18n="events.activeCount">Currently active</span> (<span id="activeCount">@activeIds.Count</span>)</strong>
 
+                    <span id="activeTags" class="d-inline-flex flex-wrap gap-2">
                     @if (activeIds.Count > 0)
                     {
                         foreach (var id in activeIds)
                         {
                             var banner = allBanners.FirstOrDefault(b => b.Id == id);
                             if (banner == null) continue;
-                            var name = (banner.PrivateBannerResource ?? "(Unknown)").Replace("btn_event_enter_", "");
+                            var name = bannerNames[banner.Id].English;
                             <span class="badge d-inline-flex align-items-center gap-1 active-tag" data-id="@id"
                                   style="background-color: var(--adminui-success); font-size: 0.85rem; padding: 0.3rem 0.6rem;">
-                                @name
+                                <span class="active-tag-name">@name</span>
                                 <i class="fas fa-times remove-tag" style="cursor: pointer; opacity: 0.7;" data-id="@id"></i>
                             </span>
                         }
                     }
-                    else
-                    {
-                        <span class="text-muted small" data-i18n="events.noSelection">None selected, will show latest event by default</span>
-                    }
-
-
+                    </span>
+                    <span id="noEventsSelected" class="text-muted small" data-i18n="events.noSelection"
+                          style="display: @(activeIds.Count == 0 ? "" : "none");">None selected, will show latest event by default</span>
                 </div>
             </div>
         </div>
@@ -93,16 +92,20 @@
                             @foreach (var item in allBanners)
                             {
                                 var isChecked = activeIds.Contains(item.Id);
-                                var name = (item.PrivateBannerResource ?? "(Unknown)").Replace("btn_event_enter_", "");
+                                var names = bannerNames[item.Id];
                                 <tr class="event-row @(isChecked ? "row-active" : "")"
-                                    data-id="@item.Id" data-name="@name" style="display: none;">
+                                    data-id="@item.Id" data-name="@names.English"
+                                    data-name-en="@names.English" data-name-zh="@names.Chinese"
+                                    data-name-ja="@names.Japanese" data-name-ko="@names.Korean"
+                                    data-search="@names.SearchText @item.Id @item.EventId @item.PrivateBannerResource"
+                                    style="display: none;">
                                     <td class="text-center">
                                         <input type="checkbox" name="activeBannerIds" value="@item.Id"
                                                class="form-check-input event-checkbox"
                                                @(isChecked ? "checked" : "")
                                                style="transform: scale(1.2); cursor: pointer;" />
                                     </td>
-                                    <td class="event-name">@name</td>
+                                    <td class="event-name">@names.English</td>
                                     <td>@item.Id</td>
                                     <td>@item.EventId</td>
                                 </tr>
@@ -148,7 +151,7 @@
             rows.forEach(function (r) { tbody.appendChild(r); });
             allRows = Array.from(rows);
             filteredRows = allRows.slice();
-            renderPage();
+            updateEventNames();
         })();
 
         // ---- Render current page ----
@@ -163,6 +166,7 @@
             // Hide all, show only current page
             var start = (currentPage - 1) * size;
             var end = Math.min(start + size, total);
+            allRows.forEach(function (row) { row.style.display = 'none'; });
             filteredRows.forEach(function (row, i) {
                 row.style.display = (pageSize === 0 || (i >= start && i < end)) ? '' : 'none';
                 // Make sure the row is in the tbody
@@ -188,6 +192,7 @@
             if (pages <= 1 && pageSize !== 0) return;
 
             var prevBtn = document.createElement('button');
+            prevBtn.type = 'button';
             prevBtn.className = 'btn btn-sm ' + (currentPage > 1 ? 'btn-outline-primary' : 'btn-outline-secondary disabled');
             prevBtn.textContent = '‹';
             prevBtn.onclick = function () { if (currentPage > 1) { currentPage--; renderPage(); } };
@@ -201,6 +206,7 @@
 
             for (var i = startP; i <= endP; i++) {
                 var btn = document.createElement('button');
+                btn.type = 'button';
                 btn.className = 'btn btn-sm ' + (i === currentPage ? 'btn-primary' : 'btn-outline-primary');
                 btn.textContent = i;
                 btn.onclick = (function (p) { return function () { currentPage = p; renderPage(); }; })(i);
@@ -208,6 +214,7 @@
             }
 
             var nextBtn = document.createElement('button');
+            nextBtn.type = 'button';
             nextBtn.className = 'btn btn-sm ' + (currentPage < pages ? 'btn-outline-primary' : 'btn-outline-secondary disabled');
             nextBtn.textContent = '›';
             nextBtn.onclick = function () { if (currentPage < pages) { currentPage++; renderPage(); } };
@@ -230,52 +237,56 @@
         function applyFilter() {
             var q = document.getElementById('searchBox').value.toLowerCase().trim();
             filteredRows = allRows.filter(function (row) {
-                var name = (row.dataset.name || '').toLowerCase();
+                var name = (row.dataset.search || '').toLowerCase();
                 return !q || name.indexOf(q) !== -1;
             });
             renderPage();
         }
 
-        // ---- Remove tag handler ----
-        function removeTagHandler() {
-            var id = this.dataset.id;
-            var cb = document.querySelector('.event-checkbox[value="' + id + '"]');
-            if (cb) cb.checked = false;
-            this.closest('.active-tag').remove();
-            var row = document.querySelector('.event-row[data-id="' + id + '"]');
-            if (row) row.classList.remove('row-active');
-            var mi = document.querySelector('.add-event-item[data-id="' + id + '"]');
-            if (mi) mi.classList.remove('disabled');
-        }
-        document.querySelectorAll('.remove-tag').forEach(function (el) {
-            el.addEventListener('click', removeTagHandler);
-        });
-
-        // ---- Add from dropdown ----
-        document.querySelectorAll('.add-event-item').forEach(function (el) {
-            el.addEventListener('click', function (e) {
-                e.preventDefault();
-                if (this.classList.contains('disabled')) return;
-                var id = this.dataset.id;
-                var name = this.dataset.name;
-                var checkbox = document.querySelector('.event-checkbox[value="' + id + '"]');
-                if (checkbox) checkbox.checked = true;
-                var row = document.querySelector('.event-row[data-id="' + id + '"]');
-                if (row) row.classList.add('row-active');
-                this.classList.add('disabled');
-
-                var placeholder = document.querySelector('.text-muted.small');
-                if (placeholder) placeholder.remove();
-
-                var addBtn = document.querySelector('.dropdown');
-                if (!addBtn) return;
-
-                var tagHtml = '<span class="badge d-inline-flex align-items-center gap-1 active-tag" data-id="' + id + '" style="background-color: var(--adminui-success); font-size: 0.85rem; padding: 0.3rem 0.6rem;">' + name + ' <i class="fas fa-times remove-tag" style="cursor: pointer; opacity: 0.7;" data-id="' + id + '"></i></span>';
-                addBtn.insertAdjacentHTML('beforebegin', tagHtml);
-                var newRm = document.querySelector('.active-tag[data-id="' + id + '"] .remove-tag');
-                if (newRm) newRm.addEventListener('click', removeTagHandler);
+        // Search includes all translations and IDs; visible names follow the admin language.
+        function updateEventNames() {
+            var lang = i18n.currentLang;
+            allRows.forEach(function (row) {
+                var name = row.getAttribute('data-name-' + lang) || row.dataset.nameEn;
+                row.dataset.name = name;
+                row.querySelector('.event-name').textContent = name;
             });
-        });
+            syncActiveTags();
+            applyFilter();
+        }
+        window.addEventListener('adminui:languageChanged', updateEventNames);
+
+        function syncActiveTags() {
+            var container = document.getElementById('activeTags');
+            container.replaceChildren();
+            var selected = allRows.filter(function (row) { return row.querySelector('.event-checkbox').checked; });
+            document.getElementById('activeCount').textContent = selected.length;
+            document.getElementById('noEventsSelected').style.display = selected.length ? 'none' : '';
+            selected.forEach(function (row) {
+                var tag = document.createElement('span');
+                tag.className = 'badge d-inline-flex align-items-center gap-1 active-tag';
+                tag.dataset.id = row.dataset.id;
+                tag.style.cssText = 'background-color: var(--adminui-success); font-size: 0.85rem; padding: 0.3rem 0.6rem;';
+                var label = document.createElement('span');
+                label.className = 'active-tag-name';
+                label.textContent = row.dataset.name;
+                var remove = document.createElement('i');
+                remove.className = 'fas fa-times remove-tag';
+                remove.dataset.id = row.dataset.id;
+                remove.style.cssText = 'cursor: pointer; opacity: 0.7;';
+                remove.addEventListener('click', removeTagHandler);
+                tag.append(label, remove);
+                container.appendChild(tag);
+            });
+        }
+
+        function removeTagHandler() {
+            var cb = document.querySelector('.event-checkbox[value="' + this.dataset.id + '"]');
+            if (cb) {
+                cb.checked = false;
+                cb.dispatchEvent(new Event('change'));
+            }
+        }
 
         // ---- Click row to toggle checkbox ----
         document.querySelectorAll('.event-row td:not(:first-child)').forEach(function (td) {
@@ -292,30 +303,9 @@
         // ---- Checkbox change sync ----
         document.querySelectorAll('.event-checkbox').forEach(function (cb) {
             cb.addEventListener('change', function () {
-                var id = this.value;
                 var row = this.closest('.event-row');
-                var name = row ? row.dataset.name : '';
-                if (this.checked) {
-                    if (row) row.classList.add('row-active');
-                    var mi = document.querySelector('.add-event-item[data-id="' + id + '"]');
-                    if (mi) mi.classList.add('disabled');
-                    if (!document.querySelector('.active-tag[data-id="' + id + '"]')) {
-                        var placeholder = document.querySelector('.text-muted.small');
-                        if (placeholder) placeholder.remove();
-                        var addBtn = document.querySelector('.dropdown');
-                        if (!addBtn) return;
-                        var tagHtml = '<span class="badge d-inline-flex align-items-center gap-1 active-tag" data-id="' + id + '" style="background-color: var(--adminui-success); font-size: 0.85rem; padding: 0.3rem 0.6rem;">' + name + ' <i class="fas fa-times remove-tag" style="cursor: pointer; opacity: 0.7;" data-id="' + id + '"></i></span>';
-                        addBtn.insertAdjacentHTML('beforebegin', tagHtml);
-                        var newRm = document.querySelector('.remove-tag[data-id="' + id + '"]:last-of-type');
-                        if (newRm) newRm.addEventListener('click', removeTagHandler);
-                    }
-                } else {
-                    if (row) row.classList.remove('row-active');
-                    var mi = document.querySelector('.add-event-item[data-id="' + id + '"]');
-                    if (mi) mi.classList.remove('disabled');
-                    var tag = document.querySelector('.active-tag[data-id="' + id + '"]');
-                    if (tag) tag.remove();
-                }
+                if (row) row.classList.toggle('row-active', this.checked);
+                syncActiveTags();
             });
         });
 

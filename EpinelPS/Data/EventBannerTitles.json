@@ -1,0 +1,548 @@
+{
+  "btn_event_enter_ce_01": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_CE_01_FUNCTION",
+    "En": "BULLET X CHAINSAW",
+    "Zh": "BULLET X CHAINSAW",
+    "Ja": "BULLET X CHAINSAW",
+    "Ko": "BULLET X CHAINSAW"
+  },
+  "btn_event_enter_bow-wowparadise": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_3",
+    "En": "BOW-WOW PARADISE",
+    "Zh": "BOW-WOW PARADISE",
+    "Ja": "BOW-WOW PARADISE",
+    "Ko": "BOW-WOW PARADISE"
+  },
+  "btn_event_enter_cherryblossom": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_8",
+    "En": "CHERRY BLOSSOM",
+    "Zh": "CHERRY BLOSSOM",
+    "Ja": "CHERRY BLOSSOM",
+    "Ko": "CHERRY BLOSSOM"
+  },
+  "btn_event_enter_ltk": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_4",
+    "En": "L.T.K. -License to Kill-",
+    "Zh": "L.T.K -License to Kill-",
+    "Ja": "L.T.K. -License to Kill-",
+    "Ko": "L.T.K -License to Kill-"
+  },
+  "btn_event_enter_overzone": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_2",
+    "En": "OVER ZONE",
+    "Zh": "OVER ZONE",
+    "Ja": "OVER ZONE",
+    "Ko": "OVER ZONE"
+  },
+  "btn_event_enter_bunny777": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_11",
+    "En": "BUNNY X 777",
+    "Zh": "BUNNY X 777",
+    "Ja": "BUNNY X 777",
+    "Ko": "BUNNY X 777"
+  },
+  "btn_event_enter_queensorder": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_6",
+    "En": "QUEEN'S ORDER",
+    "Zh": "QUEEN'S ORDER",
+    "Ja": "QUEEN'S ORDER",
+    "Ko": "QUEEN'S ORDER"
+  },
+  "btn_event_enter_bluewaterisland": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_18",
+    "En": "BLUEWATER ISLAND",
+    "Zh": "BLUEWATER ISLAND",
+    "Ja": "BLUEWATER ISLAND",
+    "Ko": "BLUEWATER ISLAND"
+  },
+  "btn_event_enter_nya-nyaparadise": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_7",
+    "En": "NYA NYA PARADISE",
+    "Zh": "NYA NYA PARADISE",
+    "Ja": "NYA NYA PARADISE",
+    "Ko": "NYA NYA PARADISE"
+  },
+  "btn_event_enter_goldenship": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_16",
+    "En": "GOLDEN SHIP",
+    "Zh": "GOLDEN SHIP",
+    "Ja": "GOLDEN SHIP",
+    "Ko": "GOLDEN SHIP"
+  },
+  "btn_event_enter_seayouagain": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_19",
+    "En": "SEA, YOU, AGAIN",
+    "Zh": "SEA, YOU, AGAIN",
+    "Ja": "SEA, YOU, AGAIN",
+    "Ko": "SEA, YOU, AGAIN"
+  },
+  "btn_event_enter_ce002": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_CE002_FUNCTION",
+    "En": "OUTER AUTOMATA",
+    "Zh": "OUTER AUTOMATA",
+    "Ja": "OUTER AUTOMATA",
+    "Ko": "OUTER AUTOMATA"
+  },
+  "btn_event_enter_schooloflock": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_12",
+    "En": "SCHOOL OF LOCK",
+    "Zh": "SCHOOL OF LOCK",
+    "Ja": "SCHOOL OF LOCK",
+    "Ko": "SCHOOL OF LOCK"
+  },
+  "btn_event_enter_dazzlingcupid": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_17",
+    "En": "DAZZLING CUPID",
+    "Zh": "DAZZLING CUPID",
+    "Ja": "DAZZLING CUPID",
+    "Ko": "DAZZLING CUPID"
+  },
+  "btn_event_enter_acpufreeze": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_20",
+    "En": "A.C.P.U.! FREEZE!",
+    "Zh": "A.C.P.U.! FREEZE!",
+    "Ja": "A.C.P.U.! FREEZE!",
+    "Ko": "A.C.P.U.! FREEZE!"
+  },
+  "btn_event_enter_redash": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_13",
+    "En": "RED ASH",
+    "Zh": "RED ASH",
+    "Ja": "RED ASH",
+    "Ko": "RED ASH"
+  },
+  "btn_event_enter_alonesurvivor": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_27",
+    "En": "ALONE SURVIVOR",
+    "Zh": "ALONE SURVIVOR",
+    "Ja": "ALONE SURVIVOR",
+    "Ko": "ALONE SURVIVOR"
+  },
+  "btn_event_enter_neverland": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_25",
+    "En": "NEVERLAND",
+    "Zh": "NEVERLAND",
+    "Ja": "NEVERLAND",
+    "Ko": "NEVERLAND"
+  },
+  "btn_event_enter_newyearnewsword": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_24",
+    "En": "NEW YEAR, NEW SWORD",
+    "Zh": "NEW YEAR, NEW SWORD",
+    "Ja": "NEW YEAR, NEW SWORD",
+    "Ko": "NEW YEAR, NEW SWORD"
+  },
+  "btn_event_enter_lionheart": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_22",
+    "En": "LION HEART",
+    "Zh": "LION HEART",
+    "Ja": "LION HEART",
+    "Ko": "LION HEART"
+  },
+  "btn_event_enter_dirtybackyard": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_21",
+    "En": "DIRTY BACKYARD",
+    "Zh": "DIRTY BACKYARD",
+    "Ja": "DIRTY BACKYARD",
+    "Ko": "DIRTY BACKYARD"
+  },
+  "btn_event_enter_perfectmaid": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_28",
+    "En": "PERFECT MAID",
+    "Zh": "PERFECT MAID",
+    "Ja": "PERFECT MAID",
+    "Ko": "PERFECT MAID"
+  },
+  "btn_event_enter_boomsday": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_29",
+    "En": "BOOMS DAY",
+    "Zh": "BOOMS DAY",
+    "Ja": "BOOMS DAY",
+    "Ko": "BOOMS DAY"
+  },
+  "btn_event_enter_ce003": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_CE003_FUNCTION",
+    "En": "Re:CIPE FOR YOU",
+    "Zh": "Re:CIPE FOR YOU",
+    "Ja": "Re:CIPE FOR YOU",
+    "Ko": "Re:CIPE FOR YOU"
+  },
+  "btn_event_enter_killthelord": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_32",
+    "En": "KILL THE LORD",
+    "Zh": "KILL THE LORD",
+    "Ja": "KILL THE LORD",
+    "Ko": "KILL THE LORD"
+  },
+  "btn_event_enter_onemoretime": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_30",
+    "En": "ONE MORE TIME",
+    "Zh": "ONE MORE TIME",
+    "Ja": "ONE MORE TIME",
+    "Ko": "ONE MORE TIME"
+  },
+  "btn_event_enter_lastkingdom": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_23",
+    "En": "LAST KINGDOM",
+    "Zh": "LAST KINGDOM",
+    "Ja": "LAST KINGDOM",
+    "Ko": "LAST KINGDOM"
+  },
+  "btn_event_enter_darkhero": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_26",
+    "En": "D.ARK HERO",
+    "Zh": "D.ARK HERO",
+    "Ja": "D.ARK HERO",
+    "Ko": "D.ARK HERO"
+  },
+  "btn_event_enter_goldencoinrush": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_38",
+    "En": "GOLDEN COIN RUSH",
+    "Zh": "GOLDEN COIN RUSH",
+    "Ja": "GOLDEN COIN RUSH",
+    "Ko": "GOLDEN COIN RUSH"
+  },
+  "btn_event_enter_claymore": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_33",
+    "En": "CLAY, MORE!",
+    "Zh": "CLAY, MORE!",
+    "Ja": "CLAY, MORE!",
+    "Ko": "CLAY, MORE!"
+  },
+  "btn_event_enter_beautyfullshot": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_36",
+    "En": "BEAUTY FULL SHOT",
+    "Zh": "BEAUTY FULL SHOT",
+    "Ja": "BEAUTY FULL SHOT",
+    "Ko": "BEAUTY FULL SHOT"
+  },
+  "btn_event_enter_juveniledays": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_34",
+    "En": "JUVENILE DAYS",
+    "Zh": "JUVENILE DAYS",
+    "Ja": "JUVENILE DAYS",
+    "Ko": "JUVENILE DAYS"
+  },
+  "btn_event_enter_colorless": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_35",
+    "En": "COLORLESS",
+    "Zh": "COLORLESS",
+    "Ja": "COLORLESS",
+    "Ko": "COLORLESS"
+  },
+  "btn_event_enter_ce004": {
+    "LocaleKey": "Locale_System:RECORD_COLLABO_TITLE_1",
+    "En": "YOU CAN (NOT) EVADE",
+    "Zh": "YOU CAN (NOT) EVADE",
+    "Ja": "YOU CAN (NOT) EVADE",
+    "Ko": "YOU CAN (NOT) EVADE"
+  },
+  "btn_event_enter_jinxplayer": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_37",
+    "En": "JINX PLAYER",
+    "Zh": "JINX PLAYER",
+    "Ja": "JINX PLAYER",
+    "Ko": "JINX PLAYER"
+  },
+  "btn_event_enter_phantomthiefvsdetective": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_40",
+    "En": "PHANTOM THIEF VS DETECTIVE",
+    "Zh": "PHANTOM THIEF VS DETECTIVE",
+    "Ja": "PHANTOM THIEF VS DETECTIVE",
+    "Ko": "PHANTOM THIEF VS DETECTIVE"
+  },
+  "btn_event_enter_lifeagain": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_41",
+    "En": "LIFE AGAIN",
+    "Zh": "LIFE AGAIN",
+    "Ja": "LIFE AGAIN",
+    "Ko": "LIFE AGAIN"
+  },
+  "btn_event_enter_oldtales": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_31",
+    "En": "OLD TALES",
+    "Zh": "OLD TALES",
+    "Ja": "OLD TALES",
+    "Ko": "OLD TALES"
+  },
+  "btn_event_enter_secretgarden": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_45",
+    "En": "SECRET GARDEN",
+    "Zh": "SECRET GARDEN",
+    "Ja": "SECRET GARDEN",
+    "Ko": "SECRET GARDEN"
+  },
+  "btn_event_enter_icedragonsaga": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_42",
+    "En": "ICE DRAGON SAGA",
+    "Zh": "ICE DRAGON SAGA",
+    "Ja": "ICE DRAGON SAGA",
+    "Ko": "ICE DRAGON SAGA"
+  },
+  "btn_event_enter_footstepwalkrun": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_43",
+    "En": "FOOTSTEP, WALK, RUN",
+    "Zh": "FOOTSTEP, WALK, RUN",
+    "Ja": "FOOTSTEP, WALK, RUN",
+    "Ko": "FOOTSTEP, WALK, RUN"
+  },
+  "btn_event_enter_wisdomspring": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_46",
+    "En": "WISDOM SPRING",
+    "Zh": "WISDOM SPRING",
+    "Ja": "WISDOM SPRING",
+    "Ko": "WISDOM SPRING"
+  },
+  "btn_event_enter_romanticvalentine": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_44",
+    "En": "ROMANTIC VALENTINE",
+    "Zh": "ROMANTIC VALENTINE",
+    "Ja": "ROMANTIC VALENTINE",
+    "Ko": "ROMANTIC VALENTINE"
+  },
+  "btn_event_enter_ce005": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_CE005_FUNCTION",
+    "En": "SECOND QUEST",
+    "Zh": "SECOND QUEST",
+    "Ja": "SECOND QUEST",
+    "Ko": "SECOND QUEST"
+  },
+  "btn_event_enter_forrest": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_52",
+    "En": "FOR REST",
+    "Zh": "FOR REST",
+    "Ja": "FOR REST",
+    "Ko": "FOR REST"
+  },
+  "btn_event_enter_newflavor": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_53",
+    "En": "NEW FLAVOR",
+    "Zh": "NEW FLAVOR",
+    "Ja": "NEW FLAVOR",
+    "Ko": "NEW FLAVOR"
+  },
+  "btn_event_enter_trueflavor": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_54",
+    "En": "TRUE FLAVOR",
+    "Zh": "TRUE FLAVOR",
+    "Ja": "TRUE FLAVOR",
+    "Ko": "TRUE FLAVOR"
+  },
+  "btn_event_enter_unbreakablesphere": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_39",
+    "En": "UNBREAKABLE SPHERE",
+    "Zh": "UNBREAKABLE SPHERE",
+    "Ja": "UNBREAKABLE SPHERE",
+    "Ko": "UNBREAKABLE SPHERE"
+  },
+  "btn_event_enter_arcanearchive": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_55",
+    "En": "ARCANE ARCHIVE",
+    "Zh": "ARCANE ARCHIVE",
+    "Ja": "ARCANE ARCHIVE",
+    "Ko": "ARCANE ARCHIVE"
+  },
+  "btn_event_enter_lordforjustice": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_48",
+    "En": "LORD, FOR JUSTICE",
+    "Zh": "LORD, FOR JUSTICE",
+    "Ja": "LORD, FOR JUSTICE",
+    "Ko": "LORD, FOR JUSTICE"
+  },
+  "btn_event_enter_ce006": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_CE006_FUNCTION",
+    "En": "MEMORIES TELLER",
+    "Zh": "MEMORIES TELLER",
+    "Ja": "MEMORIES TELLER",
+    "Ko": "MEMORIES TELLER"
+  },
+  "btn_event_enter_overthehorizon": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_50",
+    "En": "OVER THE HORIZON",
+    "Zh": "OVER THE HORIZON",
+    "Ja": "OVER THE HORIZON",
+    "Ko": "OVER THE HORIZON"
+  },
+  "btn_event_enter_boomtheghost": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_51",
+    "En": "BOOM! THE GHOST!",
+    "Zh": "BOOM! THE GHOST!",
+    "Ja": "BOOM! THE GHOST!",
+    "Ko": "BOOM! THE GHOST!"
+  },
+  "btn_event_enter_absolute": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_57",
+    "En": "ABSOLUTE",
+    "Zh": "ABSOLUTE",
+    "Ja": "ABSOLUTE",
+    "Ko": "ABSOLUTE"
+  },
+  "btn_event_enter_coinsinrush": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_COINSINRUSH_FUNCTION",
+    "En": "COINS IN RUSH",
+    "Zh": "COINS IN RUSH",
+    "Ja": "COINS IN RUSH",
+    "Ko": "COINS IN RUSH"
+  },
+  "btn_event_enter_ce007": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_CE007_FUNCTION",
+    "En": "REBORN EVIL",
+    "Zh": "REBORN EVIL",
+    "Ja": "REBORN EVIL",
+    "Ko": "REBORN EVIL"
+  },
+  "btn_event_enter_goninjathief": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_59",
+    "En": "GO! NINJA THIEF!",
+    "Zh": "GO! NINJA THIEF!",
+    "Ja": "GO! NINJA THIEF!",
+    "Ko": "GO! NINJA THIEF!"
+  },
+  "btn_event_enter_goddessfall": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_47",
+    "En": "GODDESS FALL",
+    "Zh": "GODDESS FALL",
+    "Ja": "GODDESS FALL",
+    "Ko": "GODDESS FALL"
+  },
+  "btn_event_enter_blankticket": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_BLANKTICKET_FUNCTION",
+    "En": "BLANK TICKET",
+    "Zh": "BLANK TICKET",
+    "Ja": "BLANK TICKET",
+    "Ko": "BLANK TICKET"
+  },
+  "btn_event_enter_terminusticket": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_TERMINUSTICKET_FUNCTION",
+    "En": "TERMINUS TICKET",
+    "Zh": "TERMINUS TICKET",
+    "Ja": "TERMINUS TICKET",
+    "Ko": "TERMINUS TICKET"
+  },
+  "btn_event_enter_arkguardian": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_58",
+    "En": "ARK GUARDIAN",
+    "Zh": "ARK GUARDIAN",
+    "Ja": "ARK GUARDIAN",
+    "Ko": "ARK GUARDIAN"
+  },
+  "btn_event_enter_sineditor": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_SINEDITOR_FUNCTION",
+    "En": "SIN EDITOR",
+    "Zh": "SIN EDITOR",
+    "Ja": "SIN EDITOR",
+    "Ko": "SIN EDITOR"
+  },
+  "btn_event_enter_fatalmaid": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_FATALMAID_FUNCTION",
+    "En": "FATAL MAID",
+    "Zh": "FATAL MAID",
+    "Ja": "FATAL MAID",
+    "Ko": "FATAL MAID"
+  },
+  "btn_event_enter_ce008": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_CE008_FUNCTION",
+    "En": "LIE CAUSE RECOIL",
+    "Zh": "LIE CAUSE RECOIL",
+    "Ja": "LIE CAUSE RECOIL",
+    "Ko": "LIE CAUSE RECOIL"
+  },
+  "btn_event_enter_enterheaven": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_ENTERHEAVEN_FUNCTION",
+    "En": "ENTER HEAVEN",
+    "Zh": "ENTER HEAVEN",
+    "Ja": "ENTER HEAVEN",
+    "Ko": "ENTER HEAVEN"
+  },
+  "btn_event_enter_2x2love": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_2X2LOVE_FUNCTION",
+    "En": "2X2 LOVE",
+    "Zh": "2X2 LOVE",
+    "Ja": "2X2 LOVE",
+    "Ko": "2X2 LOVE"
+  },
+  "btn_event_enter_goodworld": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_GOODWORLD_FUNCTION",
+    "En": "GOOD WORLD",
+    "Zh": "GOOD WORLD",
+    "Ja": "GOOD WORLD",
+    "Ko": "GOOD WORLD"
+  },
+  "btn_event_enter_staranis": {
+    "LocaleKey": "Locale_System:RECORD_EVENT_TITLE_56",
+    "En": "STAR ANIS",
+    "Zh": "STAR ANIS",
+    "Ja": "STAR ANIS",
+    "Ko": "STAR ANIS"
+  },
+  "btn_event_enter_bsideidol": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_BSIDEIDOL_FUNCTION",
+    "En": "B-SIDE IDOL",
+    "Zh": "B-SIDE IDOL",
+    "Ja": "B-SIDE IDOL",
+    "Ko": "B-SIDE IDOL"
+  },
+  "btn_event_enter_bitterspice": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_BITTERSPICE_FUNCTION",
+    "En": "BITTER SPICE",
+    "Zh": "BITTER SPICE",
+    "Ja": "BITTER SPICE",
+    "Ko": "BITTER SPICE"
+  },
+  "btn_event_enter_arkranger": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_ARKRANGER_FUNCTION",
+    "En": "ARK RANGER",
+    "Zh": "ARK RANGER",
+    "Ja": "ARK RANGER",
+    "Ko": "ARK RANGER"
+  },
+  "btn_event_enter_wavetoyou": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_WAVETOYOU_FUNCTION",
+    "En": "WAVE TO YOU",
+    "Zh": "WAVE TO YOU",
+    "Ja": "WAVE TO YOU",
+    "Ko": "WAVE TO YOU"
+  },
+  "btn_event_enter_projectmatis": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_PROJECTMATIS_FUNCTION",
+    "En": "PROJECT MATIS",
+    "Zh": "PROJECT MATIS",
+    "Ja": "PROJECT MATIS",
+    "Ko": "PROJECT MATIS"
+  },
+  "btn_event_enter_ce009": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_CE009_FUNCTION",
+    "En": "PERSONA ON FRONTLINE",
+    "Zh": "PERSONA ON FRONTLINE",
+    "Ja": "PERSONA ON FRONTLINE",
+    "Ko": "PERSONA ON FRONTLINE"
+  },
+  "btn_event_enter_greatvillainunion": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_GREATVILLAINUNION_FUNCTION",
+    "En": "GREAT VILLAIN UNION",
+    "Zh": "GREAT VILLAIN UNION",
+    "Ja": "GREAT VILLAIN UNION",
+    "Ko": "GREAT VILLAIN UNION"
+  },
+  "btn_event_enter_coinrushshowdown": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_COINRUSHSHOWDOWN_FUNCTION",
+    "En": "COIN RUSH SHOWDOWN",
+    "Zh": "COIN RUSH SHOWDOWN",
+    "Ja": "COIN RUSH SHOWDOWN",
+    "Ko": "COIN RUSH SHOWDOWN"
+  },
+  "btn_event_enter_littlewitchtrick": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_LITTLEWITCHTRICK_FUNCTION",
+    "En": "LITTLE WITCH TRICK",
+    "Zh": "LITTLE WITCH TRICK",
+    "Ja": "LITTLE WITCH TRICK",
+    "Ko": "LITTLE WITCH TRICK"
+  },
+  "btn_event_enter_marian": {
+    "LocaleKey": "Locale_System:INAPP_SHOP_SUB_CATEGORY_MARIA-N_FUNCTION",
+    "En": "MARIA-n",
+    "Zh": "MARIA-n",
+    "Ja": "MARIA-n",
+    "Ko": "MARIA-n"
+  }
+}
