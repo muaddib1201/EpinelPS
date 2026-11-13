@@ -41,6 +41,7 @@ var choices = data.GachaSelectupListTable.Values.Where(c => c.GachaTypeId == ban
 Check(choices.Length == 3, "fixture must cover all three current select-up choices");
 int passed = 0, failed = 0;
 ulong nextUser = 980000;
+var initialWallets = new Dictionary<ulong, Dictionary<CurrencyType, long>>();
 var grades = data.GachaGradeProb.Values.Where(g => g.GroupId == banner.GradeProbId).ToArray();
 var original = grades.ToDictionary(g => g.Id, g => g.Prob);
 var upGrade = grades.Single(g => data.GachaListProb.Values.Any(r => r.GroupId == g.GachaListId && r.GachaType == GachaCategory.GachaSelectup));
@@ -156,6 +157,7 @@ async Task<User> NewUser(int choice, long tickets, long advanced, long gems, lon
     user.Currency[CurrencyType.CharCustomizeTicket] = advanced;
     user.Currency[CurrencyType.FreeCash] = gems;
     user.Currency[CurrencyType.ChargeCash] = paid;
+    initialWallets[user.ID] = new(user.Currency);
     state.Users.Add(user);
     using (var db = GameContext.CreateNew())
     { db.Users.Add(new GameUser { ID = user.ID, Nickname = "Synthetic recruit test" }); db.SaveChanges(); }
@@ -183,6 +185,8 @@ void CheckWallet(User user, ResExecuteGacha response, long tickets, long advance
         Check(user.GetCurrencyVal((CurrencyType)type) == expected, $"wrong wallet balance for {type}");
         var returned = response.Currencies.Where(c => c.Type == type).ToArray();
         Check(returned.Length <= 1 && returned.All(c => c.Value == expected), $"wrong response balance for {type}");
+        if (initialWallets[user.ID].GetValueOrDefault((CurrencyType)type) != expected)
+            Check(returned.Length == 1, $"response omitted changed currency {type}");
     }
     // Every payment response must include the resource actually charged, including its zero balance.
     Check(response.Currencies.Any(c => c.Type is 5503 or 5200 or 99 or 98), "payment response omitted all debits");

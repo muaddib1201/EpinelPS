@@ -57,6 +57,24 @@ public class ExecGacha : LobbyMessage
         GachaTypeRecord gachaType = GameData.Instance.gachaTypes[bannerID];
         Logging.WriteLine($"Banner Type: {gachaType.Type}");
 
+        CurrencyType ticketType = (CurrencyType)req.CurrencyType;
+        bool isSelectTicket = ticketType is CurrencyType.CharSelect01Ticket or CurrencyType.CharSelect02Ticket or CurrencyType.CharSelect03Ticket;
+        var selectTicketPrice = isSelectTicket
+            ? gachaType.GachaPriceGroup.FirstOrDefault(p => p.GachaPriceType == req.CurrencyType) : null;
+        if (isSelectTicket && (gachaType.Type != GachaPremiumType.GachaSelectup || selectTicketPrice == null ||
+            selectTicketPrice.GachaPriceValueCount1 <= 0 ||
+            selectTicketPrice.GachaPriceValueCount10 != (long)selectTicketPrice.GachaPriceValueCount1 * 10))
+            throw new BadHttpRequestException("Unsupported recruit payment currency.", 400);
+        if (gachaType.Type == GachaPremiumType.GachaSelectup && req.IsDiscount &&
+            (!gachaType.UseDailyDiscountOne || req.Count != 1 || user.DailyDiscountUsed))
+            throw new BadHttpRequestException("Recruit discount is not available.", 400);
+
+        var advancedTicketPrice = isSelectTicket
+            ? gachaType.GachaPriceGroup.FirstOrDefault(p => p.GachaPriceType == (int)CurrencyType.CharCustomizeTicket) : null;
+        if (advancedTicketPrice != null && (advancedTicketPrice.GachaPriceValueCount1 <= 0 ||
+            advancedTicketPrice.GachaPriceValueCount10 != (long)advancedTicketPrice.GachaPriceValueCount1 * 10))
+            throw new BadHttpRequestException("Unsupported recruit ticket price.", 400);
+
         ResExecuteGacha response = new() { Reward = new NetRewardData() { PassPoint = new() } };
 
 
@@ -92,17 +110,15 @@ public class ExecGacha : LobbyMessage
         if (obtainedNewCharacter)
             MessengerMessageCreator.CreateAllEligibleOpeners(user);
 
-        CurrencyType ticketType = (CurrencyType)req.CurrencyType;
-
         // ==========================
         // CAPABILITIES (single source of truth)
         // ==========================
         bool canUsePremiumTicket = ticketType == CurrencyType.CharPremiumTicket;
-        bool canUseCustomizeTicket = ticketType == CurrencyType.CharCustomizeTicket;
+        bool canUseCustomizeTicket = ticketType == CurrencyType.CharCustomizeTicket || advancedTicketPrice != null;
         bool canUseFreeCash =
             ticketType == CurrencyType.CharPremiumTicket ||
             ticketType == CurrencyType.CharCustomizeTicket ||
-            ticketType == CurrencyType.FreeCash;
+            ticketType == CurrencyType.FreeCash || isSelectTicket;
 
         // ==========================
         // STATE
@@ -111,6 +127,7 @@ public class ExecGacha : LobbyMessage
         bool discount = req.IsDiscount;
 
         long usePremiumTickets = 0;
+        long useSelectTickets = 0;
         long useCharCustomizeTickets = 0;
         long useFreeCash = 0;
         long useChargeCash = 0;
@@ -144,6 +161,14 @@ public class ExecGacha : LobbyMessage
         // ==========================
         // MIXED PAYMENT PIPELINE
         // ==========================
+        if (selectTicketPrice != null)
+        {
+            long unitCost = selectTicketPrice.GachaPriceValueCount1;
+            long ticketPulls = Math.Min(Math.Max(0, user.GetCurrencyVal(ticketType)) / unitCost, pullsLeft);
+            useSelectTickets = ticketPulls * unitCost;
+            pullsLeft -= ticketPulls;
+        }
+
         if (canUsePremiumTicket)
         {
             usePremiumTickets = Math.Min(userPremiumTickets, pullsLeft);
@@ -152,14 +177,19 @@ public class ExecGacha : LobbyMessage
 
         if (canUseCustomizeTicket)
         {
-            useCharCustomizeTickets = Math.Min(userCharCustomizeTickets, pullsLeft);
-            pullsLeft -= useCharCustomizeTickets;
+            long unitCost = advancedTicketPrice?.GachaPriceValueCount1 ?? 1;
+            long ticketPulls = Math.Min(userCharCustomizeTickets / unitCost, pullsLeft);
+            useCharCustomizeTickets = ticketPulls * unitCost;
+            pullsLeft -= ticketPulls;
         }
 
-        if (canUseFreeCash && gachaType.Type != GachaPremiumType.GachaTutorial)
+        if (canUseFreeCash && pullsLeft > 0 && gachaType.Type != GachaPremiumType.GachaTutorial)
         {
-            var cashPrice = gachaType.GachaPriceGroup.Where(g => g.GachaPriceType == 98 /*CurrencyType.ChargeCash*/ || g.GachaPriceType == 99 /*CurrencyType.FreeCash*/).First();
+            var cashPrice = gachaType.GachaPriceGroup.FirstOrDefault(g => g.GachaPriceType == 98 || g.GachaPriceType == 99)
+                ?? throw new BadHttpRequestException("Unsupported recruit payment currency.", 400);
             long costPerPull = discount ? cashPrice.DailyGachaDiscountPriceValue1 : cashPrice.GachaPriceValueCount1;
+            if (gachaType.Type == GachaPremiumType.GachaSelectup && costPerPull <= 0)
+                throw new BadHttpRequestException("Unsupported recruit cash price.", 400);
             long totalCostNeeded = pullsLeft * costPerPull;
 
             useFreeCash = Math.Min(userFreeCash, totalCostNeeded);
@@ -190,6 +220,7 @@ public class ExecGacha : LobbyMessage
             });
         }
 
+        ApplyCurrency(ticketType, -useSelectTickets);
         ApplyCurrency(CurrencyType.CharPremiumTicket, -usePremiumTickets);
         ApplyCurrency(CurrencyType.CharCustomizeTicket, -useCharCustomizeTickets);
         ApplyCurrency(CurrencyType.FreeCash, -useFreeCash);
