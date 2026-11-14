@@ -25,6 +25,10 @@ public class WearEquipment : LobbyMessage
                 throw new BadHttpRequestException("Equipment stack is empty.", 400);
             if (!user.Characters.Any(character => character.Csn == req.Csn) || req.Csn == 0)
                 throw new BadHttpRequestException("Character not found.", 404);
+            // Awakening options belong to an ISN, and this response cannot
+            // carry a new association. Do not split ambiguous legacy stacks.
+            if (target.Count > 1 && user.EquipmentAwakenings.Any(awakening => awakening.Isn == target.Isn))
+                throw new BadHttpRequestException("Awakened equipment must be a single instance.", 409);
 
             int pos = NetUtils.GetItemPos(user, req.Isn);
             List<DbItemData> updatedItems = [];
