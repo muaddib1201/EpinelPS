@@ -84,9 +84,9 @@ Console.WriteLine($"FIXTURE SSR nameCode={subject.NameCode}, template={subject.I
 foreach (var test in cases)
 {
     User user = Player(test.UserId);
-    int beforeGold = user.GetCurrencyVal(CurrencyType.Gold);
-    int beforeData = user.GetCurrencyVal(CurrencyType.CharacterExp);
-    int beforeDust = user.GetCurrencyVal(CurrencyType.CharacterExp2);
+    long beforeGold = user.GetCurrencyVal(CurrencyType.Gold);
+    long beforeData = user.GetCurrencyVal(CurrencyType.CharacterExp);
+    long beforeDust = user.GetCurrencyVal(CurrencyType.CharacterExp2);
     string? error = null;
     int httpStatus = 200;
     int? responseLevel = null;
@@ -116,9 +116,9 @@ foreach (var test in cases)
 
     user = Player(test.UserId);
     int actualLevel = user.Characters.Single(c => c.Csn == 6).Level;
-    int goldSpent = beforeGold - user.GetCurrencyVal(CurrencyType.Gold);
-    int dataSpent = beforeData - user.GetCurrencyVal(CurrencyType.CharacterExp);
-    int dustSpent = beforeDust - user.GetCurrencyVal(CurrencyType.CharacterExp2);
+    long goldSpent = beforeGold - user.GetCurrencyVal(CurrencyType.Gold);
+    long dataSpent = beforeData - user.GetCurrencyVal(CurrencyType.CharacterExp);
+    long dustSpent = beforeDust - user.GetCurrencyVal(CurrencyType.CharacterExp2);
     int triggers;
     using (var db = GameContext.CreateNew()) triggers = db.Triggers.Count(t => t.UserId == test.UserId);
     var saved = JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(savePath))!.Users.Single(u => u.ID == test.UserId);
