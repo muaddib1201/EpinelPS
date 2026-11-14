@@ -81,6 +81,42 @@ await Run("selecting an already equipped item returns only its final state", asy
     Persisted();
 });
 
+await Run("single-instance awakened equipment keeps its option association", async () =>
+{
+    Reset(3111001, 0);
+    Current().EquipmentAwakenings.Add(new EquipmentAwakeningData
+    {
+        Isn = 202, Option = new NetEquipmentAwakeningOption { Option1Id = 12345, Option1Lock = true }
+    });
+    string options = JsonConvert.SerializeObject(Current().EquipmentAwakenings);
+    var client = ClientInventory();
+    Apply(client, await Wear(202));
+    Check(client[101].Csn == 0 && client[202].Csn == 1001 && client[202].Count == 1, "awakened item changed identity or old ownership remained");
+    Check(JsonConvert.SerializeObject(Current().EquipmentAwakenings) == options, "awakening options changed during equip");
+    Persisted();
+});
+
+foreach (bool alreadyEquipped in new[] { false, true })
+    await Run($"legacy awakened stack (equipped={alreadyEquipped}) is rejected without losing or duplicating options", async () =>
+    {
+        Reset(3111001, 0, count: 2);
+        if (alreadyEquipped)
+        {
+            Current().Items.Single(i => i.Isn == 101).Csn = 0;
+            Current().Items.Single(i => i.Isn == 202).Csn = 1001;
+        }
+        Current().EquipmentAwakenings.Add(new EquipmentAwakeningData
+        {
+            Isn = 202, Option = new NetEquipmentAwakeningOption { Option1Id = 12345, Option1Lock = true }
+        });
+        string before = Snapshot();
+        bool rejected = false;
+        try { await Wear(202); }
+        catch (BadHttpRequestException) { rejected = true; }
+        Check(Snapshot() == before, "ambiguous awakened stack lost its original item/option association");
+        Check(rejected, "ambiguous awakened stack was silently split");
+    });
+
 foreach (var (isn, csn, count, name) in new[]
 {
     (999L, 1001L, 1, "missing item"),
