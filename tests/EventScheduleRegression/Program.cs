@@ -21,7 +21,7 @@ typeof(GameData).GetField("_instance", BindingFlags.Static | BindingFlags.NonPub
 var progress = new Progress<double>();
 foreach (var row in await data.LoadZip<EventManagerRecord>("EventManagerTable.json", progress)) data.eventManagers.Add(row.Id, row);
 foreach (var row in await data.LoadZip<LobbyPrivateBannerRecord>("LobbyPrivateBannerTable.json", progress)) data.LobbyPrivateBannerTable.Add(row.Id, row);
-foreach (var row in await data.LoadZip<DailyMissionEventSettingRecord>("DailyMissionEventSettingTable.json", progress)) data.DailyMissionEventSettingTable.Add(row.Id, row);
+foreach (var row in await data.LoadZip<DailyMissionEventSettingRecord_Raw>("DailyMissionEventSettingTable.json", progress)) data.DailyMissionEventSettingTable.Add(row.Id, row);
 
 const int rootEvent = 83500, bannerId = 10124;
 int[] related = [83500, 40124, 40125, 60124, 100053, 83501, 83502, 83503];
