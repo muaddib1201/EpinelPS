@@ -64,6 +64,9 @@ public static partial class ManagedNpcService
                         Log(npc, now, $"每日计划：阶段 {phase}/{DailyPhaseCount} 已结算");
                     });
                 }
+                // A season may open after today's other activities have finished.
+                // Its own checkpoint also lets existing completed routines join after an update.
+                if (plan.CompletedPhases >= 3) RunSoloRaidDaily(user, now);
             }
             }
             catch (Exception ex)
