@@ -101,6 +101,13 @@ using (var db = GameContext.CreateNew())
 var jsonDb = typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb")!;
 CoreInfo State() => (CoreInfo)jsonDb.GetProperty("Instance")!.GetValue(null)!;
 User Player(ulong id) => State().Users.Single(u => u.ID == id);
+string TriggerSnapshot(ulong id)
+{
+    using var db = GameContext.CreateNew();
+    return JsonConvert.SerializeObject(db.Triggers.Where(t => t.UserId == id)
+        .OrderBy(t => t.CreatedAt).ThenBy(t => t.Type).ThenBy(t => t.ConditionId).ThenBy(t => t.Value)
+        .Select(t => new { t.Type, t.ConditionId, t.Value, t.CreatedAt }).ToArray());
+}
 using var services = new ServiceCollection().AddDbContext<GameContext>(o => o.UseSqlite(connection)).BuildServiceProvider();
 var results = new List<object>();
 int passed = 0, failed = 0;
@@ -118,6 +125,7 @@ foreach (var test in cases)
     }
     string memoryBefore = JsonConvert.SerializeObject(user);
     byte[] saveBefore = File.ReadAllBytes(savePath);
+    string triggersBefore = TriggerSnapshot(test.UserId);
     long beforeGold = user.GetCurrencyVal(CurrencyType.Gold);
     long beforeData = user.GetCurrencyVal(CurrencyType.CharacterExp);
     long beforeDust = user.GetCurrencyVal(CurrencyType.CharacterExp2);
@@ -169,6 +177,7 @@ foreach (var test in cases)
     bool unregistered = user.SynchroSlots.All(s => s.CharacterSerialNumber != 6);
     bool memoryUnchanged = memoryBefore == JsonConvert.SerializeObject(user);
     bool saveUnchanged = saveBefore.SequenceEqual(File.ReadAllBytes(savePath));
+    bool triggersUnchanged = triggersBefore == TriggerSnapshot(test.UserId);
     var costs = data.GetCharacterLevelUpData().Values.Where(r => r.Level > test.From && r.Level <= test.To).ToArray();
     int factor = test.Allowed && test.Prefix.StartsWith("separate") ? 2 : 1;
     bool expectedMaterials = goldSpent == factor * costs.Sum(r => (long)r.Gold)
@@ -179,12 +188,12 @@ foreach (var test in cases)
     bool ok = error == null && unregistered && (test.Allowed
         ? httpStatus == 200 && actualLevel == test.To && savedLevel == test.To && responseLevel == test.To && expectedMaterials && prefixUpgraded
         : httpStatus == 400 && actualLevel == test.From && savedLevel == test.From && goldSpent == 0 && dataSpent == 0
-            && dustSpent == 0 && triggers == 0 && memoryUnchanged && saveUnchanged);
+            && dustSpent == 0 && triggersUnchanged && memoryUnchanged && saveUnchanged);
     if (ok) passed++; else failed++;
     string name = $"{test.Route} enhanced={test.Enhanced} grade={test.Grade} storedGrade={test.StoredGrade} {test.From}->{test.To} batch={test.Prefix} unknown={test.UnknownTemplate}";
-    Console.WriteLine($"{(ok ? "PASS" : "FAIL")} {name}; expected={(test.Allowed ? "allow" : "reject")}, actual={actualLevel}, saved={savedLevel}, response={responseLevel}, HTTP={httpStatus}, spent={goldSpent}/{dataSpent}/{dustSpent}, triggers={triggers}, memoryUnchanged={memoryUnchanged}, saveUnchanged={saveUnchanged}, error={error ?? "none"}");
+    Console.WriteLine($"{(ok ? "PASS" : "FAIL")} {name}; expected={(test.Allowed ? "allow" : "reject")}, actual={actualLevel}, saved={savedLevel}, response={responseLevel}, HTTP={httpStatus}, spent={goldSpent}/{dataSpent}/{dustSpent}, triggers={triggers}, triggersUnchanged={triggersUnchanged}, memoryUnchanged={memoryUnchanged}, saveUnchanged={saveUnchanged}, error={error ?? "none"}");
     results.Add(new { test, passed = ok, unregistered, actualLevel, savedLevel, responseLevel, httpStatus,
-        goldSpent, dataSpent, dustSpent, triggers, memoryUnchanged, saveUnchanged, expectedMaterials, prefixUpgraded, error });
+        goldSpent, dataSpent, dustSpent, triggers, triggersUnchanged, memoryUnchanged, saveUnchanged, expectedMaterials, prefixUpgraded, error });
 }
 
 string output = Path.Combine(workspace, "synchro-rule-review", $"level-cap-regression-{Guid.NewGuid():N}.json");
