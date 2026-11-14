@@ -77,7 +77,8 @@ internal static class RookieMatchmakingChecks
             players[0].Arena!.RookieRefresh = 0;
             foreach (var player in players)
                 foreach (var character in player.Characters) character.Level = 100;
-            Check(expected.SequenceEqual(Ids(await list(players[0].ID))), "combat changes changed rookie opponents");
+            var actual = Ids(await list(players[0].ID));
+            Check(expected.SequenceEqual(actual), "combat changes changed rookie opponents");
             foreach (var player in players) player.Arena!.Rating = 1000;
             // Put the viewer last in the existing ID tie order, so all thirty peers are higher-ranked.
             players[0].ID = 9_000_100;
