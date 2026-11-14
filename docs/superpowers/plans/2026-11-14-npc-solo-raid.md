@@ -33,21 +33,22 @@
 - Modify: EpinelPS/Services/ManagedNpcDailyRoutine.cs
 - Modify: EpinelPS/Models/ManagedNpc.cs
 - Modify: EpinelPS/Utils/FormulaUtils.cs
+- Modify: EpinelPS/Services/ManagedNpcTeams.cs (raid cadence accepts partial SR/R squads; existing primary-team contract is preserved)
 - Create: tests/NpcSoloRaidRegression/NpcSoloRaidRegression.csproj and Program.cs
 
 **Interfaces:**
 - Consumes: ManagedNpcService.Tick(DateTime now), SettleDailyPhase, DailyUnlocked, GameData tables, SoloRaidSeasonSource, SoloRaidData, RewardUtils and FormulaUtils.CalculateCP.
 - Produces: persisted per-season/day NPC checkpoint, ordinary progression and completed Trial records usable by SoloRaidHelper.GetSoloRaidRanking. Explicit-level CP overload does not mutate the user.
 
-- [ ] Write a failing regression using Tick on an NPC with completed daily phases and seven saved ordinary clears; expect owned-squad challenge records and a ranked entry.
-- [ ] Run `python D:\Claude Lab\NIKKE\.tools\collaboration\nikke_workflow.py test --worktree <sourceDirectory> --suite NpcSoloRaidRegression`; inspect failure and the fixture's local raid settings/presets.
-- [ ] Add focused scenarios for own-power ordering, ordinary progression/rewards/budgets, challenge delay, roster identity/uniqueness, best retention, skip conditions, restart and save-failure rollback. Run to establish missing behavior.
-- [ ] Implement the module, scheduler/checkpoint and nonmutating CP overload; make all targeted scenarios pass.
-- [ ] Run related NpcDailyRoutineRegression, ManagedNpcRegression, SoloRaidRankingRegression and SoloRaidAutoSyncRegression through the unified test entry. Record evidence and commit.
+- [x] Write a failing regression using Tick on an NPC with completed daily phases and seven saved ordinary clears; expect owned-squad challenge records and a ranked entry.
+- [x] Run `python D:\Claude Lab\NIKKE\.tools\collaboration\nikke_workflow.py test --worktree <sourceDirectory> --suite NpcSoloRaidRegression`; inspect failure and the fixture's local raid settings/presets.
+- [x] Add focused scenarios for own-power ordering, ordinary progression/rewards/budgets, challenge prerequisites/window, roster identity/uniqueness, best retention, skip conditions, restart and save-failure rollback. Run to establish missing behavior.
+- [x] Implement the module, scheduler/checkpoint and nonmutating CP overload; make all targeted scenarios pass.
+- [x] Run related NpcDailyRoutineRegression, ManagedNpcRegression, SoloRaidRankingRegression and SoloRaidAutoSyncRegression through the unified test entry. Record evidence and commit. Result: 5 projects, 7 runs, 86 PASS groups at 4e6e6e6.
 
 ### Task 2: Review, integrate, back up and prepare release
 
-- [ ] Obtain a fresh review of the full branch against the spec and Review Focus. Reproduce actionable defects with failing tests and fix them.
+- [x] Obtain a fresh review of the full branch against the spec and Review Focus. Reproduce actionable defects with failing tests and fix them. The three reproduced findings (population-wide repeated validation, partial/SR cadence, malformed challenge data) now pass; the fixture clock is pinned away from reset boundaries.
 - [ ] Integrate, sync and run the complete unified regression suite. Publish from the latest clean integration commit.
 - [ ] Audit outgoing files/history, push the exact integration commit to the authorized Fork branch, and verify its remote hash.
 - [ ] Prepare a new session-owned installer with game-exit guard, program/save backup, health checks and rollback. Seal and validate the release.
