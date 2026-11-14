@@ -60,7 +60,8 @@ if (args.Contains("--probe-live-readonly"))
     ulong npcId = (ulong)specialNpc["ID"]!;
     var special = await Read<ResGetSpecialArena>(npcId, "arena/special/get", new ReqGetSpecialArena());
     var rivals = await Read<ResGetSpecialArenaEnemyList>(npcId, "arena/special/getenemylist", new ReqGetSpecialArenaEnemyList());
-    Check(!special.IsBan && special.BanInfo == null && special.User.Tier > 0 && rivals.List2.Count > 0 && rivals.List2.All(r => r.RoundCharacter.Count == 15), "live special roster invalid");
+    var ranking = await Read<ResGetSpecialArenaTopRank>(npcId, "arena/special/toprank", new ReqGetSpecialArenaTopRank());
+    SpecialMatchmakingChecks.VerifySpecialProbe(special, rivals, ranking);
     foreach (var rival in rivals.List2)
     {
         var teams = await Read<ResGetSpecialArenaEnemyData>(npcId, "arena/special/getenemydata", new ReqGetSpecialArenaEnemyData { EnemyUsn = rival.User.User.Usn });
@@ -232,6 +233,7 @@ else
         id => Post<ResGetArena>(id, "arena/get", new ReqGetArena()),
         id => Post<ResGetSpecialArenaEnemyList>(id, "arena/special/getenemylist", new ReqGetSpecialArenaEnemyList()),
         clock.Now.UtcDateTime, save);
+    await SpecialMatchmakingChecks.Run(Test, Send, clock.Now.UtcDateTime, save);
     await Test("both arenas expose NPC opponents, valid teams, rankings and profiles", async () =>
     {
         var normal = await Post<ResGetArenaEnemyList>(7001, "arena/getenemylist", new ReqGetArenaEnemyList());
@@ -239,7 +241,7 @@ else
         Check(normal.List2.Any(x => x.User.User.Usn >= 1_500_000_000), "managed NPCs not matched");
         var special = await Post<ResGetSpecialArena>(7001, "arena/special/get", new ReqGetSpecialArena());
         Check(!special.IsBan && special.User.Rank > 0 && special.User.Tier > 0 && special.SpecialArenaCount == 0, "special not enabled");
-        var rivals = await Post<ResGetSpecialArenaEnemyList>(7001, "arena/special/getenemylist", new ReqGetSpecialArenaEnemyList());
+        var rivals = await Post<ResGetSpecialArenaEnemyList>(7020, "arena/special/getenemylist", new ReqGetSpecialArenaEnemyList());
         Check(rivals.List2.Count > 0 && rivals.List2.All(x => x.RoundCharacter.Count == 15 && x.TotalCombat > 0), "special squads malformed");
         var enemy = await Post<ResGetSpecialArenaEnemyData>(7001, "arena/special/getenemydata", new ReqGetSpecialArenaEnemyData { EnemyUsn = rivals.List2[0].User.User.Usn });
         Check(enemy.Teams.Count == 3 && enemy.Teams.SelectMany(x => x.Team.Slots).Select(x => x.Csn).Distinct().Count() == 15, "special duplicated characters");
@@ -389,7 +391,7 @@ else
         await Status(7001, "arena/start", new ReqArenaStart { EnemyUsn = 7001 }, 400);
         await Status(7001, "arena/start", new ReqArenaStart { EnemyUsn = -1 }, 400);
         Player(7008).LastNormalStageCleared = 6000001; Player(7008).FieldInfoNew.Clear();
-        await Status(7008, "arena/special/start", new ReqSpecialArenaStart { EnemyUsn = await Target(7001, true) }, 403);
+        await Status(7008, "arena/special/start", new ReqSpecialArenaStart { EnemyUsn = await Target(7020, true) }, 403);
         await Status(7001, "arena/special/simulation/result", new ReqSpecialArenaResultV2 { EnemyUsn = 1 }, 400);
     });
     await Test("special timed rewards accrue once, claims are idempotent and time cannot rewind", async () =>
@@ -703,6 +705,8 @@ if (!restarting)
     await Test("special malformed round sequences preserve the pending battle and both ranks", async () =>
     {
         var (attacker, defender) = await RatingPair(false, false);
+        if (attacker.Arena!.SpecialRank < defender.Arena!.SpecialRank)
+            (attacker.Arena.SpecialRank, defender.Arena.SpecialRank) = (defender.Arena.SpecialRank, attacker.Arena.SpecialRank);
         await Post<ResSpecialArenaStart>(attacker.ID, "arena/special/start", new ReqSpecialArenaStart { EnemyUsn = (long)defender.ID });
         var before = JToken.FromObject(State());
         foreach (var ids in new[] { Array.Empty<int>(), new[] { 0 }, new[] { 0, 0 }, new[] { 0, 2 },

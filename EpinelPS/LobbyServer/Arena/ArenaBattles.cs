@@ -32,6 +32,8 @@ internal sealed partial class ArenaService
             if (current.Special != special || current.EnemyId != (ulong)id) throw new BadHttpRequestException("Another arena battle is in progress.", 409);
             return current;
         }
+        if (special && (enemy.Arena!.SpecialRank <= 0 || Own.SpecialRank <= enemy.Arena.SpecialRank))
+            throw new BadHttpRequestException("Special arena requires a higher-ranked opponent. Refresh the opponent list.", 409);
         var snapshot = ArenaTeams.Enemy(enemy, special);
         int count = special ? Own.SpecialCount : Own.RookieCount;
         // The current rookie UI grants five free battles; the bundled legacy ArenaTodayMaxCount still says three.
