@@ -10,17 +10,26 @@ public static partial class ManagedNpcService
     private sealed record NpcRaidStage(SoloRaidPresetRecord Preset, long Hp, int Seconds);
     private sealed record NpcRaidCandidate(CharacterRecord Row, TeamCharacterData Snapshot);
     private sealed record NpcRaidSquad(TeamCharacterData[] Characters, decimal Efficiency);
+    private sealed record NpcRaidSchedule(int RaidId, NpcRaidStage[] Stages);
 
-    private static void RunSoloRaidDaily(User user, DateTime now)
+    private static NpcRaidSchedule? NpcRaidScheduleAt(DateTime now)
     {
-        if (user.ManagedNpc is not { } npc || user.IsBanned || !DailyUnlocked(user, ContentsOpen.SoloRaid)) return;
         var utc = new DateTimeOffset(DateTime.SpecifyKind(now, DateTimeKind.Utc));
         var season = SoloRaidSeasonSource.Current(utc);
-        if (season is null || SoloRaidHelper.GetPeriodResult(season.RaidId, utc) != SoloRaidPeriodResult.Success) return;
+        return season is { IsValid: true } && utc >= season.StartAt && utc < season.EndAt &&
+            SoloRaidSeasonSource.IsAvailable(season.RaidId) && TryGetNpcRaidStages(season.RaidId, out var stages)
+            ? new(season.RaidId, stages) : null;
+    }
+
+    private static void RunSoloRaidDaily(User user, DateTime now, Lazy<NpcRaidSchedule?> schedule)
+    {
+        if (user.ManagedNpc is not { } npc || user.IsBanned || !DailyUnlocked(user, ContentsOpen.SoloRaid)) return;
+        var season = schedule.Value;
+        if (season is null) return;
         int day = GuildActivity.Day(now);
         if (npc.SoloRaidRoutine is { } completed && (now < completed.CompletedUtc ||
             completed.RaidId == season.RaidId && completed.Day >= day)) return;
-        if (!TryGetNpcRaidStages(season.RaidId, out var stages)) return;
+        var stages = season.Stages;
 
         // SoloRaidInfo uses User.GetDateDay's UTC+4 date label, while the daily routine
         // uses GuildActivity's reset-day label. Keep both existing formats intact.
@@ -105,9 +114,12 @@ public static partial class ManagedNpcService
             var matches = presets.Where(p => p.WaveOrder == level).ToArray();
             if (matches.Length != 1) return false;
             var preset = matches[0];
+            if (preset.DifficultyType != (level == 8 ? DifficultyType.Trial : DifficultyType.Common) ||
+                preset.CharacterLv < 0 || level == 8 && preset.CharacterLv == 0) return false;
             if (preset.WaveOpenCondition != 0 && !presets.Any(p => p.Id == preset.WaveOpenCondition && p.WaveOrder < level)) return false;
             if (!data.WaveIntercept001Table.TryGetValue(preset.Wave, out var wave) || wave.TargetList is not { Count: > 0 } ||
-                wave.TargetList.Any(id => !data.MonsterTable.ContainsKey(id))) return false;
+                wave.TargetList.Any(id => !data.MonsterTable.TryGetValue(id, out var target) ||
+                    !data.MonsterStatEnhanceTable.Values.Any(s => s.GroupId == target.StatenhanceId && s.Lv == preset.MonsterStageLv && s.LevelHp > 0))) return false;
             var monster = data.MonsterTable[wave.TargetList[0]];
             decimal hp = data.MonsterStatEnhanceTable.Values.Where(s => s.GroupId == monster.StatenhanceId && s.Lv == preset.MonsterStageLv)
                 .Sum(s => (decimal)s.LevelHp);
@@ -148,8 +160,8 @@ public static partial class ManagedNpcService
                     Add(pool.FirstOrDefault(c => c.Row.UseBurstSkill == step));
             foreach (var candidate in pool.ToArray()) Add(candidate);
             long[] serials = members.Select(c => c.Snapshot.Csn).ToArray();
-            int cycle = new[] { 20, 40, 60 }.FirstOrDefault(seconds => ManagedNpcTeams.CanCycle(user, serials, seconds));
-            decimal efficiency = cycle > 0 ? 20m / cycle : .35m;
+            int cycle = new[] { 20, 40, 60 }.FirstOrDefault(seconds => ManagedNpcTeams.CanRaidCycle(user, serials, seconds));
+            decimal efficiency = cycle > 0 ? 20m / cycle : .25m;
             var characters = members.Select((c, i) => { c.Snapshot.Slot = i + 1; return c.Snapshot; }).ToArray();
             result.Add(new(characters, efficiency));
         }

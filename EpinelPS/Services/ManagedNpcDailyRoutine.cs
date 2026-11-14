@@ -13,6 +13,9 @@ public static partial class ManagedNpcService
 
     public static void Tick(DateTime now)
     {
+        // Resolve immutable raid metadata once for this population update, and only
+        // if an eligible NPC actually reaches the raid action.
+        var soloRaid = new Lazy<NpcRaidSchedule?>(() => NpcRaidScheduleAt(now));
         ulong[] ids;
         lock (JsonDb.SaveLock)
             ids = JsonDb.Instance.Users.Where(u => u.ManagedNpc != null).Select(u => u.ID).Order().ToArray();
@@ -66,7 +69,7 @@ public static partial class ManagedNpcService
                 }
                 // A season may open after today's other activities have finished.
                 // Its own checkpoint also lets existing completed routines join after an update.
-                if (plan.CompletedPhases >= 3) RunSoloRaidDaily(user, now);
+                if (plan.CompletedPhases >= 3) RunSoloRaidDaily(user, now, soloRaid);
             }
             }
             catch (Exception ex)
