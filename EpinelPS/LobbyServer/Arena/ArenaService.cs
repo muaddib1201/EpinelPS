@@ -131,6 +131,7 @@ internal sealed partial class ArenaService(User user, DateTime now, byte[]? nonc
     private IEnumerable<User> Rivals(bool special)
     {
         Require(special);
+        if (!special) return RookieRivals();
         long rank = Rank(user, special); int cp = Combat(user, special);
         var window = Participants(special).Where(u => u.ID != user.ID)
             .OrderBy(u => u.ManagedNpc == null ? 1 : 0).ThenBy(u => Math.Abs((long)Combat(u, special) - cp))

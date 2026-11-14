@@ -227,6 +227,11 @@ else
         Check(!r.IsBan && r.BanInfo == null && r.User.Rank > 0 && r.ArenaCount == 0, "rookie still disabled or invalid entry");
         Check(r.DefenseTeam.Teams.Single().Slots.Count(s => s.Value > 0) == 5, "missing defense");
     });
+    await RookieMatchmakingChecks.Run(Test,
+        id => Post<ResGetArenaEnemyList>(id, "arena/getenemylist", new ReqGetArenaEnemyList()),
+        id => Post<ResGetArena>(id, "arena/get", new ReqGetArena()),
+        id => Post<ResGetSpecialArenaEnemyList>(id, "arena/special/getenemylist", new ReqGetSpecialArenaEnemyList()),
+        clock.Now.UtcDateTime, save);
     await Test("both arenas expose NPC opponents, valid teams, rankings and profiles", async () =>
     {
         var normal = await Post<ResGetArenaEnemyList>(7001, "arena/getenemylist", new ReqGetArenaEnemyList());
