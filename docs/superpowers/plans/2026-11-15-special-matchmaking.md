@@ -34,9 +34,9 @@
 
 **Interfaces:** private User[][] SpecialRivalGroups(); private IEnumerable<User> SpecialRivals(); existing arena/special/getenemylist and start responses, existing SpecialRefresh.
 
-- [ ] Commit HTTP and NPC regressions and run ArenaRegression on the old matcher; confirm intended failures.
-- [ ] Implement tier grouping/rotation, start check after pending replay but before charging, and shared NPC candidate groups; commit and run ArenaRegression, ArenaCubeRegression and NpcDailyRoutineRegression.
-- [ ] Request one independent review, address material findings with failing-then-passing tests, and record evidence.
+- [x] Commit HTTP and NPC regressions and run ArenaRegression on the old matcher; confirm intended failures.
+- [x] Implement tier grouping/rotation, start check after pending replay but before charging, and shared NPC candidate groups; commit and run ArenaRegression, ArenaCubeRegression and NpcDailyRoutineRegression.
+- [x] Request one independent review, address material findings with failing-then-passing tests, and record evidence.
 
 ### Task 2: Integrate and deploy
 
@@ -44,3 +44,12 @@
 - [ ] Inspect newly pushed history for saves/secrets; push the exact integration commit to the authorized Fork branch and verify with ls-remote.
 - [ ] Publish, create and verify a fresh session installer, seal and check-release. Check actual-save special candidates in an isolated snapshot.
 - [ ] After game exit, deploy through the unified entry; verify program hash, HTTP/TLS, JSON and SQLite preservation. Record backup and pending client acceptance.
+
+## Verification and review
+
+- Initial RED at 2da4c47: ArenaRegression 55 PASS / 7 FAIL, all intended special matching, cursor, stale-start and NPC-leader assertions. Evidence: own .nikke/checks/20261115-021500-058016/ArenaRegression-default.log.
+- Production implementation ffa6fd9: ArenaRegression 62+4, ArenaCubeRegression 21+1 and NpcDailyRoutineRegression 14, all 102 groups passed. Evidence: .nikke/checks/20261115-021844-497140/tests.json.
+- One independent review found no blocking matchmaking, pending-retry or NPC errors. The fresh installer now checks required JSON/SQLite saves before stopping and in the completed cold backup. Its isolated checks cover three required-save cases, six logical SQLite/integrity cases, and two WAL-only cases, all passing.
+- The old authenticated probe's nonempty-list rule was reproduced as a failure on the correct leader response, then corrected to accept legitimate empty lists and reject non-upward, duplicate, unordered or unexpectedly empty results. Rank 11 now has an explicit 8/9/10 target assertion. ArenaRegression at 2cbdfbc passes all 62+4 groups. Evidence: .nikke/checks/20261115-022805-645956/tests.json.
+- Actual-save isolated audit at 2cbdfbc found 74 eligible participants and the human at battle rank 1 with zero rivals. Simulated ranks 1/2/3 offer 0/1/2 targets; 10/11/16/31 offer three, always strictly higher. The audit sends no live requests and only changes ranks inside its local copy.
+- Final integration checks deliberately cover the affected arena, cube and NPC paths plus EquipmentExchangeRegression for the newly integrated baseline. The unrelated 39-suite/702-group run from the earlier rookie deployment is not reused as proof for this release.
