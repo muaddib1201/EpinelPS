@@ -552,6 +552,24 @@ public class GameData
     public readonly Dictionary<int, EventDragonDungeonRunScenarioRecord_Raw> EventDragonDungeonRunScenarioTable = [];
 
 
+    // Event text adventure (MARIA)
+    [LoadRecord("EventTextAdvPlusManagerTable.json", "Id")]
+    public readonly Dictionary<int, EventTextAdvPlusManagerRecord_Raw> EventTextAdvPlusManagerTable = [];
+    [LoadRecord("EventTextAdvPlusRouteTable.json", "Id")]
+    public readonly Dictionary<int, EventTextAdvPlusRouteRecord_Raw> EventTextAdvPlusRouteTable = [];
+    [LoadRecord("EventTextAdvPlusFirstSelectTable.json", "Id")]
+    public readonly Dictionary<int, EventTextAdvPlusFirstSelectRecord_Raw> EventTextAdvPlusFirstSelectTable = [];
+    [LoadRecord("EventTextAdvPlusEventPageTable.json", "Id")]
+    public readonly Dictionary<int, EventTextAdvPlusEventPageRecord_Raw> EventTextAdvPlusEventPageTable = [];
+    [LoadRecord("EventTextAdvPlusSelectOptionTable.json", "Id")]
+    public readonly Dictionary<int, EventTextAdvPlusSelectOptionRecord_Raw> EventTextAdvPlusSelectOptionTable = [];
+    [LoadRecord("EventTextAdvPlusLootItemTable.json", "Id")]
+    public readonly Dictionary<int, EventTextAdvPlusLootItemRecord_Raw> EventTextAdvPlusLootItemTable = [];
+    [LoadRecord("EventTextAdvPlusSpecialIntroTable.json", "Id")]
+    public readonly Dictionary<int, EventTextAdvPlusSpecialIntroRecord_Raw> EventTextAdvPlusSpecialIntroTable = [];
+    [LoadRecord("EventTextAdvPlusProgressRewardTable.json", "Id")]
+    public readonly Dictionary<int, EventTextAdvPlusProgressRewardRecord_Raw> EventTextAdvPlusProgressRewardTable = [];
+
     //Rebuild Eden
     [LoadRecord("EventRebuildEdenManagerTable.json", "Id")]
     public readonly Dictionary<int, EventRebuildEdenManagerRecord_Raw> EventRebuildEdenManagerTable = [];
