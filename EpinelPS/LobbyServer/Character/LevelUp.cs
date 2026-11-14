@@ -18,6 +18,7 @@ public class LevelUp : LobbyMessage
         {
             if (item.Csn == req.Csn)
             {
+                IndependentLevelLimit.Validate(item, req.Lv);
                 int requiredCredit = 0;
                 int requiredBattleData = 0;
                 int requiredCoreDust = 0;

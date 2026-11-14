@@ -16,6 +16,13 @@ public class SynchroOneClick : LobbyMessage
         Dictionary<int, CharacterLevelRecord> data = GameData.Instance.GetCharacterLevelUpData();
         int maxLv = data.Keys.Count > 0 ? data.Keys.Max() : 0;
 
+        // Reject the complete request before any earlier entry can consume materials.
+        foreach (NetSynchroCharacter sc in req.Chars)
+        {
+            CharacterModel? character = user.Characters.FirstOrDefault(c => c.Csn == sc.Csn);
+            if (character != null) IndependentLevelLimit.Validate(character, sc.Lv);
+        }
+
         foreach (NetSynchroCharacter sc in req.Chars)
         {
             CharacterModel? character = user.Characters.FirstOrDefault(c => c.Csn == sc.Csn);
