@@ -7,4 +7,5 @@ public class TextAdventurePlusData
     public List<int> ReceivedEndingRewards { get; set; } = [];
     // Finish has no request ID. A route entry arms exactly one settlement.
     public int ActiveRouteId { get; set; }
+    public string? LastFinishSignature { get; set; }
 }

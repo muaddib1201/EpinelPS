@@ -1,8 +1,10 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using EpinelPS.Data;
 using EpinelPS.Database;
 using EpinelPS.Models;
 using EpinelPS.Utils;
+using Google.Protobuf;
 using Google.Protobuf.Collections;
 using Newtonsoft.Json;
 
@@ -72,6 +74,7 @@ internal static class TextAdventurePlusService
         var route = Routes(manager).FirstOrDefault(r => r.Id == routeId);
         Require(route != null && IsUnlocked(route, state), "Unknown or locked text adventure route");
         state.ActiveRouteId = routeId;
+        state.LastFinishSignature = null;
         state.PlayData.LastEnteredEventTextAdvPlusRouteTableId = routeId;
     }
 
@@ -83,7 +86,8 @@ internal static class TextAdventurePlusService
         Require(req.AcquiredEventTextAdvPlusLootItemTableIdList.All(id => Tables.EventTextAdvPlusLootItemTable.TryGetValue(id, out var i) && i.ManagerId == manager.Id), "Invalid text adventure loot");
         Require(req.EventTextAdvPlusFirstSelectTableId == 0 || Tables.EventTextAdvPlusFirstSelectTable.TryGetValue(req.EventTextAdvPlusFirstSelectTableId, out var first) && first.ManagerId == manager.Id && first.RouteId == req.EventTextAdvPlusRouteTableId, "Invalid text adventure start");
         Require(req.EventTextAdvPlusSpecialIntroId == 0 || Tables.EventTextAdvPlusSpecialIntroTable.TryGetValue(req.EventTextAdvPlusSpecialIntroId, out var intro) && intro.ManagerId == manager.Id, "Invalid text adventure intro");
-        if (state.ActiveRouteId == 0) return new() { PlayData = state.PlayData.Clone() };
+        var signature = Convert.ToHexString(SHA256.HashData(req.ToByteArray()));
+        if (state.ActiveRouteId == 0 || state.LastFinishSignature == signature) return new() { PlayData = state.PlayData.Clone() };
         Require(state.ActiveRouteId == req.EventTextAdvPlusRouteTableId, "Text adventure route was not entered");
         var play = state.PlayData;
         Merge(play.EventTextAdvPlusEventPageTableIdList, req.EventTextAdvPlusEventPageTableIdList);
@@ -92,7 +96,9 @@ internal static class TextAdventurePlusService
         Merge(play.BadgeRemovedEventTextAdvPlusLootItemTableIdList, req.CheckedEventTextAdvPlusLootItemTableIdList.Where(play.AcquiredEventTextAdvPlusLootItemTableIdList.Contains));
         if (req.EventTextAdvPlusSpecialIntroId != 0) Merge(play.EventTextAdvPlusSpecialIntroIdList, [req.EventTextAdvPlusSpecialIntroId]);
         play.PlayCount++;
-        state.ActiveRouteId = 0;
+        state.LastFinishSignature = signature;
+        // The client can restart inside this route without reopening the route UI.
+        state.ActiveRouteId = req.IsRestart ? req.EventTextAdvPlusRouteTableId : 0;
         return new() { PlayData = play.Clone() };
     }
 
