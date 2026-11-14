@@ -23,7 +23,7 @@ public class GachaRatesParameter : ICommandParameters
 public class GachaRatesHandler(IExecutionContext context) : BaseHandler<GachaRatesParameter>(context)
 {
     public override string Name => "gacha-rates";
-    public override string Description => "Set custom SSR/SR/R gacha rates (percent, must add up to 100) for the selected user";
+    public override string Description => "Set custom SSR/SR/R gacha rates (percent, must add up to 100), excluding tutorial and social recruitment";
 
     protected async override Task<HandleResult> ExecuteAsync(GachaRatesParameter parameters)
     {
@@ -106,7 +106,8 @@ public class GachaSimHandler(IExecutionContext context) : BaseHandler<GachaSimPa
             .Take(5)
             .Select(g => $"{AdminApiController.LookupRealName(g.First().NameLocalkey ?? "") ?? g.Key.ToString()} x{g.Count()}"));
 
-        string rates = context.SelectedUser.CustomGachaRates?.ToString() ?? "official";
+        string rates = gachaType.Type == GachaPremiumType.GachaFriend
+            ? "official (social recruit)" : context.SelectedUser.CustomGachaRates?.ToString() ?? "official";
         return new HandleResult(true, $"Banner {gachaType.Id} ({gachaType.Type}), {pulled.Count} pulls, rates: {rates}\n{split}\nTop SSR: {topSsr}");
     }
 }
