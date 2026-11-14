@@ -243,6 +243,20 @@ public class EventHelper
     internal static DateTime GetEventStart(int eventId, DateTime nowUtc) =>
         JsonDb.Instance.ChallengeEventStartUtc.GetValueOrDefault(eventId, nowUtc.AddDays(-21));
 
+    private static DateTime GetEventEnd(int eventId, DateTime nowUtc)
+    {
+        const int mariaN = 83500;
+        if (eventId == mariaN ||
+            GameData.Instance.eventManagers.TryGetValue(eventId, out var record) &&
+            (record.ParentsEventId == mariaN || record.SetField == mariaN))
+        {
+            // Wiki / official MARIA-n schedule: Nov 19, 2026 04:59:59 UTC+9.
+            // Keep the deadline fixed even after expiry; refreshing must never extend it.
+            return new DateTime(2026, 11, 18, 19, 59, 59, DateTimeKind.Utc);
+        }
+        return nowUtc.AddDays(30);
+    }
+
     private static void AddEvents(ref ResGetEventList response, List<NetEventData> eventDatas)
     {
         foreach (var eventData in eventDatas)
@@ -251,10 +265,11 @@ public class EventHelper
             // Avoid adding duplicate events
             if (!response.EventList.Any(e => e.Id == eventData.Id))
             {
+                long endDate = GetEventEnd(eventData.Id, DateTime.UtcNow).Ticks;
                 if (eventData.EventStartDate == 0) eventData.EventStartDate = GetEventStart(eventData.Id, DateTime.UtcNow).Ticks;
                 if (eventData.EventVisibleDate == 0) eventData.EventVisibleDate = DateTime.UtcNow.AddDays(-21).Ticks;
-                if (eventData.EventDisableDate == 0) eventData.EventDisableDate = DateTime.UtcNow.AddDays(30).Ticks;
-                if (eventData.EventEndDate == 0) eventData.EventEndDate = DateTime.UtcNow.AddDays(30).Ticks;
+                if (eventData.EventDisableDate == 0) eventData.EventDisableDate = endDate;
+                if (eventData.EventEndDate == 0) eventData.EventEndDate = endDate;
 
                 if (eventData.Id != 10046) // todo fix properly
                     response.EventList.Add(eventData);
@@ -274,10 +289,11 @@ public class EventHelper
             // Avoid adding duplicate events
             if (!response.EventWithJoinData.Any(e => e.EventData.Id == eventData.Id))
             {
+                long endDate = GetEventEnd(eventData.Id, DateTime.UtcNow).Ticks;
                 if (eventData.EventStartDate == 0) eventData.EventStartDate = GetEventStart(eventData.Id, DateTime.UtcNow).Ticks;
                 if (eventData.EventVisibleDate == 0) eventData.EventVisibleDate = DateTime.UtcNow.AddDays(-21).Ticks;
-                if (eventData.EventDisableDate == 0) eventData.EventDisableDate = DateTime.UtcNow.AddDays(30).Ticks;
-                if (eventData.EventEndDate == 0) eventData.EventEndDate = DateTime.UtcNow.AddDays(30).Ticks;
+                if (eventData.EventDisableDate == 0) eventData.EventDisableDate = endDate;
+                if (eventData.EventEndDate == 0) eventData.EventEndDate = endDate;
                 response.EventWithJoinData.Add(new NetEventWithJoinData()
                 {
 
@@ -313,14 +329,15 @@ public class EventHelper
         // Add each daily event to the list
         foreach (var dailyEvent in dailyEvents)
         {
+            long endDate = GetEventEnd(dailyEvent.Id, DateTime.UtcNow).Ticks;
             events.Add(new NetEventData()
             {
                 Id = dailyEvent.Id,
                 EventSystemType = (int)dailyEvent.EventSystemType,
                 EventStartDate = startDate,
                 EventVisibleDate = startDate,
-                EventDisableDate = DateTime.UtcNow.AddDays(30).Ticks,
-                EventEndDate = DateTime.UtcNow.AddDays(30).Ticks
+                EventDisableDate = endDate,
+                EventEndDate = endDate
             });
         }
         return events;
