@@ -1,7 +1,7 @@
 using System.Reflection;
+using EpinelPS;
 using EpinelPS.Data;
 using EpinelPS.Database;
-using EpinelPS.LobbyServer.Guild;
 using EpinelPS.LobbyServer.Soloraid;
 using EpinelPS.Models;
 using EpinelPS.Services;
@@ -36,7 +36,7 @@ using var db = GameContext.CreateNew();
 db.Database.EnsureDeleted(); db.Database.EnsureCreated();
 ManagedNpcService.CreateBatch(db, 1, "solo-raid-fixture", now);
 var npc = State().Users.Single();
-npc.ManagedNpc!.DailyRoutine = new NpcDailyRoutineState { Day = GuildActivity.Day(now), CompletedPhases = 5, StartedUtc = now.AddMinutes(-30), LastCompletedUtc = now.AddMinutes(-5) };
+npc.ManagedNpc!.DailyRoutine = new NpcDailyRoutineState { Day = int.Parse(now.AddHours(-State().ResetHourUtcTime).ToString("yyyyMMdd")), CompletedPhases = 5, StartedUtc = now.AddMinutes(-30), LastCompletedUtc = now.AddMinutes(-5) };
 npc.ManagedNpc.LastActionUtc = now.AddMinutes(-5);
 var raid = new SoloRaidInfo { RaidId = season.RaidId, LastDateDay = npc.GetDateDay() };
 for (int level = 1; level <= 7; level++) raid.SoloRaidLevels.Add(new SoloRaidLevelData { RaidLevel = level, Type = SoloRaidType.Normal, IsClear = true });
