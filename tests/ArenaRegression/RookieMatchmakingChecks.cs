@@ -71,6 +71,24 @@ internal static class RookieMatchmakingChecks
             Check(result.List2.Count(r => r.User.Rating == 1820) == 2, "nearest remaining rating cohort was not offered");
             Check(result.List2.Select(r => r.User.Rating).SequenceEqual(result.List2.Select(r => r.User.Rating).OrderDescending()), "rookie list is not score-descending");
         }));
+        await test("rookie refresh reaches every lower-ranked opponent across mixed score gaps", () => Fixture(6, async players =>
+        {
+            ulong[] ids = [1, 2, 10, 11, 12, 13, 14];
+            int[] ratings = [1000, 1100, 990, 990, 900, 900, 900];
+            using (var db = GameContext.CreateNew())
+            {
+                for (int i = 0; i < players.Length; i++)
+                {
+                    players[i].ID = ids[i]; players[i].Arena!.Rating = ratings[i];
+                    if (!db.Users.Any(u => u.ID == ids[i]))
+                        db.Users.Add(new GameUser { ID = ids[i], Nickname = "MixedGap" + ids[i], LastAction = now });
+                }
+                db.SaveChanges();
+            }
+            var seen = new HashSet<long>();
+            for (int i = 0; i < 5; i++) seen.UnionWith(Ids(await list(players[0].ID)));
+            Check(players.Skip(2).All(p => seen.Contains((long)p.ID)), "a lower-ranked opponent is permanently skipped by the shared refresh cursor");
+        }));
         await test("rookie matching ignores combat changes and does not truncate tied peers to twelve", () => Fixture(30, async players =>
         {
             var expected = Ids(await list(players[0].ID));
