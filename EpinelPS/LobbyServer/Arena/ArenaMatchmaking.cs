@@ -22,13 +22,20 @@ internal sealed partial class ArenaService
         {
             // A per-viewer/season permutation avoids always starting at the same IDs, while the persisted
             // cursor visits every member of a stable rank group before that group's first slot repeats.
-            var ordered = pool.Where(u => !selected.Contains(u.ID))
+            var ordered = pool
                 .OrderBy(u => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"rookie:{user.ID}:{World.Season}:{role}:{u.ID}"))), StringComparer.Ordinal)
                 .ThenBy(u => u.ID).ToArray();
             if (ordered.Length == 0) return;
-            var rival = ordered[(int)(cursor % ordered.Length)];
-            chosen.Add(rival);
-            selected.Add(rival.ID);
+            int start = (int)(cursor % ordered.Length);
+            // Rotate the full group before skipping a rival already in another slot. Filtering first
+            // changes the modulo and can permanently hide members when the near slot alternates.
+            for (int offset = 0; offset < ordered.Length; offset++)
+            {
+                var rival = ordered[(start + offset) % ordered.Length];
+                if (!selected.Add(rival.ID)) continue;
+                chosen.Add(rival);
+                return;
+            }
         }
 
         IEnumerable<User> Nearest()

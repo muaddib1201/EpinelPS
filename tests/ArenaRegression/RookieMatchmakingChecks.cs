@@ -16,6 +16,8 @@ internal static class RookieMatchmakingChecks
         var stateProperty = typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb")!.GetProperty("Instance")!;
         var original = (CoreInfo)stateProperty.GetValue(null)!;
         var template = original.Users.First(u => u.ManagedNpc != null && u.Characters.Count >= 15 && u.UserTeams.ContainsKey(12));
+        ulong[] originalSqlIds;
+        using (var db = GameContext.CreateNew()) originalSqlIds = db.Users.Select(u => u.ID).ToArray();
 
         async Task Fixture(int opponents, Func<User[], Task> body)
         {
@@ -44,6 +46,8 @@ internal static class RookieMatchmakingChecks
             {
                 stateProperty.SetValue(null, original);
                 File.WriteAllText(save, JsonConvert.SerializeObject(original));
+                using var db = GameContext.CreateNew();
+                db.Users.Where(u => !originalSqlIds.Contains(u.ID)).ExecuteDelete();
             }
         }
         static void Check(bool ok, string error) { if (!ok) throw new Exception(error); }
