@@ -29,6 +29,14 @@ public class ManagedNpcState
     public long TotalActions { get; set; }
     public List<NpcActionRecord> Actions { get; set; } = [];
     public NpcDailyRoutineState? DailyRoutine { get; set; }
+    public NpcSoloRaidRoutineState? SoloRaidRoutine { get; set; }
+}
+
+public class NpcSoloRaidRoutineState
+{
+    public int RaidId { get; set; }
+    public int Day { get; set; }
+    public DateTime CompletedUtc { get; set; }
 }
 
 public class NpcDailyRoutineState

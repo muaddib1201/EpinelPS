@@ -9,10 +9,11 @@ public static class ManagedNpcTeams
 {
     private sealed record Candidate(CharacterModel Character, CharacterRecord Row, int Cooldown, WeaponType Weapon, double Score);
 
-    private static Candidate? Describe(User user, CharacterModel character, int seed)
+    private static Candidate? Describe(User user, CharacterModel character, int seed, bool raid = false)
     {
         var data = GameData.Instance;
-        if (!data.CharacterTable.TryGetValue(character.Tid, out var row) || !row.IsVisible || row.OriginalRare != OriginalRareType.SSR ||
+        if (!data.CharacterTable.TryGetValue(character.Tid, out var row) || !row.IsVisible ||
+            row.OriginalRare != OriginalRareType.SSR && (!raid || row.OriginalRare is not (OriginalRareType.SR or OriginalRareType.R)) ||
             !data.CharacterSkills.TryGetValue(row.UltiSkillId, out var skill) || skill.SkillCooltime <= 0) return null;
         var weapon = data.CharacterShots.GetValueOrDefault(row.ShotId)?.WeaponType ?? WeaponType.None;
         uint variation = unchecked((uint)(seed ^ row.NameCode * 7919));
@@ -104,17 +105,26 @@ public static class ManagedNpcTeams
     }
 
     public static bool CanCycle(User user, long[] serialNumbers, int seconds)
+        => CanRosterCycle(user, serialNumbers, seconds, false);
+
+    // Raid attempts allow partial owned squads and lower rarities. Keep the
+    // existing five-SSR primary-team contract separate from cadence evaluation.
+    public static bool CanRaidCycle(User user, long[] serialNumbers, int seconds)
+        => CanRosterCycle(user, serialNumbers, seconds, true);
+
+    private static bool CanRosterCycle(User user, long[] serialNumbers, int seconds, bool raid)
     {
-        if (serialNumbers.Length != 5 || serialNumbers.Distinct().Count() != 5 || seconds <= 0) return false;
+        if (serialNumbers.Length is < 1 or > 5 || !raid && serialNumbers.Length != 5 ||
+            serialNumbers.Distinct().Count() != serialNumbers.Length || seconds <= 0) return false;
         var team = new List<Candidate>();
         foreach (long csn in serialNumbers)
         {
             var character = user.Characters.FirstOrDefault(c => c.Csn == csn);
-            var candidate = character == null ? null : Describe(user, character, user.ManagedNpc?.Seed ?? 0);
+            var candidate = character == null ? null : Describe(user, character, user.ManagedNpc?.Seed ?? 0, raid);
             if (candidate == null) return false;
             team.Add(candidate);
         }
-        return team.Select(c => c.Row.NameCode).Distinct().Count() == 5 && CanCycle(team.ToArray(), seconds, out _);
+        return team.Select(c => c.Row.NameCode).Distinct().Count() == team.Count && CanCycle(team.ToArray(), seconds, out _);
     }
 
     private static bool Matches(CharacterRecord row, int phase) => (int)row.UseBurstSkill == phase || row.UseBurstSkill == BurstStep.AllStep;
@@ -128,7 +138,7 @@ public static class ManagedNpcTeams
     private static bool CanCycle(Candidate[] team, int seconds, out int burstMask, bool knownBuffCooldowns = false)
     {
         burstMask = 0;
-        var ready = new long[5];
+        var ready = new long[team.Length];
         var states = new Dictionary<string, int>();
         var masks = new List<int>();
         var cooldowns = team.Select(c => c.Cooldown).ToArray();
