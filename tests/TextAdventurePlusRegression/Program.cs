@@ -48,6 +48,14 @@ db.Users.Add(new GameUser { ID = user.ID });
 db.SaveChanges();
 using var services = new ServiceCollection().AddSingleton(db).BuildServiceProvider();
 var manager = managers.Single(m => m.Id == 83501);
+foreach (var route in new[] { "Enter", "Enter/Route", "Finish", "Reward/Progress", "Reward/Ending", "Reward/Check", "Route/Check", "Route/Badge/Remove", "LootItem/Badge/Remove", "Ending/Badge/Remove", "Log/Select", "Log/Interrupt" })
+{
+    bool unauthorized = false;
+    try { await Call<ResGetNow>("/MiniGame/TextAdventurePlus/" + route, new ReqGetNow(), authenticated: false); }
+    catch (BadHttpRequestException e) when (e.StatusCode == 401) { unauthorized = true; }
+    Assert(unauthorized, $"{route} must return HTTP 401 for an unauthenticated request");
+}
+Console.WriteLine("PASS: all twelve minigame endpoints return HTTP 401 without authentication");
 var entered = await Call<ResEnterMiniGameTextAdventurePlus>("/MiniGame/TextAdventurePlus/Enter",
     new ReqEnterMiniGameTextAdventurePlus { EventTextAdvPlusManagerTableId = manager.Id });
 if (entered.PlayData == null) throw new Exception("FAIL: clicking the minigame returns no PlayData and leaves the client waiting");
@@ -181,10 +189,10 @@ async Task Reject(Func<Task> action)
     throw new Exception("Invalid minigame request was accepted");
 }
 
-async Task<T> Call<T>(string path, IMessage request) where T : IMessage<T>, new()
+async Task<T> Call<T>(string path, IMessage request, bool authenticated = true) where T : IMessage<T>, new()
 {
     var ctx = new DefaultHttpContext { RequestServices = services };
-    ctx.Items["UserID"] = user.ID;
+    if (authenticated) ctx.Items["UserID"] = user.ID;
     using var input = new MemoryStream(request.ToByteArray());
     using var output = new MemoryStream();
     ctx.Request.Body = input;
@@ -192,6 +200,7 @@ async Task<T> Call<T>(string path, IMessage request) where T : IMessage<T>, new(
     var handler = LobbyHandler.Handlers.TryGetValue(path, out var registered)
         ? (LobbyMessage)Activator.CreateInstance(registered.GetType())! : new EmptyHandler();
     await handler.HandleAsync(ctx);
+    if (ctx.Response.StatusCode >= 400) throw new BadHttpRequestException("Request rejected", ctx.Response.StatusCode);
     var response = new T();
     response.MergeFrom(output.ToArray());
     return response;
