@@ -20,7 +20,8 @@ internal sealed partial class ArenaService
                 int limit = special ? SpecialConfig?.FreePlayCount ?? 2 : 5;
                 while ((special ? Own.SpecialCount : Own.RookieCount) < limit)
                 {
-                    var enemy = Participants(special).Where(u => u.ID != user.ID && u.ManagedNpc is { Enabled: true })
+                    var candidates = special ? SpecialRivalGroups().SelectMany(group => group) : Participants(false);
+                    var enemy = candidates.Where(u => u.ID != user.ID && u.ManagedNpc is { Enabled: true })
                         .OrderBy(u => Math.Abs((long)Combat(u, special) - Combat(user, special))).ThenBy(u => u.ID).FirstOrDefault();
                     if (enemy == null) break;
                     var battle = Begin((long)enemy.ID, special);

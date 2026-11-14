@@ -1,10 +1,48 @@
 using System.Security.Cryptography;
 using System.Text;
+using EpinelPS.Data;
 
 namespace EpinelPS.LobbyServer.Arena;
 
 internal sealed partial class ArenaService
 {
+    private User[][] SpecialRivalGroups()
+    {
+        if (Own.SpecialRank <= 1) return [];
+        var higher = Participants(true).Where(u => u.Arena!.SpecialRank > 0 && u.Arena.SpecialRank < Own.SpecialRank).ToArray();
+        if (higher.Length == 0) return [];
+
+        int Priority(int tier) => GameData.Instance.ArenaTiers.TryGetValue(tier, out var row) ? row.Priority : int.MaxValue;
+        int ownPriority = Priority(Tier(user, true));
+        // Tier priorities are not consecutive (Challenger 10 -> Diamond 1 is 10 -> 101).
+        var groups = higher.GroupBy(u => Tier(u, true))
+            .Select(group => new { Priority = Priority(group.Key), Players = group.ToArray() })
+            .Where(group => group.Priority < ownPriority)
+            .OrderByDescending(group => group.Priority).Take(3).OrderBy(group => group.Priority)
+            .Select(group => group.Players).ToArray();
+        if (groups.Length > 0) return groups;
+
+        // Sparse offline ladders may have only higher positions within the same division.
+        // Keep those positions reachable without ever filling a slot from below the viewer.
+        return higher.OrderByDescending(u => u.Arena!.SpecialRank).ThenBy(u => u.ID).Take(3)
+            .OrderBy(u => u.Arena!.SpecialRank).Select(u => new[] { u }).ToArray();
+    }
+
+    private IEnumerable<User> SpecialRivals()
+    {
+        var groups = SpecialRivalGroups();
+        if (groups.Length == 0) return [];
+        long cursor = Math.Max(0, Own.SpecialRefresh);
+        Own.SpecialRefresh = cursor == long.MaxValue ? 0 : cursor + 1;
+        return groups.Select(group =>
+        {
+            int tier = Tier(group[0], true);
+            var ordered = group.OrderBy(u => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"special:{user.ID}:{World.Season}:{tier}:{u.ID}"))), StringComparer.Ordinal)
+                .ThenBy(u => u.ID).ToArray();
+            return ordered[(int)(cursor % ordered.Length)];
+        }).OrderBy(u => u.Arena!.SpecialRank).ThenBy(u => u.ID).ToArray();
+    }
+
     // Local approximation: official score ranges/weights are not published. Do not gate rookie opponents by CP.
     private IEnumerable<User> RookieRivals()
     {

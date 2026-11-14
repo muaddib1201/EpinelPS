@@ -131,15 +131,7 @@ internal sealed partial class ArenaService(User user, DateTime now, byte[]? nonc
     private IEnumerable<User> Rivals(bool special)
     {
         Require(special);
-        if (!special) return RookieRivals();
-        long rank = Rank(user, special); int cp = Combat(user, special);
-        var window = Participants(special).Where(u => u.ID != user.ID)
-            .OrderBy(u => u.ManagedNpc == null ? 1 : 0).ThenBy(u => Math.Abs((long)Combat(u, special) - cp))
-            .ThenBy(u => Math.Abs(Rank(u, special) - rank)).ThenBy(u => u.ID).Take(12).ToArray();
-        if (window.Length == 0) return [];
-        long cursor = special ? Own.SpecialRefresh++ : Own.RookieRefresh++;
-        int start = (int)(cursor % window.Length);
-        return Enumerable.Range(0, Math.Min(3, window.Length)).Select(i => window[(start + i) % window.Length]);
+        return special ? SpecialRivals() : RookieRivals();
     }
 
     internal ResGetArena Get()
