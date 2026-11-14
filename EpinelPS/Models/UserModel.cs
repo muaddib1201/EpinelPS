@@ -273,6 +273,8 @@ public class User
     public int CurCharacterIdId { get; set; } = 0;
 
     // Minigame data
+    public Dictionary<int, TextAdventurePlusData> TextAdventurePlusDatas { get; set; } = [];
+    public bool ShouldSerializeTextAdventurePlusDatas() => TextAdventurePlusDatas.Count != 0;
     public Dictionary<int,MiniGameScenarios> MiniGameScenarios { get;set;  } = new();
     public Dictionary<int, MiniGameAzxData> MiniGameAzxInfo { get; set; } = [];
     public Dictionary<int, MiniGameStoryChoice> MiniGameStoryChoice { get; set; } = [];
