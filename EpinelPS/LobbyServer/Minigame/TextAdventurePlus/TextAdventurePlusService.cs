@@ -2,11 +2,11 @@ using System.Globalization;
 using System.Security.Cryptography;
 using EpinelPS.Data;
 using EpinelPS.Database;
+using EpinelPS.LobbyServer.Mission;
 using EpinelPS.Models;
 using EpinelPS.Utils;
 using Google.Protobuf;
 using Google.Protobuf.Collections;
-using Newtonsoft.Json;
 
 namespace EpinelPS.LobbyServer.Minigame.TextAdventurePlus;
 
@@ -24,28 +24,15 @@ internal static class TextAdventurePlusService
             Require(Tables.EventTextAdvPlusManagerTable.TryGetValue(managerId, out var manager), "Unknown text adventure manager");
             user.TextAdventurePlusDatas.TryGetValue(managerId, out var state);
             state ??= new();
-            // Keep failed validation/save attempts from changing the in-memory save.
-            var before = save ? JsonConvert.SerializeObject(user) : null;
-            try
+            if (!save) return action(state, manager!);
+            // The existing transaction captures reward triggers, rolls back exact
+            // player state on save failure and delivers its durable trigger outbox.
+            return MissionProgressDelivery.Apply(user, () =>
             {
+                user.TextAdventurePlusDatas[managerId] = state;
                 var response = action(state, manager!);
-                if (save)
-                {
-                    user.TextAdventurePlusDatas[managerId] = state;
-                    JsonDb.Save();
-                }
                 return response;
-            }
-            catch
-            {
-                if (before != null)
-                {
-                    var restored = JsonConvert.DeserializeObject<User>(before)!;
-                    foreach (var p in typeof(User).GetProperties().Where(p => p.CanRead && p.CanWrite)) p.SetValue(user, p.GetValue(restored));
-                    foreach (var f in typeof(User).GetFields()) f.SetValue(user, f.GetValue(restored));
-                }
-                throw;
-            }
+            });
         }
     }
 
