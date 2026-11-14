@@ -10,8 +10,14 @@ internal static class SpecialMatchmakingChecks
 {
     internal static void VerifySpecialProbe(ResGetSpecialArena special, ResGetSpecialArenaEnemyList rivals, ResGetSpecialArenaTopRank ranking)
     {
-        if (special.IsBan || special.BanInfo != null || special.User.Tier <= 0 || rivals.List2.Count == 0 ||
-            rivals.List2.Any(r => r.RoundCharacter.Count != 15)) throw new Exception("live special roster invalid");
+        bool hasHigher = ranking.RankList.Any(r => r.Rank > 0 && r.Rank < special.User.Rank);
+        var ranks = rivals.List2.Select(r => r.User.Rank).ToArray();
+        if (special.IsBan || special.BanInfo != null || special.User.Tier <= 0 || special.User.Rank <= 0 ||
+            rivals.List2.Count > 3 || (rivals.List2.Count == 0) == hasHigher ||
+            rivals.List2.Any(r => r.RoundCharacter.Count != 15 || r.User.Rank <= 0 || r.User.Rank >= special.User.Rank ||
+                r.User.User.Usn == special.User.User.Usn) ||
+            rivals.List2.Select(r => r.User.User.Usn).Distinct().Count() != rivals.List2.Count || !ranks.SequenceEqual(ranks.Order()))
+            throw new Exception("live special roster invalid");
     }
 
     internal static async Task Run(Func<string, Func<Task>, Task> test,
@@ -78,6 +84,23 @@ internal static class SpecialMatchmakingChecks
                     var entry = await Post<ResGetSpecialArena>(viewer.ID, "arena/special/get", new ReqGetSpecialArena());
                     var ranking = await Post<ResGetSpecialArenaTopRank>(viewer.ID, "arena/special/toprank", new ReqGetSpecialArenaTopRank());
                     VerifySpecialProbe(entry, response, ranking);
+                    if (rank > 1)
+                    {
+                        void Reject(ResGetSpecialArenaEnemyList invalid)
+                        {
+                            bool accepted = true;
+                            try { VerifySpecialProbe(entry, invalid, ranking); } catch { accepted = false; }
+                            Check(!accepted, "live probe accepted an invalid special rival list");
+                        }
+                        Reject(new ResGetSpecialArenaEnemyList());
+                        var lower = response.Clone(); lower.List2[0].User.Rank = rank + 1;
+                        Reject(lower);
+                        if (rank == 3)
+                        {
+                            var reversed = response.Clone(); reversed.List2.Clear(); reversed.List2.AddRange(response.List2.Reverse());
+                            Reject(reversed);
+                        }
+                    }
                     Check(response.List2.Count == rank - 1, "top rank offered lower opponents or incorrect target count");
                     Check(response.List2.Select(r => r.User.Rank).SequenceEqual(Enumerable.Range(1, rank - 1).Select(i => (long)i)), "top-rank opponents are not the higher battle ranks");
                     Check(viewer.Arena!.SpecialCount == 0, "empty or refreshed list consumed attempts");
