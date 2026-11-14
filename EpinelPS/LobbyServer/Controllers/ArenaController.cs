@@ -2,7 +2,6 @@ using EpinelPS.Database;
 using EpinelPS.Interfaces;
 using EpinelPS.LobbyServer.Arena;
 using EpinelPS.Utils;
-using Google.Protobuf.WellKnownTypes;
 using Microsoft.AspNetCore.Mvc;
 
 namespace EpinelPS.LobbyServer.Controllers;
@@ -53,7 +52,7 @@ public sealed class ArenaController(IUserService users, TimeProvider? clock = nu
     public ActionResult<ResGetSpecialArenaPointRankList> PointRank([FromBodyProtobuf] ReqGetSpecialArenaPointRankList req) => Run(s => s.PointRank());
     [HttpPost("getbaninfo")]
     public ActionResult<ResGetArenaBanInfo> BanInfo([FromBodyProtobuf] ReqGetArenaBanInfo req) => Run(_ => new ResGetArenaBanInfo {
-        ChampionArenaBanInfo = new NetArenaBanInfo { Description = "冠军竞技场尚未开放", StartAt = Timestamp.FromDateTime(DateTime.UtcNow), EndAt = Timestamp.FromDateTime(DateTime.UtcNow.AddYears(10)) } });
+        ChampionArenaBanInfo = ChampionArenaAvailability.BanInfo() });
     [HttpPost("replay")]
     public ActionResult<ResGetArenaReplay> Replay([FromBodyProtobuf] ReqGetArenaReplay req) => Run(_ => new ResGetArenaReplay());
     [HttpPost("special/getreplaypopup")]

@@ -1,3 +1,5 @@
+using EpinelPS.LobbyServer.Arena;
+
 namespace EpinelPS.LobbyServer.Badge;
 
 [GameRequest("/badge/permanentcontent")]
@@ -9,12 +11,8 @@ public class PermanentContent : LobbyMessage
         User user = GetUser();
 
         ResPermanentContentBadgeData response = new();
-        response.ChampionArenaBadgeData = new();
+        response.ChampionArenaBadgeData = ChampionArenaAvailability.BadgeData();
         response.SoloRaidMuseumBadgeData = new();
-        response.ChampionArenaBadgeData.Schedule = new();
-        response.ChampionArenaBadgeData.NextSchedule = new();
-        response.ChampionArenaBadgeData.ChampionArenaContentsState = ChampionArenaContentsState.SeasonClosed;
-        response.ChampionArenaBadgeData.CurrentOrLastSeasonStartAt = new();
         // TODO
 
         await WriteDataAsync(response);

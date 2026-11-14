@@ -11,8 +11,7 @@ public class GetArenaBanInfo : LobbyMessage
 
         ResGetArenaBanInfo response = new()
         {
-            RookieArenaBanInfo = new NetArenaBanInfo() { Description = "Not Implemented", StartAt = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow), EndAt = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow.AddYears(10)) },
-            SpecialArenaBanInfo = new NetArenaBanInfo() { Description = "Not Implemented", StartAt = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow), EndAt = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow.AddYears(10)) }
+            ChampionArenaBanInfo = ChampionArenaAvailability.BanInfo()
         };
 
         await WriteDataAsync(response);

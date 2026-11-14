@@ -7,13 +7,6 @@ public class GetChampion : LobbyMessage
     {
         ReqGetChampionArena req = await ReadData<ReqGetChampionArena>();
 
-        ResGetChampionArena response = new()
-        {
-            Schedule = new NetChampionArenaSchedule()
-        };
-
-        // TODO
-
-        await WriteDataAsync(response);
+        await WriteDataAsync(ChampionArenaAvailability.Entry());
     }
 }
