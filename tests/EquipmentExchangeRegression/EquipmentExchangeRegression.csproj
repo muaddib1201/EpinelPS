@@ -10,5 +10,7 @@
   <ItemGroup>
     <ProjectReference Include="../../EpinelPS/EpinelPS.csproj" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <None Include="../../EpinelPS/gameconfig.json" Link="gameconfig.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../../Server and Server selector/gamecommon.json" Link="gamecommon.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
