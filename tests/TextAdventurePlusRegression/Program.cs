@@ -6,6 +6,7 @@ using EpinelPS.LobbyServer;
 using EpinelPS.Models;
 using Google.Protobuf;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
 
@@ -32,14 +33,19 @@ Populate("EventTextAdvPlusSelectOptionTable", options);
 Populate("EventTextAdvPlusLootItemTable", items);
 Populate("EventTextAdvPlusSpecialIntroTable", intros);
 foreach (var row in await data.LoadZip<RewardRecord>("RewardTable.json", progress)) data.RewardDataRecords.Add(row.Id, row);
+foreach (var row in await data.LoadZip<JukeboxListRecord>("JukeboxListTable.json", progress)) data.jukeboxListDataRecords.Add(row.Id, row);
 if (managers.Length == 0 || routes.Length == 0 || pages.Length == 0) throw new Exception("Missing TextAdventurePlus static fixtures");
 Console.WriteLine($"Loaded {managers.Length} managers, {routes.Length} routes, {pages.Length} pages and {rewards.Length} progress rewards");
 
 var user = new User { ID = 1 };
 typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb", true)!.GetProperty("Instance")!
     .SetValue(null, new CoreInfo { Users = [user], BondRewardLevelsMigrated = true });
-GameContext.InitializeOptions("Data Source=:memory:", "sqlite");
+GameContext.InitializeOptions($"Data Source={Path.Combine(AppContext.BaseDirectory, "text-adventure-fixture.sqlite")}", "sqlite");
 using var db = GameContext.CreateNew();
+db.Database.EnsureDeleted();
+db.Database.EnsureCreated();
+db.Users.Add(new GameUser { ID = user.ID });
+db.SaveChanges();
 using var services = new ServiceCollection().AddSingleton(db).BuildServiceProvider();
 var manager = managers.Single(m => m.Id == 83501);
 var entered = await Call<ResEnterMiniGameTextAdventurePlus>("/MiniGame/TextAdventurePlus/Enter",
