@@ -33,9 +33,9 @@
 
 **Interfaces:** Existing /arena/getenemylist response and existing ArenaPlayer.RookieRefresh; private IEnumerable<User> RookieRivals() in the ArenaService partial class.
 
-- [ ] Add HTTP regressions for every Review Focus item, commit tests and run `nikke_workflow.py test --worktree <sourceDirectory> --suite ArenaRegression`; observe matching assertions fail on old code.
-- [ ] Implement rookie-only stratified rotation with overflow-safe cursor, deterministic hash order and sorted output; commit and rerun ArenaRegression until green.
-- [ ] Request one independent branch review, address material findings and record validation in this plan.
+- [x] Add HTTP regressions for every Review Focus item, commit tests and run `nikke_workflow.py test --worktree <sourceDirectory> --suite ArenaRegression`; observe matching assertions fail on old code.
+- [x] Implement rookie-only stratified rotation with overflow-safe cursor, deterministic hash order and sorted output; commit and rerun ArenaRegression until green.
+- [x] Request one independent branch review, address material findings and record validation in this plan.
 
 ### Task 2: Integrate, validate and deploy
 
@@ -45,3 +45,11 @@
 - [ ] Inspect newly pushed history for secrets/saves, push the exact integration commit to the authorized fork branch, confirm using ls-remote.
 - [ ] Publish latest integration, prepare and review a new installer with exit check, stopped-server backup, rollback and health/data-preservation checks, then seal and check-release.
 - [ ] Once the game has exited, deploy through nikke_workflow.py, verify installed hash/HTTP/TLS, inspect an isolated post-install save snapshot and report that client acceptance remains pending.
+
+## Validation before integration
+
+- Original candidate filtering: four new HTTP assertions failed on the old implementation (higher-rank reachability, score roles, combat invariance and legacy negative cursor).
+- Independent review found a lower-rank permutation/filtering interaction. A season-zero mixed-gap HTTP fixture reproduced permanent exclusion; rotating the complete group before skipping already-selected entries fixes it. Fixture SQL rows are cleaned up so they do not interfere with the existing late-entrant regression.
+- Final code at 67bbb566ba07f8e892fafea7bb125e237cb33e53 passed ArenaRegression 54 default + 4 restart groups and ArenaCubeRegression 21 default + 1 restart groups (80 groups). Evidence: own .nikke/checks/20261114-234311-832299/tests.json.
+- Independent installer review led to SQLite integrity and logical table comparison through a consistent read-only online backup. A synthetic harness against the actual verification functions passed six cases: equal databases, modified Users/SdkUsers/Triggers, missing database and corrupt database. JSON-only verification had accepted the three modified-table fixtures before the fix.
+- An earlier isolated actual-save audit of the new higher-rank path at screenshot score 1807 offered all nine 1820-score rivals in 24 refreshes, versus none before the fix. A fresh audit will accompany the final release.
