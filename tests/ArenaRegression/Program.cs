@@ -60,7 +60,8 @@ if (args.Contains("--probe-live-readonly"))
     ulong npcId = (ulong)specialNpc["ID"]!;
     var special = await Read<ResGetSpecialArena>(npcId, "arena/special/get", new ReqGetSpecialArena());
     var rivals = await Read<ResGetSpecialArenaEnemyList>(npcId, "arena/special/getenemylist", new ReqGetSpecialArenaEnemyList());
-    Check(!special.IsBan && special.BanInfo == null && special.User.Tier > 0 && rivals.List2.Count > 0 && rivals.List2.All(r => r.RoundCharacter.Count == 15), "live special roster invalid");
+    var ranking = await Read<ResGetSpecialArenaTopRank>(npcId, "arena/special/toprank", new ReqGetSpecialArenaTopRank());
+    SpecialMatchmakingChecks.VerifySpecialProbe(special, rivals, ranking);
     foreach (var rival in rivals.List2)
     {
         var teams = await Read<ResGetSpecialArenaEnemyData>(npcId, "arena/special/getenemydata", new ReqGetSpecialArenaEnemyData { EnemyUsn = rival.User.User.Usn });

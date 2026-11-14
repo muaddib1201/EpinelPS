@@ -8,6 +8,12 @@ using Newtonsoft.Json;
 
 internal static class SpecialMatchmakingChecks
 {
+    internal static void VerifySpecialProbe(ResGetSpecialArena special, ResGetSpecialArenaEnemyList rivals, ResGetSpecialArenaTopRank ranking)
+    {
+        if (special.IsBan || special.BanInfo != null || special.User.Tier <= 0 || rivals.List2.Count == 0 ||
+            rivals.List2.Any(r => r.RoundCharacter.Count != 15)) throw new Exception("live special roster invalid");
+    }
+
     internal static async Task Run(Func<string, Func<Task>, Task> test,
         Func<ulong, string, IMessage, string?, Task<HttpResponseMessage>> send, DateTime now, string save)
     {
@@ -69,6 +75,9 @@ internal static class SpecialMatchmakingChecks
                 await Fixture(rank, 40, async (viewer, people) =>
                 {
                     var response = await Rivals(viewer);
+                    var entry = await Post<ResGetSpecialArena>(viewer.ID, "arena/special/get", new ReqGetSpecialArena());
+                    var ranking = await Post<ResGetSpecialArenaTopRank>(viewer.ID, "arena/special/toprank", new ReqGetSpecialArenaTopRank());
+                    VerifySpecialProbe(entry, response, ranking);
                     Check(response.List2.Count == rank - 1, "top rank offered lower opponents or incorrect target count");
                     Check(response.List2.Select(r => r.User.Rank).SequenceEqual(Enumerable.Range(1, rank - 1).Select(i => (long)i)), "top-rank opponents are not the higher battle ranks");
                     Check(viewer.Arena!.SpecialCount == 0, "empty or refreshed list consumed attempts");
@@ -88,6 +97,11 @@ internal static class SpecialMatchmakingChecks
                 var response = await Rivals(viewer);
                 Check(response.List2.Count == 3 && response.List2[0].User.Rank == 9 && response.List2[1].User.Rank == 10 &&
                     response.List2[2].User.Rank is >= 11 and <= 15, "diamond boundary did not use the actual higher tier ranges");
+            });
+            await Fixture(11, 40, async (viewer, people) =>
+            {
+                var response = await Rivals(viewer);
+                Check(response.List2.Select(r => r.User.Rank).SequenceEqual(new long[] { 8, 9, 10 }), "first diamond division did not offer challenger eight to ten");
             });
         });
         await test("special refresh covers all members of higher divisions without power or NPC preference", () => Fixture(31, 42, async (viewer, people) =>
