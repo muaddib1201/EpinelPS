@@ -125,6 +125,7 @@ finish.IsRestart = true;
 finish.EventTextAdvPlusEventPageTableIdList.Clear();
 finish.EventTextAdvPlusEventPageTableIdList.Add(6102);
 await Call<ResFinishMiniGameTextAdventurePlus>("/MiniGame/TextAdventurePlus/Finish", finish);
+Assert((await Call<ResFinishMiniGameTextAdventurePlus>("/MiniGame/TextAdventurePlus/Finish", finish)).PlayData.PlayCount == 3, "Retrying an IsRestart finish must not settle the still-active route twice");
 finish.IsRestart = false;
 finish.EventTextAdvPlusEventPageTableIdList.Clear();
 finish.EventTextAdvPlusEventPageTableIdList.Add(6103);
