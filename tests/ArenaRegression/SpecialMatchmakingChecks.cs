@@ -177,7 +177,9 @@ internal static class SpecialMatchmakingChecks
             foreach (var record in viewer.Arena.SpecialRecords.Select(NetSpecialArenaRecordData.Parser.ParseFrom))
             {
                 var target = people.Single(p => p.ID == (ulong)record.User.Usn);
-                Check(target.ManagedNpc != null && record.BeforeRank >= record.AfterRank, "NPC attacked a human or exchanged downward");
+                var defense = target.Arena!.SpecialRecords.Select(NetSpecialArenaRecordData.Parser.ParseFrom).Single(r => r.MatchId == record.MatchId);
+                Check(target.ManagedNpc != null && defense.BeforeRank < record.BeforeRank && record.BeforeRank >= record.AfterRank,
+                    "NPC attacked a human or selected a lower battle rank");
             }
             viewer.Arena.SpecialRank = 1; viewer.Arena.SpecialCount = 0; viewer.Arena.SpecialRecords.Clear();
             Check(Run() == 0 && viewer.Arena.SpecialCount == 0 && viewer.Arena.SpecialRecords.Count == 0, "top NPC wasted special attempts on lower ranks");
