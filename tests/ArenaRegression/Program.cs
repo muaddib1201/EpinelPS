@@ -135,6 +135,9 @@ app.MapPost("/v1/wallet/get", c => new EpinelPS.LobbyServer.Wallet.GetWallet().H
 app.MapPost("/v1/team/setteam", c => new EpinelPS.LobbyServer.Team.SetTeam().HandleAsync(c));
 app.MapPost("/v1/mail/obtain2", c => new EpinelPS.LobbyServer.LobbyUser.Mail.Obtain2().HandleAsync(c));
 app.MapPost("/v1/mail/allobtain", c => new EpinelPS.LobbyServer.LobbyUser.Mail.AllObtain().HandleAsync(c));
+app.MapPost("/v1/arena/champion/get", c => new EpinelPS.LobbyServer.Arena.GetChampion().HandleAsync(c));
+app.MapPost("/v1/badge/permanentcontent", c => new EpinelPS.LobbyServer.Badge.PermanentContent().HandleAsync(c));
+app.MapPost("/v1/arena/legacy/getbaninfo", c => new EpinelPS.LobbyServer.Arena.GetArenaBanInfo().HandleAsync(c));
 await app.StartAsync();
 using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single() + "/v1/") };
 int passed = 0, failed = 0;
@@ -189,6 +192,34 @@ if (restarting)
 }
 else
 {
+    await Test("unimplemented champion entry is terminally closed instead of a successful empty season", async () =>
+    {
+        var entry = await Post<ResGetChampionArena>(7001, "arena/champion/get", new ReqGetChampionArena());
+        Check(entry.IsBan && entry.BanInfo != null, "champion entry still reports an available tournament");
+        Check(entry.ChampionArenaContentsState == ChampionArenaContentsState.Closed,
+            "champion entry asks the client to load or refresh an unavailable season");
+        Check(entry.BanInfo.StartAt.ToDateTime() <= DateTime.UtcNow && entry.BanInfo.EndAt.ToDateTime() > DateTime.UtcNow,
+            "champion closure has no active maintenance interval");
+        Check(entry.BadgeData != null && entry.BadgeData.ChampionArenaContentsState == ChampionArenaContentsState.Closed,
+            "champion view construction receives missing or contradictory badge data");
+        Check(entry.Schedule != null && entry.Schedule.Equals(entry.BadgeData.Schedule), "entry and badge disagree on the champion schedule");
+        Check(!entry.BadgeData.CanTeamSet && !entry.BadgeData.HasBetCurrentRound && !entry.BadgeData.HasUncheckedBetting,
+            "unavailable champion tournament advertises playable or claimable content");
+    });
+    await Test("champion availability agrees across entry, badges and both ban-info paths without mutating players", async () =>
+    {
+        string before = JsonConvert.SerializeObject(State());
+        var entry = await Post<ResGetChampionArena>(7001, "arena/champion/get", new ReqGetChampionArena());
+        var badges = await Post<ResPermanentContentBadgeData>(7001, "badge/permanentcontent", new ReqPermanentContentBadgeData());
+        var legacyBan = await Post<ResGetArenaBanInfo>(7001, "arena/legacy/getbaninfo", new ReqGetArenaBanInfo());
+        Check(entry.BadgeData != null && entry.BadgeData.Equals(badges.ChampionArenaBadgeData), "badge refresh contradicts champion entry");
+        Check(legacyBan.RookieArenaBanInfo == null && legacyBan.SpecialArenaBanInfo == null && entry.BanInfo != null &&
+            entry.BanInfo.Equals(legacyBan.ChampionArenaBanInfo), "legacy ban info closes the working arenas or opens champion");
+        Check(before == JsonConvert.SerializeObject(State()), "champion availability requests changed player state");
+        var ban = await Post<ResGetArenaBanInfo>(7001, "arena/getbaninfo", new ReqGetArenaBanInfo());
+        Check(ban.RookieArenaBanInfo == null && ban.SpecialArenaBanInfo == null && entry.BanInfo.Equals(ban.ChampionArenaBanInfo),
+            "controller ban info contradicts champion entry");
+    });
     await Test("rookie entry is enabled with persisted five-character defense", async () =>
     {
         var r = await Post<ResGetArena>(7001, "arena/get", new ReqGetArena());
