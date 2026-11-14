@@ -712,6 +712,12 @@ if (!restarting)
         Check(JToken.DeepEquals(before, JToken.FromObject(State())), "unfinished tied match changed saved state");
     });
 }
+if (!restarting)
+    await RookieMatchmakingChecks.Run(Test,
+        id => Post<ResGetArenaEnemyList>(id, "arena/getenemylist", new ReqGetArenaEnemyList()),
+        id => Post<ResGetArena>(id, "arena/get", new ReqGetArena()),
+        id => Post<ResGetSpecialArenaEnemyList>(id, "arena/special/getenemylist", new ReqGetSpecialArenaEnemyList()),
+        clock.Now.UtcDateTime, save);
 Console.WriteLine($"Arena: {passed} PASS, {failed} FAIL");
 return failed == 0 ? 0 : 1;
 
