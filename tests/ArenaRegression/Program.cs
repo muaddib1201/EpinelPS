@@ -206,7 +206,7 @@ else
         Check(!entry.BadgeData.CanTeamSet && !entry.BadgeData.HasBetCurrentRound && !entry.BadgeData.HasUncheckedBetting,
             "unavailable champion tournament advertises playable or claimable content");
     });
-    await Test("champion availability agrees across entry, badges and both ban-info paths without mutating players", async () =>
+    await Test("champion entry and badge reads preserve player state and agree with both ban-info paths", async () =>
     {
         string before = JsonConvert.SerializeObject(State());
         var entry = await Post<ResGetChampionArena>(7001, "arena/champion/get", new ReqGetChampionArena());
@@ -216,6 +216,7 @@ else
         Check(legacyBan.RookieArenaBanInfo == null && legacyBan.SpecialArenaBanInfo == null && entry.BanInfo != null &&
             entry.BanInfo.Equals(legacyBan.ChampionArenaBanInfo), "legacy ban info closes the working arenas or opens champion");
         Check(before == JsonConvert.SerializeObject(State()), "champion availability requests changed player state");
+        // The existing controller also advances arena clocks; only compare its availability payload here.
         var ban = await Post<ResGetArenaBanInfo>(7001, "arena/getbaninfo", new ReqGetArenaBanInfo());
         Check(ban.RookieArenaBanInfo == null && ban.SpecialArenaBanInfo == null && entry.BanInfo.Equals(ban.ChampionArenaBanInfo),
             "controller ban info contradicts champion entry");
