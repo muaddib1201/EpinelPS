@@ -17,7 +17,7 @@ typeof(GameData).GetField("_instance", BindingFlags.NonPublic | BindingFlags.Sta
 await GameDataInitializer.InitializeGameData(new Progress<double>());
 var clock = Path.Combine(AppContext.BaseDirectory, "clock.json");
 bool resume = args.Contains("--resume");
-var now = resume ? JsonConvert.DeserializeObject<DateTime>(File.ReadAllText(clock)) : DateTime.UtcNow;
+var now = resume ? JsonConvert.DeserializeObject<DateTime>(File.ReadAllText(clock)) : DateTime.UtcNow.Date.AddHours(6);
 if (!resume) File.WriteAllText(clock, JsonConvert.SerializeObject(now));
 var season = new SoloRaidSeasonConfig { RaidId = 1000044, VisibleAt = now.AddDays(-5), StartAt = now.AddDays(-5), EndAt = now.AddDays(10), SettleAt = now.AddDays(10), DisableAt = now.AddDays(17) };
 typeof(GameConfig).GetField("_root", BindingFlags.NonPublic | BindingFlags.Static)!.SetValue(null, new GameConfigRoot { SoloRaidAutoSync = false, SoloRaidSeason = season });
@@ -209,6 +209,67 @@ Test("explicit-level CP reuses the formula without mutating the user", () =>
     int actual = (int)method!.Invoke(null, [npc, (long)npc.Characters[0].Csn, 400])!;
     var other = Copy(npc); other.Characters[0].Level = 400;
     Check(actual == FormulaUtils.CalculateCP(other, other.Characters[0].Csn) && actual > 0 && Inventory(npc) == before, "fixed-level formula differs or mutates account");
+});
+Test("completed populations share one season validation per worker tick", () =>
+{
+    Prepare(7); ManagedNpcService.Tick(now); var done = Copy(Npc());
+    int Reads(int count)
+    {
+        var core = Empty(); core.NpcManagement = new();
+        for (int i = 0; i < count; i++) { var npc = Copy(done); npc.ID += (ulong)i; core.Users.Add(npc); }
+        instance.SetValue(null, core); int reads = 0;
+        SoloRaidSeasonSource.Bind(new SoloRaidSeasonCatalog(() => { reads++; return data; }, Path.Combine(AppContext.BaseDirectory, "unused-season-cache.json")));
+        ManagedNpcService.Tick(now.AddMinutes(1)); return reads;
+    }
+    try
+    {
+        GameConfig.Root.SoloRaidAutoSync = true;
+        int one = Reads(1), many = Reads(50);
+        Check(one > 0 && many <= one + 1, $"completed NPCs repeated season validation: one={one}, fifty={many}");
+    }
+    finally { SoloRaidSeasonSource.Bind(null); GameConfig.Root.SoloRaidAutoSync = false; }
+});
+Test("partial SR squads receive valid cadence and 60s rotation beats no rotation", () =>
+{
+    int[] names = [5011, 5065, 5105];
+    var members = names.Select(n => rows.Single(r => r.NameCode == n)).ToArray();
+    var rarity = members.Select(r => r.OriginalRare).ToArray();
+    var skills = members.Select(r => data.CharacterSkills[r.UltiSkillId]).ToArray();
+    var cooldowns = skills.Select(s => s.SkillCooltime).ToArray();
+    long Score(int cooldown)
+    {
+        Prepare(7); Npc().Characters.RemoveAll(c => !names.Contains(data.CharacterTable[c.Tid].NameCode));
+        foreach (var row in members) row.OriginalRare = OriginalRareType.SR;
+        foreach (var skill in skills) skill.SkillCooltime = cooldown;
+        ManagedNpcService.Tick(now); return Best()?.TotalDamage ?? 0;
+    }
+    try
+    {
+        long fast = Score(2000), slow = Score(6000), broken = Score(6100);
+        Check(fast > slow && slow > broken && broken > 0, $"cadence is not valid or monotonic: 20s={fast}, 60s={slow}, broken={broken}");
+    }
+    finally
+    {
+        for (int i = 0; i < members.Length; i++) { members[i].OriginalRare = rarity[i]; skills[i].SkillCooltime = cooldowns[i]; }
+    }
+});
+Test("malformed challenge mode fixed level and secondary boss stats are rejected", () =>
+{
+    var trial = presets[7]; var mode = trial.DifficultyType; int level = trial.CharacterLv;
+    var wave = data.WaveIntercept001Table[trial.Wave]; var targets = wave.TargetList.ToList();
+    void Untouched()
+    {
+        Prepare(); string before = Snapshot(); ManagedNpcService.Tick(now);
+        Check(Snapshot() == before, "invalid challenge data consumed attempts or rewards");
+    }
+    try
+    {
+        trial.DifficultyType = DifficultyType.Common; Untouched(); trial.DifficultyType = mode;
+        trial.CharacterLv = 0; Untouched(); trial.CharacterLv = -1; Untouched(); trial.CharacterLv = level;
+        long missingStats = data.MonsterTable.Values.First(m => !data.MonsterStatEnhanceTable.Values.Any(s => s.GroupId == m.StatenhanceId && s.Lv == trial.MonsterStageLv && s.LevelHp > 0)).Id;
+        wave.TargetList.Add(missingStats); Untouched();
+    }
+    finally { trial.DifficultyType = mode; trial.CharacterLv = level; wave.TargetList = targets; }
 });
 await AsyncTest("committed raid checkpoint survives an independent process restart", async () =>
 {
