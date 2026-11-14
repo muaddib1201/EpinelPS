@@ -120,6 +120,45 @@ var separate = await Call<ResEnterMiniGameTextAdventurePlus>("/MiniGame/TextAdve
 Assert(separate.PlayData.PlayCount == 0 && separate.ReceivedEventTextAdvPlusProgressRewardIdList.Count == 0, "Minigame managers must have separate progress");
 Console.WriteLine("PASS: manager progress is isolated");
 
+await OpenRoute(11);
+finish.IsRestart = true;
+finish.EventTextAdvPlusEventPageTableIdList.Clear();
+finish.EventTextAdvPlusEventPageTableIdList.Add(6102);
+await Call<ResFinishMiniGameTextAdventurePlus>("/MiniGame/TextAdventurePlus/Finish", finish);
+finish.IsRestart = false;
+finish.EventTextAdvPlusEventPageTableIdList.Clear();
+finish.EventTextAdvPlusEventPageTableIdList.Add(6103);
+var restarted = await Call<ResFinishMiniGameTextAdventurePlus>("/MiniGame/TextAdventurePlus/Finish", finish);
+Assert(restarted.PlayData.PlayCount == 4 && restarted.PlayData.EventTextAdvPlusEventPageTableIdList.Contains(6103), "Restarting inside a route must preserve the next ending without requiring another Enter/Route");
+Assert((await Call<ResFinishMiniGameTextAdventurePlus>("/MiniGame/TextAdventurePlus/Finish", finish)).PlayData.PlayCount == 4, "Restarted finish retries must not increment play count");
+Console.WriteLine("PASS: restarting within a route preserves the following result and deduplicates retries");
+
+user = new User { ID = 2, Currency = [] };
+typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb", true)!.GetProperty("Instance")!.SetValue(null, new CoreInfo { Users = [user], BondRewardLevelsMigrated = true });
+db.Users.Add(new GameUser { ID = user.ID });
+db.SaveChanges();
+await OpenRoute(11);
+finish.EventTextAdvPlusEventPageTableIdList.Clear();
+finish.EventTextAdvPlusEventPageTableIdList.Add(8101);
+await Call<ResFinishMiniGameTextAdventurePlus>("/MiniGame/TextAdventurePlus/Finish", finish);
+var beforeFailure = JsonConvert.SerializeObject(user);
+var beforeTriggers = db.Triggers.Count();
+var blockingPath = Path.Combine(AppContext.BaseDirectory, "db.json.tmp");
+Directory.CreateDirectory(blockingPath);
+bool saveFailed = false;
+try
+{
+    await Call<ResClaimMiniGameTextAdventurePlusEndingAlbumReward>("/MiniGame/TextAdventurePlus/Reward/Ending", endingRequest);
+}
+catch (Exception e) when (e is IOException or UnauthorizedAccessException) { saveFailed = true; }
+finally { Directory.Delete(blockingPath); }
+Assert(saveFailed, "The injected JSON write failure must be observed");
+Assert(JsonConvert.SerializeObject(user) == beforeFailure, "Failed reward save must restore the exact player state, including an empty currency dictionary");
+Assert(db.Triggers.Count() == beforeTriggers, "Failed reward save must not leave SQLite music triggers behind");
+var recovered = await Call<ResClaimMiniGameTextAdventurePlusEndingAlbumReward>("/MiniGame/TextAdventurePlus/Reward/Ending", endingRequest);
+Assert(recovered.ReceivedEventTextAdvPlusEventPageTableIdList.SequenceEqual([8101]) && db.Triggers.Count() == beforeTriggers + 1, "Retry after a failed save must deliver one album reward and one trigger");
+Console.WriteLine("PASS: failed save rolls back music, claims and exact currency; retry delivers once");
+
 void Populate<T>(string fieldName, T[] rows)
 {
     if (typeof(GameData).GetField(fieldName)?.GetValue(data) is not System.Collections.IDictionary table) return;
