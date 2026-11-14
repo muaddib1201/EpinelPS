@@ -13,7 +13,12 @@ public abstract class TextAdventurePlusMessage<TRequest, TResponse> : LobbyMessa
     protected override async Task HandleAsync()
     {
         var request = await ReadData<TRequest>();
-        var user = GetUser();
+        var user = GetUser(UserId);
+        if (user == null)
+        {
+            ctx!.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
         var response = TextAdventurePlusService.Execute(user, ManagerId(request), (state, manager) => Process(user, state, manager, request), Saves);
         await WriteDataAsync(response);
     }
