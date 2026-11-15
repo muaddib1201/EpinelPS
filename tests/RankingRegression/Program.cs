@@ -5,6 +5,7 @@ using EpinelPS.Data;
 using EpinelPS.Database;
 using EpinelPS.LobbyServer;
 using EpinelPS.Models;
+using EpinelPS.Services;
 using Google.Protobuf;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -64,6 +65,86 @@ await Test("daily mission route cannot bypass ranking rewards",async()=>{try{awa
 await Test("actual character upgrades observe first crossing before a later higher score",async()=>{Targets(true);var table=RankingTable();table.Clear();table[10201]=new(){Id=10201,RankingType=RankingType.GroupPointElysion,ConditionValue=600,ServerRewardId=15000001};Add(self,1,1);Add(9802,1,1);foreach(var id in new ulong[]{self,9802}){var c=data.CharacterTable[Player(id).Characters[0].Tid];Player(id).Items.Add(new(){Isn=1,ItemType=c.PieceId,Count=3});}await Achievements(self);await Send<ResCharacterUpgrade>(self,"/character/upgrade",new ReqCharacterUpgrade{Csn=1,Isn=1,Count=1});await Send<ResCharacterUpgrade>(9802,"/character/upgrade",new ReqCharacterUpgrade{Csn=1,Isn=1,Count=2});var ranks=await Send<ResGetRankAchievementLeaderBoard>(self,"rankachievement",new ReqGetRankAchievementLeaderBoard{Type=2});Check(ranks.RankAchievement.Single(r=>r.Rank==1).User.Usn==(long)self,"later higher score stole first crossing");});
 await Test("NPC snapshot replacement cannot discard reserved milestone winners",async()=>{Targets(true);Add(self,1,1);Add(9802,1,11);Player(9802).ManagedNpc=new();var gate=typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb")!.GetField("SaveLock",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;Exception? error=null;Thread worker;lock(Player(9813)){worker=new Thread(()=>{try{Board(self,2).GetAwaiter().GetResult();}catch(Exception ex){error=ex;}});worker.Start();Check(SpinWait.SpinUntil(()=>worker.ThreadState.HasFlag(System.Threading.ThreadState.WaitSleepJoin),10000),"worker did not reach blocked snapshot");lock(gate)EpinelPS.Services.ManagedNpcService.Configure(false,1,DateTime.UtcNow);}Check(worker.Join(20000),"ranking snapshot retry deadlocked");if(error!=null)throw error;var current=Player(9802);var rank=Newtonsoft.Json.Linq.JObject.Parse(JsonConvert.SerializeObject(current))["Ranking"]?["Achievements"];Check(rank?.Count()==10,"NPC winner was written to detached object");await Task.CompletedTask;});
 await Test("rank frames stay locked until automatic reward mail is claimed",async()=>{Targets(true);Add(self,1,11);await Achievements(self);var frameIds=Player(self).MailDatas.Values.SelectMany(m=>m.Items).Select(i=>i.RewardId).ToHashSet();var before=await Send<ResGetProfileFrame>(self,"/User/GetProfileFrame",new ReqGetProfileFrame());Check(!before.Frames.Any(frameIds.Contains),"unclaimed ranking frames are already advertised as owned");var claim=await Send<ResAllObtainMail>(self,"/mail/allobtain",new ReqAllObtainMail());Check(claim.Reward.ProfileFrame.Count==3&&frameIds.All(Player(self).FrameList.Contains),"mail did not grant owned rank frames");var after=await Send<ResGetProfileFrame>(self,"/User/GetProfileFrame",new ReqGetProfileFrame());Check(frameIds.All(after.Frames.Contains),"earned frame missing from client catalogue");await Send<ResAllObtainMail>(self,"/mail/allobtain",new ReqAllObtainMail());Check(Player(self).FrameList.Count==3,"mail retry duplicated frame ownership");});
+await Test("NPC title awards use actual thresholds, full missions and committed history",() =>
+{
+    using var db = GameContext.CreateNew();
+    var npc = Player(9802);
+    npc.ManagedNpc = new() { Enabled = false, Seed = 42 };
+    npc.userPointData.UserLevel = 99;
+    npc.InfraCoreLvl = 19;
+    npc.SynchroSlots.Add(new() { Slot = 1 });
+    npc.FieldInfoNew["chapter25"] = new() { CompletedStages = [6024049] };
+    npc.ResearchProgress = new() { [1101] = new() { Level = 50 }, [1102] = new() { Level = 50 }, [1103] = new() { Level = 49 } };
+    npc.Arena = new() { SpecialRank = 1 };
+    npc.TitleId = 132;
+    npc.ProfileFrame = 7;
+    var human = Player(self);
+    human.TitleId = 132;
+    human.ProfileFrame = 7;
+    human.userPointData.UserLevel = 200;
+    string originalHuman = JsonConvert.SerializeObject(human);
+    db.Triggers.AddRange(new TriggerModelNew { UserId = npc.ID, Type = Trigger.SendFriendShipPoint, Value = 999 },
+        new TriggerModelNew { UserId = npc.ID, Type = Trigger.RookieArenaPlayCount, Value = 99 });
+    db.SaveChanges();
+    npc.PendingMissionTriggers.Add(new() { UserId = npc.ID, Type = Trigger.RookieArenaPlayCount, Value = 99 });
+    ManagedNpcService.RefreshProfileRewards(db);
+    Check(npc.TitleList.SequenceEqual([1]) && npc.FrameList.SequenceEqual([1]) && npc.TitleId == 1 && npc.ProfileFrame == 1,
+        "an unlocked slot, partial chapter/research, an outbox replay or a current arena rank unlocked an unearned reward");
+    npc.userPointData.UserLevel++;
+    npc.InfraCoreLvl++;
+    npc.SynchroDeviceUpgraded = true;
+    npc.FieldInfoNew["chapter25"].CompletedStages.Add(6024050);
+    npc.ResearchProgress[1103].Level++;
+    foreach (int id in new[] { 1, 2, 3 }) npc.LiberateDatas[id] = new() { CharacterId = id, IsCompleted = id != 3 };
+    db.Triggers.AddRange(new TriggerModelNew { UserId = npc.ID, Type = Trigger.SendFriendShipPoint, Value = 1 },
+        new TriggerModelNew { UserId = npc.ID, Type = Trigger.RookieArenaPlayCount, Value = 1 });
+    db.SaveChanges();
+    ManagedNpcService.RefreshProfileRewards(db);
+    Check(npc.TitleList.ToHashSet().SetEquals([1,11,12,13,14,18,19,21]) && npc.TitleId != 1 && npc.TitleList.Contains(npc.TitleId),
+        "the official mission rewards or chapter table ID 26 (display chapter 25) did not resolve");
+    npc.LiberateDatas[3].IsCompleted = true;
+    npc.FrameList.Add(20); // A frame received from a separate reward source.
+    ManagedNpcService.RefreshProfileRewards(db);
+    Check(npc.TitleList.Contains(25) && npc.ProfileFrame == 20 && JsonConvert.SerializeObject(human) == originalHuman,
+        "completed rehabilitation, an independently owned frame or the human profile was mishandled");
+    return Task.CompletedTask;
+});
+await Test("old NPC ranking receipts grant real frames once and survive failed writes and reloads", async () =>
+{
+    Targets(true);
+    var npc = Player(9802);
+    npc.ManagedNpc = new() { Seed = 13 };
+    npc.userPointData.UserLevel = 100;
+    Add(npc.ID, 1, 11);
+    await Achievements(self);
+    Check(npc.Ranking!.MailedCumulativeRewards.SetEquals([60001,60004,60007]) && npc.FrameList.Count == 0, "missing legacy ranking fixture");
+    using var db = GameContext.CreateNew();
+    var before = JsonConvert.SerializeObject(npc);
+    Directory.CreateDirectory(jsonPath + ".tmp");
+    try
+    {
+        bool failedSave = false;
+        try { ManagedNpcService.RefreshProfileRewards(db); }
+        catch (IOException) { failedSave = true; }
+        catch (UnauthorizedAccessException) { failedSave = true; }
+        Check(failedSave && JsonConvert.SerializeObject(npc) == before, "failed save retained a partial cosmetic grant");
+    }
+    finally { Directory.Delete(jsonPath + ".tmp"); }
+    ManagedNpcService.RefreshProfileRewards(db);
+    Check(npc.FrameList.ToHashSet().SetEquals([1,7,10,13]) && npc.ProfileFrame != 1 && npc.FrameList.Contains(npc.ProfileFrame),
+        "top 1/5/10 cumulative frame awards did not follow their reward tables");
+    var board = (await Board(self, 2)).RankingList.Single().User;
+    var profile = (await Send<ResGetProfileData>(self, "/User/GetProfile", new ReqGetProfileData { TargetUsn = (long)npc.ID })).Data.User;
+    Check(board.Frame == npc.ProfileFrame && profile.Frame == board.Frame && board.UserTitleId == 12 && profile.UserTitleId == 12,
+        "board and profile must expose the same persisted equipment");
+    string saved = File.ReadAllText(jsonPath);
+    property.SetValue(null, JsonConvert.DeserializeObject<CoreInfo>(saved)!);
+    Directory.CreateDirectory(jsonPath + ".tmp");
+    try { ManagedNpcService.RefreshProfileRewards(db); } // A retry with no changes must not write.
+    finally { Directory.Delete(jsonPath + ".tmp"); }
+    Check(Player(npc.ID).TitleId == profile.UserTitleId && Player(npc.ID).ProfileFrame == profile.Frame &&
+        Player(npc.ID).FrameList.SequenceEqual(npc.FrameList) && File.ReadAllText(jsonPath) == saved, "reload changed ownership or equipment");
+});
 await Test("five tower boards return literal floors in overview detail and personal rows",async()=>
 {
     var types=new[]{CorporationTowerType.ALL,CorporationTowerType.MISSILIS,CorporationTowerType.ELYSION,CorporationTowerType.TETRA,CorporationTowerType.OVERSPEC};

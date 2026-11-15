@@ -12,12 +12,14 @@ internal sealed class ManagedNpcWorker(IServiceScopeFactory scopes, ILogger<Mana
             try
             {
                 using var scope = scopes.CreateScope();
-                ManagedNpcService.Recover(scope.ServiceProvider.GetRequiredService<GameContext>());
+                var db = scope.ServiceProvider.GetRequiredService<GameContext>();
+                ManagedNpcService.Recover(db);
                 LobbyServer.Ranking.RankingService.ObserveSafely();
                 ManagedNpcService.UpgradeBreakthroughs();
                 ManagedNpcService.UpgradeGrowth();
                 ManagedNpcService.UpgradeRosters(DateTime.UtcNow);
                 ManagedNpcService.UpgradeSocial(DateTime.UtcNow);
+                ManagedNpcService.RefreshProfileRewards(db);
                 ManagedNpcService.Tick(DateTime.UtcNow);
                 LobbyServer.Ranking.RankingService.ObserveSafely();
             }

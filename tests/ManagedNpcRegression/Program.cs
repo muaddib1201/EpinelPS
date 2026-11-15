@@ -43,6 +43,8 @@ if (args.Contains("--verify-saved"))
     using var context = GameContext.CreateNew();
     var restartNpcs = restartCore.Users.Where(u => u.ManagedNpc != null).ToArray();
     Check(restartNpcs.Length == 32 && restartCore.NpcManagement!.PendingUsers.Count == 0, "restart must retain completed creation batches");
+    Check(restartNpcs.All(u => u.TitleList.Contains(u.TitleId) && u.FrameList.Contains(u.ProfileFrame)) &&
+        restartNpcs.Any(u => u.TitleId != 1 && u.ProfileFrame != 1), "restart must retain owned and equipped NPC cosmetics");
     Check(restartNpcs.All(u => context.Users.Any(p => p.ID == u.ID) && !context.SdkUsers.Any(s => s.ID == u.ID)), "restart profiles must exist without login accounts");
     long beforeActions = restartNpcs.Sum(u => u.ManagedNpc!.TotalActions);
     Check(EpinelPS.Services.ManagedNpcService.EnsureInitial(context, DateTime.UtcNow) == 0, "initial seed must be idempotent across process restarts");

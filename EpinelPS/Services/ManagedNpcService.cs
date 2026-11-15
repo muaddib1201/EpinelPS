@@ -89,11 +89,14 @@ public static partial class ManagedNpcService
             settings.PendingRequestId = requestId;
             var reserved = JsonDb.Instance.Users.Select(u => u.ID).Concat(db.Users.Select(u => u.ID))
                 .Concat(db.SdkUsers.Select(u => u.ID)).ToHashSet();
+            var profileRewards = new ProfileRewardCatalogue(GameData.Instance);
             ulong uid = 1_500_000_000;
             for (int i = 0; i < count; i++)
             {
                 while (reserved.Contains(uid)) uid++;
-                settings.PendingUsers.Add(ManagedNpcFactory.Create(uid, existing + i, now));
+                var npc = ManagedNpcFactory.Create(uid, existing + i, now);
+                profileRewards.EarnedBy(npc).Apply(npc);
+                settings.PendingUsers.Add(npc);
                 reserved.Add(uid++);
             }
             var guilds = JsonDb.Instance.Guilds.Values.Where(g => g.ManagedNpcGuild).Select(g => g.Data.Gsn).ToList();

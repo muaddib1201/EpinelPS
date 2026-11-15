@@ -59,6 +59,21 @@ internal static class HttpChecks
         Check(locked.Result == JoinGuildResult.InvalidLevel, "union join level must be enforced");
         union.Data.JoinLevel = previousLevel;
         var founder = core.Users.First(u => u.Guild.guildId == guildId && u.Guild.MemberType == 1);
+        var veteran = core.Users.First(u => u.ManagedNpc != null && u.userPointData.UserLevel >= 100 &&
+            u.LastNormalStageCleared >= 6011018 && u.Characters.Count >= 15);
+        veteran.Ranking ??= new();
+        veteran.Ranking.MailedCumulativeRewards.Add(60007);
+        ManagedNpcService.RefreshProfileRewards(db);
+        var specialBoard = await Send("/v1/arena/special/toprank", new ReqGetSpecialArenaTopRank(), ResGetSpecialArenaTopRank.Parser, veteran.ID);
+        var rookieBoard = await Send("/v1/arena/toprank", new ReqGetArenaTopRank(), ResGetArenaTopRank.Parser, veteran.ID);
+        foreach (var board in new[] { specialBoard.RankList, rookieBoard.RankList })
+        {
+            var shown = board.Single(r => r.User.Usn == (long)veteran.ID).User;
+            Check(shown.UserTitleId != 1 && shown.UserTitleId == veteran.TitleId && veteran.TitleList.Contains(shown.UserTitleId) &&
+                shown.Frame != 1 && shown.Frame == veteran.ProfileFrame && veteran.FrameList.Contains(shown.Frame),
+                "arena rankings must display the NPC's owned, equipped title and frame");
+        }
+        Console.WriteLine("PASS: rookie and special arena rankings show the NPC's equipped title and avatar frame");
         var masterLeave = await Send("/v1/guild/leave", new ReqLeaveGuild { Gsn = guildId }, ResLeaveGuild.Parser, founder.ID);
         Check(masterLeave.Result == LeaveGuildResult.MasterCantLeave, "NPC master must not leave and orphan the union");
         var anonymous = await client.GetAsync("/admin/ManagedNpcs");
