@@ -145,6 +145,7 @@ app.MapPost("/v1/mail/obtain2", c => new EpinelPS.LobbyServer.LobbyUser.Mail.Obt
 app.MapPost("/v1/mail/allobtain", c => new EpinelPS.LobbyServer.LobbyUser.Mail.AllObtain().HandleAsync(c));
 app.MapPost("/v1/arena/champion/get", c => new EpinelPS.LobbyServer.Arena.GetChampion().HandleAsync(c));
 app.MapPost("/v1/badge/permanentcontent", c => new EpinelPS.LobbyServer.Badge.PermanentContent().HandleAsync(c));
+app.MapPost("/v1/badge/record/content", c => LobbyHandler.DispatchSingle(c));
 app.MapPost("/v1/arena/legacy/getbaninfo", c => new EpinelPS.LobbyServer.Arena.GetArenaBanInfo().HandleAsync(c));
 await app.StartAsync();
 using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single() + "/v1/") };
@@ -743,10 +744,87 @@ if (!restarting)
         Check(JToken.DeepEquals(before, JToken.FromObject(State())), "unfinished tied match changed saved state");
     });
 }
+if (restarting)
+{
+    await Test("arena reminder acknowledgement survives a server restart", async () =>
+    {
+        Check(await ArenaRemindersQuiet(7020), "an acknowledged rookie entry returned after restart");
+        var entry = await Post<ResGetArena>(7020, "arena/get", new ReqGetArena());
+        Check(entry.ArenaCount == 0, "acknowledging a reminder spent a free entry");
+    });
+}
+else
+{
+    await Test("rank one after a claim stays quiet at 5% with either two or zero free special attempts", async () =>
+    {
+        const ulong id = 7019;
+        var arena = Player(id).Arena!;
+        arena.RookieCount = 5;
+        arena.SpecialRank = 1;
+        arena.ChipScaled = 463 * 10000m;
+        await Post<ResObtainSpecialArenaReward>(id, "arena/special/obtainreward", new ReqObtainSpecialArenaReward());
+        foreach (var used in new[] { 0, 2 })
+        {
+            arena.SpecialCount = used;
+            arena.ChipScaled = 500 * 10000m;
+            var special = await Post<ResGetSpecialArena>(id, "arena/special/get", new ReqGetSpecialArena());
+            var opponents = await Post<ResGetSpecialArenaEnemyList>(id, "arena/special/getenemylist", new ReqGetSpecialArenaEnemyList());
+            var reward = await Post<ResShowSpecialArenaReward>(id, "arena/special/showreward", new ReqShowSpecialArenaReward());
+            Check(special.SpecialArenaCount == used && special.User.Rank == 1 && opponents.List2.Count == 0 &&
+                reward.Reward.Currency.Single(c => c.Type == 5000).Value == 500, "changed the rank, tickets, opponents or available chips");
+            Check(await ArenaRemindersQuiet(id), $"special badge due after a claim with {2 - used} free attempts");
+        }
+        arena.ChipScaled = 9000 * 10000m;
+        Check(await ArenaRemindersQuiet(id), "same-day refill rearmed an already claimed reward");
+    });
+    await Test("arena overview prefetch preserves separate daily reminders at the reward boundary", async () =>
+    {
+        const ulong id = 7020;
+        var arena = Player(id).Arena!;
+        arena.RewardHistory.Clear();
+        arena.RookieCount = 0;
+        arena.SpecialCount = 2;
+        arena.ChipScaled = 4999 * 10000m;
+        await Post<ResGetArena>(id, "arena/get", new ReqGetArena());
+        await Post<ResGetSpecialArena>(id, "arena/special/get", new ReqGetSpecialArena());
+        await Post<ResRecordContentEnter>(id, "badge/record/content", new ReqRecordContentEnter { ContentType = NetEnteredContentType.Arena });
+        await Post<ResGetSpecialArenaEnemyList>(id, "arena/special/getenemylist", new ReqGetSpecialArenaEnemyList());
+        Check(!await ArenaRemindersQuiet(id), "opening the overview or special arena acknowledged rookie");
+        await Post<ResGetArenaEnemyList>(id, "arena/getenemylist", new ReqGetArenaEnemyList());
+        Check(await ArenaRemindersQuiet(id), "rookie visit did not clear the last reminder below half capacity");
+        arena.ChipScaled = 5000 * 10000m;
+        Check(!await ArenaRemindersQuiet(id), "an early special visit consumed the later 50% reminder");
+        await Post<ResGetArenaEnemyList>(id, "arena/getenemylist", new ReqGetArenaEnemyList());
+        Check(!await ArenaRemindersQuiet(id), "revisiting rookie cleared the pending special reminder");
+        await Post<ResGetSpecialArenaEnemyList>(id, "arena/special/getenemylist", new ReqGetSpecialArenaEnemyList());
+        Check(await ArenaRemindersQuiet(id) && await ArenaRemindersQuiet(id), "handled reminders returned on refresh");
+        Check(arena.RookieCount == 0 && arena.SpecialCount == 2 && arena.ChipScaled == 5000 * 10000m,
+            "badge handling changed gameplay data");
+        var present = clock.Now;
+        try
+        {
+            var reset = new DateTimeOffset(present.UtcDateTime.Date.AddHours(State().ResetHourUtcTime), TimeSpan.Zero);
+            if (reset <= present) reset = reset.AddDays(1);
+            clock.Now = reset.AddTicks(-1);
+            Check(await ArenaRemindersQuiet(id), "reminders rearmed before game-day reset");
+            clock.Now = reset;
+            Check(!await ArenaRemindersQuiet(id), "reminders failed to rearm at the game-day reset");
+        }
+        finally { clock.Now = present; }
+    });
+}
 Console.WriteLine($"Arena: {passed} PASS, {failed} FAIL");
 return failed == 0 ? 0 : 1;
 
 async Task Test(string name, Func<Task> body) { try { await body(); passed++; Console.WriteLine("PASS: " + name); } catch (Exception e) { failed++; Console.WriteLine("FAIL: " + name + ": " + e.Message); } }
+async Task<bool> ArenaRemindersQuiet(ulong id)
+{
+    var badges = await Post<ResPermanentContentBadgeData>(id, "badge/permanentcontent", new ReqPermanentContentBadgeData());
+    var entry = badges.ContentEnterTimes.SingleOrDefault(t => t.ContentType == NetEnteredContentType.Arena);
+    var reset = clock.Now.UtcDateTime.Date.AddHours(State().ResetHourUtcTime);
+    if (reset > clock.Now.UtcDateTime) reset = reset.AddDays(-1);
+    return entry?.EnteredAt?.ToDateTime() >= reset;
+}
 void Check(bool ok, string message) { if (!ok) throw new Exception(message); }
 async Task<HttpResponseMessage> Send(ulong id, string route, IMessage request, string? nonce = null)
 {
