@@ -1,5 +1,6 @@
 using EpinelPS.Data;
 using EpinelPS.Database;
+using EpinelPS.Services;
 
 namespace EpinelPS.LobbyServer.Event;
 
@@ -11,10 +12,11 @@ public class EventLoginGet : LobbyMessage
         ReqLoginEventData req = await ReadData<ReqLoginEventData>();
         User user = GetUser();
         int evId = req.EventId;
+        long end = EventScheduleService.GetEndUtc(JsonDb.Instance, evId, DateTime.UtcNow, legacyDays: 13).Ticks;
         ResLoginEventData response = new()
         {
-            EndDate = DateTime.Now.AddDays(13).Ticks,
-            DisableDate = DateTime.Now.AddDays(13).Ticks,
+            EndDate = end,
+            DisableDate = end,
             LastAttendance = new LoginEventAttendance()
         }; // fields "EndDate", "DisableDate", "RewardHistories", "LastAttendance"
         // Check if event exists

@@ -34,6 +34,10 @@ public class CoreInfo
     /// </summary>
     public List<int> ActiveEventBannerIds { get; set; } = [];
 
+    // Main event ID -> fixed UTC deadline shared by every linked child.
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public Dictionary<int, DateTime> EventEndUtc { get; set; } = [];
+
     // MARIA-n's announced opening, 2026-10-29 at 07:00 UTC+9. Private reruns can set their own start.
     public Dictionary<int, DateTime> ChallengeEventStartUtc { get; set; } = new()
     {

@@ -3,6 +3,7 @@ using EpinelPS.Database;
 using EpinelPS.Utils;
 using log4net;
 using Newtonsoft.Json;
+using EpinelPS.Services;
 
 namespace EpinelPS.LobbyServer.Event;
 
@@ -243,19 +244,8 @@ public class EventHelper
     internal static DateTime GetEventStart(int eventId, DateTime nowUtc) =>
         JsonDb.Instance.ChallengeEventStartUtc.GetValueOrDefault(eventId, nowUtc.AddDays(-21));
 
-    private static DateTime GetEventEnd(int eventId, DateTime nowUtc)
-    {
-        const int mariaN = 83500;
-        if (eventId == mariaN ||
-            GameData.Instance.eventManagers.TryGetValue(eventId, out var record) &&
-            (record.ParentsEventId == mariaN || record.SetField == mariaN))
-        {
-            // Wiki / official MARIA-n schedule: Nov 19, 2026 04:59:59 UTC+9.
-            // Keep the deadline fixed even after expiry; refreshing must never extend it.
-            return new DateTime(2026, 11, 18, 19, 59, 59, DateTimeKind.Utc);
-        }
-        return nowUtc.AddDays(30);
-    }
+    private static DateTime GetEventEnd(int eventId, DateTime nowUtc) =>
+        EventScheduleService.GetEndUtc(JsonDb.Instance, eventId, nowUtc);
 
     private static void AddEvents(ref ResGetEventList response, List<NetEventData> eventDatas)
     {
