@@ -749,6 +749,8 @@ if (restarting)
     await Test("arena reminder acknowledgement survives a server restart", async () =>
     {
         Check(await ArenaRemindersQuiet(7020), "an acknowledged rookie entry returned after restart");
+        Check(await ArenaEnteredAt(7019) == clock.Now.AddHours(4).UtcDateTime,
+            "restart lost the later overview visit after local midnight");
         var entry = await Post<ResGetArena>(7020, "arena/get", new ReqGetArena());
         Check(entry.ArenaCount == 0, "acknowledging a reminder spent a free entry");
     });

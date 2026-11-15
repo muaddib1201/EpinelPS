@@ -55,13 +55,19 @@ internal sealed partial class ArenaService
             DateTime? claimedAt = LastBoxClaim(arena);
             bool due = RookieReminderDue(player, dayStart) || SpecialReminderDue(player, at, dayStart, claimedAt);
 
-            // This badge message has one Arena day marker. Send an explicit old day
-            // when a reward newly crosses half capacity after the earlier all-clear.
-            // The projection only affects this badge response, never gameplay or history.
-            var marker = due ? DateTime.UnixEpoch : new[] {
-                dayStart, arena.OverviewEnteredUtc.GetValueOrDefault(), arena.RookieReminderSeenUtc.GetValueOrDefault(),
-                arena.SpecialReminderSeenUtc.GetValueOrDefault(), claimedAt.GetValueOrDefault()
-            }.Max();
+            var marker = arena.OverviewEnteredUtc.GetValueOrDefault();
+            if (due)
+            {
+                // The shared Arena reminder uses an older game day while either mode is due.
+                marker = DateTime.UnixEpoch;
+            }
+            else if (marker < dayStart)
+            {
+                // Direct entry into a mode and older saves can have a daily acknowledgement
+                // without a recorded overview visit. Preserve their quiet marker.
+                marker = new[] { dayStart, arena.RookieReminderSeenUtc.GetValueOrDefault(),
+                    arena.SpecialReminderSeenUtc.GetValueOrDefault(), claimedAt.GetValueOrDefault() }.Max();
+            }
             return new NetContentEnterTimeData { ContentType = NetEnteredContentType.Arena, EnteredAt = Timestamp.FromDateTime(marker) };
         }
     }
@@ -73,8 +79,8 @@ internal sealed partial class ArenaService
         {
             if (JsonDb.GetUser(player.ID) != player || player.Arena is not { } arena) return;
             DateTime at = BadgeClock(utc);
-            if (arena.OverviewEnteredUtc >= NextDay(at).AddDays(-1)) return;
             var previous = arena.OverviewEnteredUtc;
+            if (previous >= at) return;
             arena.OverviewEnteredUtc = at;
             try { JsonDb.Save(); }
             catch { arena.OverviewEnteredUtc = previous; throw; }
