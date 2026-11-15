@@ -69,6 +69,12 @@ Check(saved.Users.Count(u => u.Guild.guildId != null) == 30, "initial population
 Check(db.SdkUsers.Count() == 0, "NPCs must not receive login accounts");
 Check(db.Users.Count() == 31 && db.Users.Find(1UL)!.Nickname == "Human", "SQL profiles must preserve humans");
 var npcs = saved.Users.Where(u => u.ID != 1).ToArray();
+Check(npcs.All(u => u.TitleList.Contains(1) && u.FrameList.Contains(1) &&
+    u.TitleList.Contains(u.TitleId) && u.FrameList.Contains(u.ProfileFrame)),
+    "new NPCs must own their default and equipped profile rewards");
+Check(npcs.Where(u => u.userPointData.UserLevel >= 100).All(u => u.TitleList.Contains(12) && u.TitleId != 1) &&
+    npcs.Where(u => u.userPointData.UserLevel < 100).All(u => !u.TitleList.Contains(12)),
+    "Veteran must be awarded at commander level 100");
 Check(npcs.Select(u => u.LastNormalStageCleared).Distinct().Count() > 10, "NPC progress should vary");
 Check(npcs.Select(u => u.userPointData.UserLevel).Distinct().Count() > 10, "NPC levels should vary");
 foreach (var user in npcs)
