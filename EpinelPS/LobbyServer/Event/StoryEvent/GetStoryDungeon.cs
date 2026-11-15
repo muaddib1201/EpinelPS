@@ -1,51 +1,26 @@
 ﻿using EpinelPS.Data;
-using EpinelPS.Database;
 
 namespace EpinelPS.LobbyServer.Event.StoryEvent;
 
 [GameRequest("/event/storydungeon/get")]
-public class GetStoryDungeon : LobbyMessage
+public class GetStoryDungeon : StoryDungeonMessage
 {
     protected override async Task HandleAsync()
     {
-        ReqStoryDungeonEventData req = await ReadData<ReqStoryDungeonEventData>();
-        User user = GetUser();
-
-        // Get user event data, if not exist, create new one
-        if (!user.EventInfo.TryGetValue(req.EventId, out EventData? eventData))
+        var req = await ReadData<ReqStoryDungeonEventData>();
+        await Reply(req.EventId, story =>
         {
-            eventData = new() { LastDay = user.GetDateDay(), FreeTicket = 5 };
-            user.EventInfo.TryAdd(req.EventId, eventData);
-        }
-
-
-        ResStoryDungeonEventData response = new()
-        {
-            RemainTicket = EventStoryHelper.GetTicket(user, req.EventId),
-            TeamData = new NetUserTeamData
+            var state = story.State;
+            var response = new ResStoryDungeonEventData
             {
-                Type = (int)TeamType.StoryEvent
-            },
-        };
-
-        if (user.UserTeams.TryGetValue((int)TeamType.StoryEvent, out NetUserTeamData? teamData))
-        {
-            response.TeamData = teamData;
-        }
-        foreach (var stageId in eventData.ClearedStages)
-        {
-            response.LastClearedEventStageList.Add(new NetLastClearedEventStageData()
-            {
-                StageId = stageId
-            });
-        }
-        response.LastClearedEventStageList.Add(new NetLastClearedEventStageData()
-        {
-            StageId = eventData.LastStage
+                RemainTicket = story.Balance,
+                TeamData = story.User.UserTeams.GetValueOrDefault((int)TeamType.StoryEvent)?.Clone()
+                    ?? new NetUserTeamData { Type = (int)TeamType.StoryEvent }
+            };
+            foreach (var stageId in state.ClearedStages)
+                response.LastClearedEventStageList.Add(new NetLastClearedEventStageData { StageId = stageId });
+            response.LastClearedEventStageList.Add(new NetLastClearedEventStageData { StageId = state.LastStage });
+            return response;
         });
-        // TODO
-
-        JsonDb.Save();
-        await WriteDataAsync(response);
     }
 }
