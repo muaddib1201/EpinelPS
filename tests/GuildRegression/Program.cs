@@ -46,7 +46,7 @@ if (!restarting)
         })).ToArray();
     var collector = users.Single(u => u.ID == founder);
     collector.Memorial = [100101, 100102, 100101, 100201, 100301, 100401, 200101, 0, int.MaxValue];
-    collector.JukeboxBgm = [1, 2, 1, 4001, int.MaxValue];
+    collector.JukeboxBgm = [1, 2, 1, 9300001, 4001, int.MaxValue];
     // An old save has users and wallets, but no guild registry.
     var legacySave = JObject.FromObject(new { DbVersion = 5, Users = users });
     legacySave["Users"]![1]!["Guild"] = JValue.CreateNull();
@@ -235,14 +235,14 @@ await Test("self and visiting profiles count distinct owned relics by series", a
     var empty = await Read(founder, "User/GetProfile", new ReqGetProfileData { TargetUsn = (long)other }, ResGetProfileData.Parser);
     Check(empty.Data.MemorialCount.Count == 0, "an empty collection displayed the viewer's relics");
 });
-await Test("profile BGM totals match the viewed player's unlocked jukebox catalogue", async () => {
-    int defaultCount = data.jukeboxListDataRecords.Values.Count(song => song.IsDefaultBgm);
-    foreach (var (target, earned) in new[] { (founder, 2), (other, 0) })
+await Test("profile BGM counts acquired tracks from the campaign and events, excluding default music", async () => {
+    var library = await Read(founder, "User/GetWallpaper", new ReqGetWallpaper(), ResGetWallpaper.Parser);
+    Check(library.JukeboxIdList.Contains(4001) && library.JukeboxIdList.Contains(9300001),
+        "the jukebox should still offer both the default track and the earned event track");
+    foreach (var (target, earned) in new[] { (founder, 3), (other, 0) })
     {
-        var library = await Read(target, "User/GetWallpaper", new ReqGetWallpaper(), ResGetWallpaper.Parser);
         var profile = await Read(other, "User/GetProfile", new ReqGetProfileData { TargetUsn = (long)target }, ResGetProfileData.Parser);
-        Check(library.JukeboxIdList.Count == defaultCount + earned && profile.Data.JukeboxCount == library.JukeboxIdList.Count,
-            $"profile reported {profile.Data.JukeboxCount}, jukebox has {library.JukeboxIdList.Count}, expected {defaultCount + earned}");
+        Check(profile.Data.JukeboxCount == earned, $"profile reported {profile.Data.JukeboxCount}, expected {earned} acquired tracks");
     }
 });
 await Test("a new grade-one guild has an inactive raid with no attempts used", async () => {
