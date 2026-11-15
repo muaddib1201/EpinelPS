@@ -67,6 +67,8 @@ else
     var receipt = ResCreateGuild.Parser.ParseFrom(Convert.FromBase64String((string)guild["CreationReceipt"]!));
     receipt.Members[0].SendMailAt = null;
     receipt.Members[0].UserTitleDisplayData = null;
+    receipt.Guild.UnionRaidTier = 0;
+    receipt.Guild.UnionRaidTierNumber = 0;
     guild["CreationReceipt"] = Convert.ToBase64String(receipt.ToByteArray());
     File.WriteAllText(save, snapshot.ToString());
 }
@@ -191,6 +193,8 @@ if (restarting) await Test("the original creation receipt survives a process res
     Check(r.Guild?.Gsn == Saved(913).Guild.guildId && r.Members.Single().Usn == 913 && r.Currencies.Single().Value == 300, "saved receipt missing");
     Check(r.Members[0].SendMailAt != null && r.Members[0].UserTitleDisplayData != null &&
           Saved(913).Currency[CurrencyType.FreeCash] == 300, "legacy receipt replay lost member details or charged again");
+    Check(r.Guild.UnionRaidTier == 6 && r.Guild.UnionRaidTierNumber == 0,
+          "legacy receipt replay returned an invalid unranked tier");
 });
 await Test("login, account refresh and reopening the guild recover the same membership", async () => {
     var login = await Read(founder, "enterlobbyserver", new ReqEnterLobbyServer(), ResEnterLobbyServer.Parser);
@@ -392,6 +396,7 @@ await Test("legacy unranked unions return the localized beginner tier without ch
     try
     {
         guild.Data.UnionRaidTier = 0; guild.Data.UnionRaidTierNumber = 0;
+        guild.Data.ActivityPointDaily = -123;
         jsonDb.GetMethod("Save")!.Invoke(null, null);
         var own = await Read(941, "guild/get", new ReqGetGuild { Gsn = id }, ResGetGuild.Parser);
         var visible = await Read(other, "guild/publicinfo", new ReqGetGuildPublicInfo { Gsn = id }, ResGetGuildPublicInfo.Parser);
@@ -400,6 +405,9 @@ await Test("legacy unranked unions return the localized beginner tier without ch
         Check(own.Guild.UnionRaidTier == 6 && own.Guild.UnionRaidTierNumber == 0 && visible.Guild.UnionRaidTier == 6 &&
               list.Guilds.Single(g => g.Gsn == id).UnionRaidTier == 6 && search.Guilds.Single().UnionRaidTier == 6,
               "an unranked union returned a missing tier instead of localized beginner");
+        Check(own.Guild.ActivityPointDaily == guild.Data.ActivityPointDaily &&
+              visible.Guild.ActivityPointDaily == guild.Data.ActivityPointDaily,
+              "normalizing the rank returned activity values from before the member refresh");
         Check(guild.Data.UnionRaidTier == 0 && SavedSettings(id).UnionRaidTier == 0,
               "reading a default rank rewrote the saved raid result");
         guild.Data.UnionRaidTier = 0; guild.Data.UnionRaidTierNumber = 1;
