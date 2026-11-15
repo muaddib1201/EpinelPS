@@ -132,6 +132,8 @@ app.Use(async (ctx, next) =>
 });
 app.MapControllers();
 app.MapPost("/v1/User/Get", c => new EpinelPS.LobbyServer.LobbyUser.GetUser().HandleAsync(c));
+app.MapPost("/v1/lobby/usertitle/get", c => new EpinelPS.LobbyServer.LobbyUser.GetUserTitle().HandleAsync(c));
+app.MapPost("/v1/lobby/usertitle/set", c => new EpinelPS.LobbyServer.LobbyUser.SetUserTitleData().HandleAsync(c));
 app.MapPost("/v1/wallet/get", c => new EpinelPS.LobbyServer.Wallet.GetWallet().HandleAsync(c));
 app.MapPost("/v1/team/setteam", c => new EpinelPS.LobbyServer.Team.SetTeam().HandleAsync(c));
 app.MapPost("/v1/mail/obtain2", c => new EpinelPS.LobbyServer.LobbyUser.Mail.Obtain2().HandleAsync(c));
@@ -246,6 +248,21 @@ else
         var enemy = await Post<ResGetSpecialArenaEnemyData>(7001, "arena/special/getenemydata", new ReqGetSpecialArenaEnemyData { EnemyUsn = rivals.List2[0].User.User.Usn });
         Check(enemy.Teams.Count == 3 && enemy.Teams.SelectMany(x => x.Team.Slots).Select(x => x.Csn).Distinct().Count() == 15, "special duplicated characters");
         Check((await Post<ResGetArenaTopRank>(7001, "arena/toprank", new ReqGetArenaTopRank())).RankList.Count > 0, "empty rank list");
+    });
+    await Test("own title selection agrees with the special arena card and rankings", async () =>
+    {
+        const int equipped = 237;
+        await Post<ResSetUserTitle>(7001, "lobby/usertitle/set", new ReqSetUserTitle { UserTitleId = equipped });
+        var arena = await Post<ResGetSpecialArena>(7001, "arena/special/get", new ReqGetSpecialArena());
+        var ranking = await Post<ResGetSpecialArenaTopRank>(7001, "arena/special/toprank", new ReqGetSpecialArenaTopRank());
+        var ranked = ranking.RankList.Single(r => r.User.Usn == 7001);
+        Check(arena.User.User.UserTitleId == equipped && ranked.User.UserTitleId == equipped, "arena profile or ranking lost the equipped title");
+
+        var titles = await Post<ResGetUserTitleList>(7001, "lobby/usertitle/get", new ReqGetUserTitleList());
+        Check(titles.UserTitleList.Any(t => t.UserTitleId == equipped), "equipped title missing from available titles");
+        Check(titles.CurrentUserTitle == equipped, $"own title sync returned {titles.CurrentUserTitle}, expected {equipped}");
+        var other = await Post<ResGetUserTitleList>(7002, "lobby/usertitle/get", new ReqGetUserTitleList());
+        Check(other.CurrentUserTitle == 1, $"untouched account lost its default title: {other.CurrentUserTitle}");
     });
     await Test("arena team validation rejects foreign characters and preserves manual presets", async () =>
     {
