@@ -99,7 +99,8 @@ if (!restarting)
         var r = await Create(founder, name);
         Check(r.Result == CreateGuildResult.Okay && r.Guild?.Gsn > 0, "missing created guild");
         Check(r.Guild.Name == name && r.Guild.Emblem == 1 && r.Guild.Locale == "zh-TW" &&
-              r.Guild.Grade == 1 && r.Guild.JoinLevel == 10, "wrong guild defaults");
+              r.Guild.Grade == 1 && r.Guild.JoinLevel == 10 && r.Guild.UnionRaidTier == 6 &&
+              r.Guild.UnionRaidTierNumber == 0, "wrong guild defaults or unranked tier");
         var m = r.Members.Single();
         Check(m.Usn == (long)founder && m.Nickname == "P901" && m.Lv == 10 && m.JoinedAt > 0, "wrong founder");
         Check(m.SendMailAt?.ToDateTime() == DateTime.UnixEpoch && m.UserTitleDisplayData?.Count == 0,
@@ -376,6 +377,38 @@ await Test("saved union settings remain visible to members and public profiles a
     CheckSettings(visible.Guild);
     CheckSettings(SavedSettings(id));
     Check(own.Members.Count == 2 && own.Members.Single(m => m.Usn == 940).Type == 1, "saved settings lost the leader or roster");
+});
+
+await Test("legacy unranked unions return the localized beginner tier without changing saved raid results", async () => {
+    long id = Saved(940).Guild.guildId!.Value;
+    var jsonDb = typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb")!;
+    var core = (CoreInfo)jsonDb.GetProperty("Instance")!.GetValue(null)!;
+    var guild = core.Guilds[(int)id];
+    var original = guild.Data.Clone();
+    var tiers = await data.LoadZip<UnionRaidRankingTierRecord>("UnionRaidRankingTierTable.json", new Progress<double>());
+    Check(tiers.Any(t => (int)t.RankType == 6 && t.TierNumber == 0 &&
+          t.NameLocalkey == "Locale_System:SARENA_RANK_BEGINNER_NAME") &&
+          !tiers.Any(t => (int)t.RankType == 0 && t.TierNumber == 0), "client tier fixture changed");
+    try
+    {
+        guild.Data.UnionRaidTier = 0; guild.Data.UnionRaidTierNumber = 0;
+        jsonDb.GetMethod("Save")!.Invoke(null, null);
+        var own = await Read(941, "guild/get", new ReqGetGuild { Gsn = id }, ResGetGuild.Parser);
+        var visible = await Read(other, "guild/publicinfo", new ReqGetGuildPublicInfo { Gsn = id }, ResGetGuildPublicInfo.Parser);
+        var list = await Read(other, "guild/recommendlist", new ReqRecommendGuildList(), ResRecommendGuildList.Parser);
+        var search = await Read(other, "guild/search", new ReqSearchGuildList { Search = id.ToString() }, ResSearchGuildList.Parser);
+        var profile = await Read(940, "User/Get", new ReqGetUserData(), ResGetUserData.Parser);
+        Check(own.Guild.UnionRaidTier == 6 && own.Guild.UnionRaidTierNumber == 0 && visible.Guild.UnionRaidTier == 6 &&
+              list.Guilds.Single(g => g.Gsn == id).UnionRaidTier == 6 && search.Guilds.Single().UnionRaidTier == 6,
+              "an unranked union returned a missing tier instead of localized beginner");
+        Check(guild.Data.UnionRaidTier == 0 && SavedSettings(id).UnionRaidTier == 0,
+              "reading a default rank rewrote the saved raid result");
+        guild.Data.UnionRaidTier = 0; guild.Data.UnionRaidTierNumber = 1;
+        var ranked = await Read(941, "guild/get", new ReqGetGuild { Gsn = id }, ResGetGuild.Parser);
+        Check(ranked.Guild.UnionRaidTier == 0 && ranked.Guild.UnionRaidTierNumber == 1,
+              "a valid challenger rank was downgraded to beginner");
+    }
+    finally { guild.Data = original; jsonDb.GetMethod("Save")!.Invoke(null, null); }
 });
 
 if (!restarting)
