@@ -1,4 +1,5 @@
 using EpinelPS.LobbyServer.Arena;
+using EpinelPS.LobbyServer.Soloraid;
 
 namespace EpinelPS.LobbyServer.Badge;
 
@@ -13,6 +14,7 @@ public class PermanentContent : LobbyMessage
         ResPermanentContentBadgeData response = new();
         response.ChampionArenaBadgeData = ChampionArenaAvailability.BadgeData();
         response.SoloRaidMuseumBadgeData = new();
+        response.TodaySoloRaidNormalPlayCount = SoloRaidHelper.GetTodayNormalPlayCount(user);
         // TODO
 
         await WriteDataAsync(response);
