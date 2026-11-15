@@ -161,6 +161,35 @@ public class GuildController(IUserService users, GameContext db) : ControllerBas
         new ResGuildJoinRequestList { Result = OwnGuild(user, req.Gsn) == null ? GuildJoinRequestListResult.NotMember :
             user.Guild.MemberType == GuildDirectory.Master ? GuildJoinRequestListResult.Ok : GuildJoinRequestListResult.Forbidden });
 
+    [HttpPost("updatenotice")]
+    public ActionResult<ResUpdateGuildNotice> UpdateNotice([FromBodyProtobuf] ReqUpdateGuildNotice req) => Read(user =>
+    {
+        var result = new ResUpdateGuildNotice { BanEndTime = new() };
+        var guild = OwnGuild(user, req.Gsn);
+        if (guild == null)
+        {
+            result.Result = SetGuildNoticeResult.NotMember;
+            return result;
+        }
+        if (user.Guild.MemberType is not (GuildDirectory.Master or 2))
+        {
+            result.Result = SetGuildNoticeResult.Forbidden;
+            return result;
+        }
+        if (string.IsNullOrWhiteSpace(req.Notice) || req.Notice.Length > 45)
+        {
+            result.Result = SetGuildNoticeResult.Inappropriate;
+            return result;
+        }
+        var previous = guild.Data;
+        var updated = previous.Clone();
+        updated.Notice = req.Notice;
+        guild.Data = updated;
+        try { JsonDb.Save(); }
+        catch { guild.Data = previous; throw; }
+        return result;
+    });
+
     [HttpPost("updatesettings2")]
     public ActionResult<ResUpdateGuildSettings2> UpdateSettings([FromBodyProtobuf] ReqUpdateGuildSettings2 req) => Read(user =>
     {
