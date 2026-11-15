@@ -73,7 +73,8 @@ await Test("NPC title awards use actual thresholds, full missions and committed 
     npc.userPointData.UserLevel = 99;
     npc.InfraCoreLvl = 19;
     npc.SynchroSlots.Add(new() { Slot = 1 });
-    npc.FieldInfoNew["chapter25"] = new() { CompletedStages = [6024049] };
+    npc.FieldInfoNew["chapter24"] = new() { CompletedStages = [6024050] };
+    npc.FieldInfoNew["chapter25"] = new() { CompletedStages = [6025045] };
     npc.ResearchProgress = new() { [1101] = new() { Level = 50 }, [1102] = new() { Level = 50 }, [1103] = new() { Level = 49 } };
     npc.Arena = new() { SpecialRank = 1 };
     npc.TitleId = 132;
@@ -93,7 +94,7 @@ await Test("NPC title awards use actual thresholds, full missions and committed 
     npc.userPointData.UserLevel++;
     npc.InfraCoreLvl++;
     npc.SynchroDeviceUpgraded = true;
-    npc.FieldInfoNew["chapter25"].CompletedStages.Add(6024050);
+    npc.FieldInfoNew["chapter25"].CompletedStages.Add(6025046);
     npc.ResearchProgress[1103].Level++;
     foreach (int id in new[] { 1, 2, 3 }) npc.LiberateDatas[id] = new() { CharacterId = id, IsCompleted = id != 3 };
     db.Triggers.AddRange(new TriggerModelNew { UserId = npc.ID, Type = Trigger.SendFriendShipPoint, Value = 1 },
@@ -107,6 +108,26 @@ await Test("NPC title awards use actual thresholds, full missions and committed 
     ManagedNpcService.RefreshProfileRewards(db);
     Check(npc.TitleList.Contains(25) && npc.ProfileFrame == 20 && JsonConvert.SerializeObject(human) == originalHuman,
         "completed rehabilitation, an independently owned frame or the human profile was mishandled");
+    return Task.CompletedTask;
+});
+await Test("gifts delivered by opening a friend's list count once towards the NPC's title", () =>
+{
+    using var db = GameContext.CreateNew();
+    var npc = Player(9802);
+    npc.ManagedNpc = new();
+    var human = Player(self);
+    npc.Friendships = new() { Friends = [self] };
+    human.Friendships = new() { Friends = [npc.ID] };
+    State().NpcManagement = new() { Enabled = true };
+    db.Triggers.Add(new() { UserId = npc.ID, Type = Trigger.SendFriendShipPoint, Value = 998 });
+    db.SaveChanges();
+    var day = new DateTime(2026, 11, 15, 14, 0, 0, DateTimeKind.Utc);
+    for (int i = 0; i < 2; i++) EpinelPS.LobbyServer.Friend.FriendshipService.Get(human, db, day);
+    ManagedNpcService.RefreshProfileRewards(db);
+    Check(npc.Friendships.SentCount == 1 && !npc.TitleList.Contains(18), "reopening a friend list double-counted a gift");
+    EpinelPS.LobbyServer.Friend.FriendshipService.Get(human, db, day.AddDays(1));
+    ManagedNpcService.RefreshProfileRewards(db);
+    Check(npc.TitleList.Contains(18) && npc.TitleId == 18, "the second distinct NPC gift did not unlock the 1,000-send reward");
     return Task.CompletedTask;
 });
 await Test("old NPC ranking receipts grant real frames once and survive failed writes and reloads", async () =>
@@ -137,6 +158,10 @@ await Test("old NPC ranking receipts grant real frames once and survive failed w
     var profile = (await Send<ResGetProfileData>(self, "/User/GetProfile", new ReqGetProfileData { TargetUsn = (long)npc.ID })).Data.User;
     Check(board.Frame == npc.ProfileFrame && profile.Frame == board.Frame && board.UserTitleId == 12 && profile.UserTitleId == 12,
         "board and profile must expose the same persisted equipment");
+    var titles = await Send<ResGetUserTitleList>(npc.ID, "/lobby/usertitle/get", new ReqGetUserTitleList());
+    var frames = await Send<ResGetProfileFrame>(npc.ID, "/User/GetProfileFrame", new ReqGetProfileFrame());
+    Check(titles.UserTitleList.Select(t => t.UserTitleId).ToHashSet().SetEquals(npc.TitleList) &&
+        frames.Frames.ToHashSet().SetEquals(npc.FrameList), "the NPC collection advertised rewards that were never granted");
     string saved = File.ReadAllText(jsonPath);
     property.SetValue(null, JsonConvert.DeserializeObject<CoreInfo>(saved)!);
     Directory.CreateDirectory(jsonPath + ".tmp");
