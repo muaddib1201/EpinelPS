@@ -11,7 +11,7 @@ public static class JukeboxUtils
     /// </summary>
     public static List<int> GetUnlockedSongs(User user)
     {
-        var owned = new HashSet<int>(user.JukeboxBgm ?? []);
+        var owned = new HashSet<int>(user.JukeboxBgm);
         var result = new List<int>();
         foreach (var song in GameData.Instance.jukeboxListDataRecords.Values)
         {

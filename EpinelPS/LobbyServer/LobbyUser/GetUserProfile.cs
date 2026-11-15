@@ -1,6 +1,5 @@
 using EpinelPS.Data;
 using EpinelPS.LobbyServer.Guild;
-using EpinelPS.Utils;
 
 namespace EpinelPS.LobbyServer.LobbyUser;
 
@@ -66,7 +65,10 @@ public class GetUserProfile : LobbyMessage
                     Count = series.Count()
                 });
             }
-            response.Data.JukeboxCount = JukeboxUtils.GetUnlockedSongs(user).Count;
+
+            var songs = GameData.Instance.jukeboxListDataRecords;
+            response.Data.JukeboxCount = (user.JukeboxBgm ?? []).Distinct()
+                .Count(id => songs.TryGetValue(id, out var song) && !song.IsDefaultBgm);
         }
 
         await WriteDataAsync(response);
