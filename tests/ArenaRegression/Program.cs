@@ -110,6 +110,11 @@ using (var db = GameContext.CreateNew())
         {
             var u = JsonConvert.DeserializeObject<User>(JsonConvert.SerializeObject(template))!;
             u.ID = id; u.ManagedNpc = null; u.Currency.Clear(); u.LastReset = clock.Now.UtcDateTime; u.LastWeeklyReset = clock.Now.UtcDateTime;
+            // These players share the NPC's battle roster but start with a fresh cosmetic profile.
+            u.TitleList.Clear();
+            u.FrameList.Clear();
+            u.TitleId = 1;
+            u.ProfileFrame = 1;
             State().Users.Add(u); db.Users.Add(new GameUser { ID = id, Nickname = "Arena" + id, LastAction = clock.Now.UtcDateTime });
         }
         db.SaveChanges();
