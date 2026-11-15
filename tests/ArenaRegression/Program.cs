@@ -851,19 +851,56 @@ else
         }
         finally { clock.Now = present; }
     });
+    await Test("quiet Arena badge reports the last overview visit across local midnight", async () =>
+    {
+        const ulong id = 7019;
+        var arena = Player(id).Arena!;
+        var firstVisit = clock.Now;
+        var secondVisit = firstVisit.AddHours(4); // 21:00 to 01:00 in UTC+8, before the 04:00 game reset.
+        var enter = new ReqRecordContentEnter { ContentType = NetEnteredContentType.Arena };
+        try
+        {
+            arena.RookieCount = 5;
+            arena.SpecialCount = 0;
+            arena.ChipScaled = 1200 * 10000m;
+            await Post<ResRecordContentEnter>(id, "badge/record/content", enter);
+            clock.Now = firstVisit.AddSeconds(4);
+            var claim = await Post<ResObtainSpecialArenaReward>(id, "arena/special/obtainreward", new ReqObtainSpecialArenaReward());
+            Check(claim.Reward.Currency.Any(c => c.Type == 5000 && c.Value > 0), "the fixture did not claim a reward");
+            var afterClaim = await ArenaEnteredAt(id);
+
+            clock.Now = secondVisit;
+            arena.ChipScaled = 1200 * 10000m;
+            arena.AccruedUtc = secondVisit.UtcDateTime;
+            await Post<ResRecordContentEnter>(id, "badge/record/content", enter);
+            var afterVisit = await ArenaEnteredAt(id);
+            clock.Now = secondVisit.AddSeconds(-1);
+            await Post<ResRecordContentEnter>(id, "badge/record/content", enter);
+            var afterOlderRequest = await ArenaEnteredAt(id);
+
+            Check(afterClaim == firstVisit.UtcDateTime && afterVisit == secondVisit.UtcDateTime && afterOlderRequest == afterVisit,
+                $"wrong overview entry after claim ({afterClaim:O}), revisit ({afterVisit:O}) or older request ({afterOlderRequest:O})");
+            Check(arena.RookieCount == 5 && arena.SpecialCount == 0 && arena.ChipScaled == 1200 * 10000m,
+                "recording a visit changed attempts or accrued rewards");
+        }
+        finally { clock.Now = firstVisit; }
+    });
 }
 Console.WriteLine($"Arena: {passed} PASS, {failed} FAIL");
 return failed == 0 ? 0 : 1;
 
 async Task Test(string name, Func<Task> body) { try { await body(); passed++; Console.WriteLine("PASS: " + name); } catch (Exception e) { failed++; Console.WriteLine("FAIL: " + name + ": " + e.Message); } }
-async Task<bool> ArenaRemindersQuiet(ulong id)
+async Task<DateTime> ArenaEnteredAt(ulong id)
 {
     var badges = await Post<ResPermanentContentBadgeData>(id, "badge/permanentcontent", new ReqPermanentContentBadgeData());
     var entry = badges.ContentEnterTimes.SingleOrDefault(t => t.ContentType == NetEnteredContentType.Arena);
-    Check(entry?.EnteredAt != null, "the permanent badge response is missing the arena day marker");
+    return entry?.EnteredAt?.ToDateTime() ?? throw new Exception("the permanent badge response is missing the arena day marker");
+}
+async Task<bool> ArenaRemindersQuiet(ulong id)
+{
     var reset = clock.Now.UtcDateTime.Date.AddHours(State().ResetHourUtcTime);
     if (reset > clock.Now.UtcDateTime) reset = reset.AddDays(-1);
-    return entry?.EnteredAt?.ToDateTime() >= reset;
+    return await ArenaEnteredAt(id) >= reset;
 }
 void Check(bool ok, string message) { if (!ok) throw new Exception(message); }
 async Task<HttpResponseMessage> Send(ulong id, string route, IMessage request, string? nonce = null)
