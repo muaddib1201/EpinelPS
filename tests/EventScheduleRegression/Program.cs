@@ -9,6 +9,7 @@ using Google.Protobuf;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 var liveRoot = args.SingleOrDefault(a => a.StartsWith("--probe-live-root="));
 if (liveRoot != null) return await LiveChecks.Run(liveRoot["--probe-live-root=".Length..]);
@@ -119,6 +120,46 @@ await Test("both parent link fields give newly related activities the same deadl
     }
 });
 
+await Test("a saved main-event deadline overrides MARIA-n for list, joined and login details", async () =>
+{
+    await WithDeadlines(new() { [rootEvent] = new DateTime(2030, 1, 2, 19, 59, 59, DateTimeKind.Utc) }, async () =>
+    {
+        var list = await List();
+        var joined = await Joined();
+        long expected = new DateTime(2030, 1, 2, 19, 59, 59, DateTimeKind.Utc).Ticks;
+        foreach (int id in related)
+            foreach (var entry in new[] { list.EventList.Single(e => e.Id == id), joined.EventWithJoinData.Single(e => e.EventData.Id == id).EventData })
+                Check(entry.EventEndDate == expected && entry.EventDisableDate == expected, $"saved root deadline was ignored for event {id}");
+        var login = ResLoginEventData.Parser.ParseFrom(await Send(new EventLoginGet(), new ReqLoginEventData { EventId = 100053 }));
+        Check(login.EndDate == expected && login.DisableDate == expected, "login details have a separate drifting deadline");
+    });
+});
+await Test("nested parent and set-field children inherit the root deadline without affecting another group", async () =>
+{
+    data.eventManagers[999020] = new() { Id = 999020, ParentsEventId = 40124 };
+    data.eventManagers[999021] = new() { Id = 999021, SetField = 999020 };
+    data.eventManagers[999022] = new() { Id = 999022, ParentsEventId = 999021, SetField = 999020 };
+    await WithDeadlines(new() { [rootEvent] = new DateTime(2030, 1, 2, 19, 59, 59, DateTimeKind.Utc),
+        [999001] = new DateTime(2030, 2, 3, 4, 5, 6, DateTimeKind.Utc) }, () =>
+    {
+        foreach (int id in new[] { 999020, 999021, 999022 })
+            Check(ResolveEnd(id, new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc)) == new DateTime(2030, 1, 2, 19, 59, 59, DateTimeKind.Utc),
+                $"nested event {id} did not use the main deadline");
+        Check(ResolveEnd(999001, DateTime.UtcNow) == new DateTime(2030, 2, 3, 4, 5, 6, DateTimeKind.Utc), "an unrelated root lost its own deadline");
+        return Task.CompletedTask;
+    });
+});
+await Test("a configured countdown stays fixed across its deadline and a configuration round trip", async () =>
+{
+    await WithDeadlines(new() { [rootEvent] = new DateTime(2030, 1, 2, 19, 59, 59, DateTimeKind.Utc) }, () =>
+    {
+        foreach (var now in new[] { new DateTime(2030, 1, 2, 19, 59, 58, DateTimeKind.Utc),
+            new DateTime(2030, 1, 2, 20, 0, 0, DateTimeKind.Utc), new DateTime(2031, 1, 1, 0, 0, 0, DateTimeKind.Utc) })
+            Check(ResolveEnd(rootEvent, now) == new DateTime(2030, 1, 2, 19, 59, 59, DateTimeKind.Utc), "refresh or expiry silently renewed the saved countdown");
+        return Task.CompletedTask;
+    });
+});
+
 Console.WriteLine($"RESULT {passed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;
 
@@ -132,6 +173,17 @@ async Task Test(string name, Func<Task> run)
 }
 async Task<ResGetEventList> List() => ResGetEventList.Parser.ParseFrom(await Send(new ListEvents(), new ReqGetEventList()));
 async Task<ResGetJoinedEvent> Joined() => ResGetJoinedEvent.Parser.ParseFrom(await Send(new GetJoinedEvent(), new ReqGetJoinedEvent()));
+DateTime ResolveEnd(int id, DateTime now) => (DateTime)typeof(EventHelper).GetMethod("GetEventEnd", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [id, now])!;
+async Task WithDeadlines(Dictionary<int, DateTime> deadlines, Func<Task> run)
+{
+    var property = typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb", true)!.GetProperty("Instance")!;
+    var original = property.GetValue(null);
+    var json = JObject.FromObject(original!);
+    json["EventEndUtc"] = JObject.FromObject(deadlines);
+    property.SetValue(null, json.ToObject<CoreInfo>()!);
+    try { await run(); }
+    finally { property.SetValue(null, original); }
+}
 async Task<byte[]> Send(LobbyMessage handler, IMessage request)
 {
     var context = new DefaultHttpContext { RequestServices = services };
