@@ -143,13 +143,15 @@ internal static class RookieMatchmakingChecks
             human.Arena!.SpecialRefresh = 0;
             var expectedSpecial = (await special(human.ID)).List2.Select(r => r.User.User.Usn).ToArray();
             human.Arena.SpecialRefresh = 0;
-            var before = JObject.FromObject(human); ((JObject)before["Arena"]!).Remove("RookieRefresh");
+            var expected = JObject.FromObject(human);
             var others = JsonConvert.SerializeObject(players.Skip(1));
             long cursor = human.Arena.RookieRefresh;
             await list(human.ID);
             Check(human.Arena.RookieRefresh == cursor + 1 && human.Arena.SpecialRefresh == 0, "mode cursors interfered");
-            var after = JObject.FromObject(human); ((JObject)after["Arena"]!).Remove("RookieRefresh");
-            Check(JToken.DeepEquals(before, after) && others == JsonConvert.SerializeObject(players.Skip(1)), "refresh changed attempts, rewards, teams or other progress");
+            expected["Arena"]!["RookieRefresh"] = cursor + 1;
+            expected["Arena"]!["RookieReminderSeenUtc"] = now;
+            Check(JToken.DeepEquals(expected, JObject.FromObject(human)) && others == JsonConvert.SerializeObject(players.Skip(1)),
+                "first rookie list changed more than its cursor and daily acknowledgement");
             var persisted = JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(save))!;
             Check(persisted.Users.Single(u => u.ID == human.ID).Arena!.RookieRefresh == cursor + 1, "refresh cursor was not saved");
             Check(expectedSpecial.SequenceEqual((await special(human.ID)).List2.Select(r => r.User.User.Usn)), "rookie change altered special opponents");
