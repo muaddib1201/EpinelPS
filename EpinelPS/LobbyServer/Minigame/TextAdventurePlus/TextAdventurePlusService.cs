@@ -62,6 +62,7 @@ internal static class TextAdventurePlusService
         Require(route != null && IsUnlocked(route, state), "Unknown or locked text adventure route");
         state.ActiveRouteId = routeId;
         state.LastFinishSignature = null;
+        state.EarlierFinishSignatures.Clear();
         state.PlayData.LastEnteredEventTextAdvPlusRouteTableId = routeId;
     }
 
@@ -73,16 +74,24 @@ internal static class TextAdventurePlusService
         Require(req.AcquiredEventTextAdvPlusLootItemTableIdList.All(id => Tables.EventTextAdvPlusLootItemTable.TryGetValue(id, out var i) && i.ManagerId == manager.Id), "Invalid text adventure loot");
         Require(req.EventTextAdvPlusFirstSelectTableId == 0 || Tables.EventTextAdvPlusFirstSelectTable.TryGetValue(req.EventTextAdvPlusFirstSelectTableId, out var first) && first.ManagerId == manager.Id && first.RouteId == req.EventTextAdvPlusRouteTableId, "Invalid text adventure start");
         Require(req.EventTextAdvPlusSpecialIntroId == 0 || Tables.EventTextAdvPlusSpecialIntroTable.TryGetValue(req.EventTextAdvPlusSpecialIntroId, out var intro) && intro.ManagerId == manager.Id, "Invalid text adventure intro");
-        var signature = Convert.ToHexString(SHA256.HashData(req.ToByteArray()));
-        if (state.ActiveRouteId == 0 || state.LastFinishSignature == signature) return new() { PlayData = state.PlayData.Clone() };
-        Require(state.ActiveRouteId == req.EventTextAdvPlusRouteTableId, "Text adventure route was not entered");
         var play = state.PlayData;
+        if (state.ActiveRouteId != 0)
+            Require(state.ActiveRouteId == req.EventTextAdvPlusRouteTableId, "Text adventure route was not entered");
+
+        // An inline restart can follow a normal finish without another Enter/Route.
+        bool inlineRestart = req.IsRestart && req.EventTextAdvPlusRouteTableId == play.LastEnteredEventTextAdvPlusRouteTableId;
+        var signature = Convert.ToHexString(SHA256.HashData(req.ToByteArray()));
+        if ((state.ActiveRouteId == 0 && !inlineRestart) ||
+            state.LastFinishSignature == signature || state.EarlierFinishSignatures.Contains(signature))
+            return new() { PlayData = play.Clone() };
+
         Merge(play.EventTextAdvPlusEventPageTableIdList, req.EventTextAdvPlusEventPageTableIdList);
         Merge(play.EventTextAdvPlusSelectOptionTableIdList, req.EventTextAdvPlusSelectOptionTableIdList);
         Merge(play.AcquiredEventTextAdvPlusLootItemTableIdList, req.AcquiredEventTextAdvPlusLootItemTableIdList);
         Merge(play.BadgeRemovedEventTextAdvPlusLootItemTableIdList, req.CheckedEventTextAdvPlusLootItemTableIdList.Where(play.AcquiredEventTextAdvPlusLootItemTableIdList.Contains));
         if (req.EventTextAdvPlusSpecialIntroId != 0) Merge(play.EventTextAdvPlusSpecialIntroIdList, [req.EventTextAdvPlusSpecialIntroId]);
         play.PlayCount++;
+        if (state.LastFinishSignature != null) state.EarlierFinishSignatures.Add(state.LastFinishSignature);
         state.LastFinishSignature = signature;
         // The client can restart inside this route without reopening the route UI.
         state.ActiveRouteId = req.IsRestart ? req.EventTextAdvPlusRouteTableId : 0;

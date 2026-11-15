@@ -5,7 +5,8 @@ public class TextAdventurePlusData
     public MiniGameTextAdventurePlusPlayData PlayData { get; set; } = new();
     public List<int> ReceivedProgressRewards { get; set; } = [];
     public List<int> ReceivedEndingRewards { get; set; } = [];
-    // Track the route and last settlement because Finish has no request ID.
+    // Finish has no request ID. Keep receipts until the next explicit route entry.
     public int ActiveRouteId { get; set; }
     public string? LastFinishSignature { get; set; }
+    public HashSet<string> EarlierFinishSignatures { get; set; } = [];
 }
