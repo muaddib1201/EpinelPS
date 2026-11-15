@@ -380,6 +380,77 @@ await Test("saved union settings remain visible to members and public profiles a
 
 if (!restarting)
 {
+    await Test("the union leader can save a 1 to 45 character announcement without changing settings or balances", async () => {
+        long id = Saved(940).Guild.guildId!.Value;
+        var original = SavedSettings(id).Clone();
+        foreach (var text in new[] { "聯", new string('盟', 45), "今晚一起完成日常，歡迎各位指揮官。" })
+        {
+            var result = await Read(940, "guild/updatenotice", new ReqUpdateGuildNotice { Gsn = id, Notice = text }, ResUpdateGuildNotice.Parser);
+            Check(result.Result == SetGuildNoticeResult.Okay && result.BanEndTime != null, "announcement save was not acknowledged");
+            original.Notice = text;
+            var reopened = await Read(941, "guild/get", new ReqGetGuild { Gsn = id }, ResGetGuild.Parser);
+            Check(original.Equals(reopened.Guild) && original.Equals(SavedSettings(id)), "announcement was lost or changed unrelated settings");
+            Check(Saved(940).Currency[CurrencyType.FreeCash] == 400, "announcement save charged the leader");
+        }
+    });
+    await Test("announcement edits require authentication and a leader or deputy in the requested union", async () => {
+        long id = Saved(940).Guild.guildId!.Value;
+        var original = SavedSettings(id).Clone();
+        var change = new ReqUpdateGuildNotice { Gsn = id, Notice = "不應儲存" };
+        using var anonymous = await Send(0, "guild/updatenotice", change);
+        Check(anonymous.StatusCode == HttpStatusCode.Unauthorized, "anonymous announcement edit accepted");
+        Check((await Read(941, "guild/updatenotice", change, ResUpdateGuildNotice.Parser)).Result == SetGuildNoticeResult.Forbidden,
+              "ordinary member changed the announcement");
+        Check((await Read(founder, "guild/updatenotice", change, ResUpdateGuildNotice.Parser)).Result == SetGuildNoticeResult.NotMember,
+              "another union's leader changed the announcement");
+        change.Gsn = int.MaxValue;
+        Check((await Read(940, "guild/updatenotice", change, ResUpdateGuildNotice.Parser)).Result == SetGuildNoticeResult.NotMember,
+              "a foreign union identifier was ignored");
+        Check(original.Equals(SavedSettings(id)), "a rejected edit changed the saved announcement");
+        Saved(941).Guild.MemberType = 2;
+        try
+        {
+            var deputy = await Read(941, "guild/updatenotice", new ReqUpdateGuildNotice { Gsn = id, Notice = original.Notice }, ResUpdateGuildNotice.Parser);
+            Check(deputy.Result == SetGuildNoticeResult.Okay, "deputy could not edit the announcement");
+        }
+        finally { Saved(941).Guild.MemberType = 3; }
+    });
+    await Test("empty, whitespace-only and overlength announcements do not overwrite the saved text", async () => {
+        long id = Saved(940).Guild.guildId!.Value;
+        var original = SavedSettings(id).Clone();
+        foreach (var text in new[] { "", " \t\r\n", new string('盟', 46) })
+        {
+            var result = await Read(940, "guild/updatenotice", new ReqUpdateGuildNotice { Gsn = id, Notice = text }, ResUpdateGuildNotice.Parser);
+            Check(result.Result == SetGuildNoticeResult.Inappropriate && result.BanEndTime != null, "invalid announcement accepted");
+            Check(original.Equals(SavedSettings(id)), "invalid announcement overwrote the save");
+        }
+    });
+    await Test("a failed announcement write rolls back memory and disk and can be retried", async () => {
+        long id = Saved(940).Guild.guildId!.Value;
+        var original = SavedSettings(id).Clone();
+        var temp = Directory.CreateDirectory(save + ".tmp");
+        try
+        {
+            using var failed = await Send(940, "guild/updatenotice", new ReqUpdateGuildNotice { Gsn = id, Notice = "寫盤失敗" });
+            Check(!failed.IsSuccessStatusCode, "failed announcement write was acknowledged");
+        }
+        finally { temp.Delete(); }
+        var reopened = await Read(940, "guild/get", new ReqGetGuild { Gsn = id }, ResGetGuild.Parser);
+        Check(original.Equals(reopened.Guild) && original.Equals(SavedSettings(id)), "failed announcement leaked into memory or disk");
+        var retry = await Read(940, "guild/updatenotice", new ReqUpdateGuildNotice { Gsn = id, Notice = original.Notice }, ResUpdateGuildNotice.Parser);
+        Check(retry.Result == SetGuildNoticeResult.Okay, "announcement retry did not recover");
+    });
+}
+await Test("the saved announcement survives reopening and a separate process restart", async () => {
+    long id = Saved(940).Guild.guildId!.Value;
+    var own = await Read(941, "guild/get", new ReqGetGuild { Gsn = id }, ResGetGuild.Parser);
+    var visible = await Read(other, "guild/publicinfo", new ReqGetGuildPublicInfo { Gsn = id }, ResGetGuildPublicInfo.Parser);
+    Check(own.Guild.Notice == "今晚一起完成日常，歡迎各位指揮官。" && own.Guild.Notice == visible.Guild.Notice &&
+          own.Guild.Notice == SavedSettings(id).Notice, "saved announcement was lost on restart");
+});
+
+if (!restarting)
+{
     await Test("successful admission records the member and actual membership timestamp once", async () => {
         long id = (await Create(950, "記錄測試")).Guild.Gsn;
         var joined = await Read(951, "guild/join", new ReqJoinGuild { Gsn = id }, ResJoinGuild.Parser);
