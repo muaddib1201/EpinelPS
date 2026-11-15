@@ -777,6 +777,45 @@ else
         arena.ChipScaled = 9000 * 10000m;
         Check(await ArenaRemindersQuiet(id), "same-day refill rearmed an already claimed reward");
     });
+    await Test("special reminder uses the claimable gauge at exactly half, independent of free or paid tickets", async () =>
+    {
+        var (viewer, _) = await RatingPair(false, false);
+        var arena = viewer.Arena!;
+        arena.RookieCount = 5;
+        viewer.Currency[(CurrencyType)6001] = 3;
+        var capacity = data.GameSettings["ArenaSpecialBoxRewardLimitValue1"];
+        var original = capacity.Value;
+        var present = clock.Now;
+        try
+        {
+            capacity.Value = "10000"; // Exercise an exact 50% boundary as well as the shipped odd capacity.
+            await Post<ResObtainSpecialArenaReward>(viewer.ID, "arena/special/obtainreward", new ReqObtainSpecialArenaReward());
+            foreach (var used in new[] { 0, 2 })
+            {
+                arena.SpecialCount = used;
+                arena.ChipScaled = 4999.99m * 10000m;
+                Check(await ArenaRemindersQuiet(viewer.ID), $"reward below half was announced with {2 - used} free plays");
+                arena.ChipScaled = 5000m * 10000m;
+                Check(!await ArenaRemindersQuiet(viewer.ID), $"reward at half was suppressed with {2 - used} free plays");
+            }
+            arena.ChipScaled = 4999m * 10000m;
+            string before = JsonConvert.SerializeObject(arena);
+            clock.Now = present.AddMinutes(1);
+            Check(!await ArenaRemindersQuiet(viewer.ID), "a reward crossing half between arena requests did not rearm the aggregate");
+            Check(before == JsonConvert.SerializeObject(arena), "reading the badge settled the box or consumed a play");
+        }
+        finally { capacity.Value = original; clock.Now = present; }
+    });
+    await Test("entering special first leaves rookie due and does not clear another player's reminder", async () =>
+    {
+        var (viewer, other) = await RatingPair(false, false);
+        viewer.Arena!.RookieCount = 4;
+        viewer.Arena!.ChipScaled = 8000m * 10000m;
+        await Post<ResGetSpecialArenaEnemyList>(viewer.ID, "arena/special/getenemylist", new ReqGetSpecialArenaEnemyList());
+        Check(!await ArenaRemindersQuiet(viewer.ID), "special entry cleared the available rookie reminder");
+        await Post<ResGetArenaEnemyList>(viewer.ID, "arena/getenemylist", new ReqGetArenaEnemyList());
+        Check(await ArenaRemindersQuiet(viewer.ID) && !await ArenaRemindersQuiet(other.ID), "daily acknowledgements leaked between accounts");
+    });
     await Test("arena overview prefetch preserves separate daily reminders at the reward boundary", async () =>
     {
         const ulong id = 7020;
@@ -821,6 +860,7 @@ async Task<bool> ArenaRemindersQuiet(ulong id)
 {
     var badges = await Post<ResPermanentContentBadgeData>(id, "badge/permanentcontent", new ReqPermanentContentBadgeData());
     var entry = badges.ContentEnterTimes.SingleOrDefault(t => t.ContentType == NetEnteredContentType.Arena);
+    Check(entry?.EnteredAt != null, "the permanent badge response is missing the arena day marker");
     var reset = clock.Now.UtcDateTime.Date.AddHours(State().ResetHourUtcTime);
     if (reset > clock.Now.UtcDateTime) reset = reset.AddDays(-1);
     return entry?.EnteredAt?.ToDateTime() >= reset;

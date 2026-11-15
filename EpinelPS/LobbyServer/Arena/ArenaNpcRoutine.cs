@@ -17,7 +17,7 @@ internal sealed partial class ArenaService
             {
                 if (!ArenaTeams.Unlocked(user, special) || user.Arena == null ||
                     (special ? Own.SpecialJoinedUtc == null : Own.RookieJoinedUtc == null) || Own.Pending != null) continue;
-                int limit = special ? SpecialConfig?.FreePlayCount ?? 2 : 5;
+                int limit = special ? SpecialConfig?.FreePlayCount ?? 2 : RookieFreePlays;
                 while ((special ? Own.SpecialCount : Own.RookieCount) < limit)
                 {
                     var candidates = special ? SpecialRivalGroups().SelectMany(group => group) : Participants(false);

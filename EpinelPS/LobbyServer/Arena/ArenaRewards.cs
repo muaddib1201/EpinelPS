@@ -10,23 +10,38 @@ internal sealed partial class ArenaService
     private static long Points(User u) => (long)decimal.Floor((u.Arena?.PointScaled ?? 0) / 10000m);
     private static ArenaRewardRecord? RewardForRank(long rank) => GameData.Instance.ArenaRewards.Values.OrderBy(r => r.MinRank)
         .FirstOrDefault(r => rank >= r.MinRank && (r.MaxRank == 0 || rank <= r.MaxRank));
+    private static int BoxCapacity => Config("ArenaSpecialBoxRewardLimitValue1", 9999);
+    private static long ClaimableChips(decimal scaled) => (long)decimal.Floor(scaled / 10000m);
+
+    private static (long BoxTicks, decimal Chips, decimal Points) ProjectSpecialRewards(User player, DateTime at)
+    {
+        var arena = player.Arena!;
+        long ticks = Math.Max(0, at.Ticks - arena.AccruedUtc.Ticks);
+        if (ticks == 0) return (arena.BoxTicks, arena.ChipScaled, arena.PointScaled);
+        long chipTicks = Math.Min(ticks, Math.Max(0, TimeSpan.TicksPerDay - arena.BoxTicks));
+        decimal chips = arena.ChipScaled, points = arena.PointScaled;
+        int tier = Tier(player, true);
+        var row = GameData.Instance.ArenaTimeRewards.Values.FirstOrDefault(r => r.ArenaType == ArenaType.ArenaSpecial && r.ConditionValue == tier);
+        if (row != null)
+        {
+            foreach (var entry in row.TimeStackReward.Where(e => e.TimeSec > 0 && e.ItemValue > 0))
+            {
+                decimal divisor = (decimal)entry.TimeSec * TimeSpan.TicksPerSecond;
+                if (entry.ItemType == RewardType.Currency && entry.ItemId == 5000)
+                    chips = Math.Min(BoxCapacity * 10000m, chips + chipTicks * (decimal)entry.ItemValue / divisor);
+                else if ((int)entry.ItemType == 9) points += ticks * (decimal)entry.ItemValue / divisor;
+            }
+        }
+        return (arena.BoxTicks + chipTicks, chips, points);
+    }
+
     private static void AccrueAll(DateTime at)
     {
         foreach (var u in Participants(true))
         {
             var a = u.Arena!;
-            long ticks = Math.Max(0, at.Ticks - a.AccruedUtc.Ticks);
-            if (ticks == 0) continue;
-            long chipTicks = Math.Min(ticks, Math.Max(0, TimeSpan.TicksPerDay - a.BoxTicks));
-            if (GameData.Instance.ArenaTimeRewards.Values.FirstOrDefault(r => r.ArenaType == ArenaType.ArenaSpecial && r.ConditionValue == Tier(u, true)) is { } row)
-            foreach (var entry in row.TimeStackReward.Where(e => e.TimeSec > 0 && e.ItemValue > 0))
-            {
-                decimal divisor = (decimal)entry.TimeSec * TimeSpan.TicksPerSecond;
-                if (entry.ItemType == RewardType.Currency && entry.ItemId == 5000)
-                    a.ChipScaled = Math.Min(Config("ArenaSpecialBoxRewardLimitValue1", 9999) * 10000m, a.ChipScaled + chipTicks * (decimal)entry.ItemValue / divisor);
-                else if ((int)entry.ItemType == 9) a.PointScaled += ticks * (decimal)entry.ItemValue / divisor;
-            }
-            a.BoxTicks += chipTicks;
+            if (at <= a.AccruedUtc) continue;
+            (a.BoxTicks, a.ChipScaled, a.PointScaled) = ProjectSpecialRewards(u, at);
             a.AccruedUtc = at;
         }
     }
@@ -78,7 +93,7 @@ internal sealed partial class ArenaService
     internal ResShowSpecialArenaReward ShowReward()
     {
         Require(true);
-        long amount = (long)decimal.Floor(Own.ChipScaled / 10000m);
+        long amount = ClaimableChips(Own.ChipScaled);
         return new() { Reward = new NetRewardData { Currency = { new NetCurrencyData { Type = 5000, Value = amount } } }, History = RewardHistory(0).History };
     }
     internal ResObtainSpecialArenaReward ObtainReward(ReqObtainSpecialArenaReward req)
@@ -87,7 +102,7 @@ internal sealed partial class ArenaService
         if (Replay<ResObtainSpecialArenaReward>(key) is { } receipt) return receipt;
         Require(true);
         var reward = new NetRewardData();
-        long amount = (long)decimal.Floor(Own.ChipScaled / 10000m);
+        long amount = ClaimableChips(Own.ChipScaled);
         AddCurrencyReward(reward, CurrencyType.ArenaChip, amount);
         if (amount > 0)
         {

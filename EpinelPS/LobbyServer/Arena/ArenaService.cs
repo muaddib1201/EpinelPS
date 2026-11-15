@@ -11,6 +11,8 @@ namespace EpinelPS.LobbyServer.Arena;
 // The controller owns user -> SaveLock. Never lock a second user while holding SaveLock.
 internal sealed partial class ArenaService(User user, DateTime now, byte[]? nonce)
 {
+    // The client grants five rookie plays; the legacy ArenaTodayMaxCount table still says three.
+    private const int RookieFreePlays = 5;
     private static readonly DateTime Anchor = new(2026, 11, 5, 20, 0, 0, DateTimeKind.Utc);
     private ArenaPlayer Own => user.Arena!;
     private ArenaWorld World => JsonDb.Instance.Arena!;
@@ -131,6 +133,7 @@ internal sealed partial class ArenaService(User user, DateTime now, byte[]? nonc
     private IEnumerable<User> Rivals(bool special)
     {
         Require(special);
+        AcknowledgeReminder(special);
         return special ? SpecialRivals() : RookieRivals();
     }
 

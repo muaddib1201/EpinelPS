@@ -36,8 +36,7 @@ internal sealed partial class ArenaService
             throw new BadHttpRequestException("Special arena requires a higher-ranked opponent. Refresh the opponent list.", 409);
         var snapshot = ArenaTeams.Enemy(enemy, special);
         int count = special ? Own.SpecialCount : Own.RookieCount;
-        // The current rookie UI grants five free battles; the bundled legacy ArenaTodayMaxCount still says three.
-        int free = special ? SpecialConfig?.FreePlayCount ?? 2 : 5;
+        int free = special ? SpecialConfig?.FreePlayCount ?? 2 : RookieFreePlays;
         var ticket = (CurrencyType)(special ? SpecialConfig?.TicketId ?? 6002 : 6001);
         int cost = special ? Math.Max(1, SpecialConfig?.TicketValue ?? 1) : 1;
         if (count >= free)

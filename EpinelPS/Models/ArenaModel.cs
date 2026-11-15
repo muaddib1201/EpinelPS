@@ -1,3 +1,5 @@
+using Newtonsoft.Json;
+
 namespace EpinelPS.Models;
 
 public sealed class ArenaWorld
@@ -16,6 +18,12 @@ public sealed class ArenaPlayer
     public int Day { get; set; }
     public int RookieCount { get; set; }
     public int SpecialCount { get; set; }
+    [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+    public DateTime? OverviewEnteredUtc { get; set; }
+    [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+    public DateTime? RookieReminderSeenUtc { get; set; }
+    [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+    public DateTime? SpecialReminderSeenUtc { get; set; }
     public long RookieRefresh { get; set; }
     public long SpecialRefresh { get; set; }
     public DateTime AccruedUtc { get; set; }

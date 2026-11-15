@@ -15,7 +15,9 @@ public class PermanentContent : LobbyMessage
         response.ChampionArenaBadgeData = ChampionArenaAvailability.BadgeData();
         response.SoloRaidMuseumBadgeData = new();
         response.TodaySoloRaidNormalPlayCount = SoloRaidHelper.GetTodayNormalPlayCount(user);
-        // TODO
+        var clock = ctx!.RequestServices.GetService<TimeProvider>() ?? TimeProvider.System;
+        if (ArenaService.ArenaBadgeEntry(user, clock.GetUtcNow().UtcDateTime) is { } arena)
+            response.ContentEnterTimes.Add(arena);
 
         await WriteDataAsync(response);
     }
