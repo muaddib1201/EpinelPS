@@ -24,9 +24,10 @@ internal static class GuildDirectory
     internal static SavedGuild? Find(long id) => id is > 0 and <= int.MaxValue
         ? JsonDb.Instance.Guilds.GetValueOrDefault((int)id) : null;
 
-    internal static NetGuildData ClientData(SavedGuild guild)
+    internal static NetGuildData ClientData(SavedGuild guild) => ClientData(guild.Data);
+
+    private static NetGuildData ClientData(NetGuildData data)
     {
-        var data = guild.Data;
         // Challenger (0) has numbered tiers starting at 1. Older saves use
         // the nonexistent (0, 0) pair for an unranked Union. The client table
         // localizes Beginner through RankType=6, TierNumber=0.
@@ -91,6 +92,7 @@ internal static class GuildDirectory
                 existing.CreationReceipt != null)
             {
                 var receipt = ResCreateGuild.Parser.ParseFrom(existing.CreationReceipt);
+                if (receipt.Guild != null) receipt.Guild = ClientData(receipt.Guild);
                 // Older receipts omit these member messages. Preserve the original balances on replay.
                 foreach (var member in receipt.Members)
                 {

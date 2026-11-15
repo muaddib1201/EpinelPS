@@ -33,8 +33,8 @@ public class GuildController(IUserService users, GameContext db) : ControllerBas
         var result = new ResGetGuild { IsSimple = req.IsSimple };
         if (OwnGuild(user, req.Gsn) is { } guild)
         {
-            result.Guild = GuildDirectory.ClientData(guild);
             result.Members.AddRange(GuildDirectory.Members(db, guild));
+            result.Guild = GuildDirectory.ClientData(guild);
         }
         return result;
     });
@@ -94,8 +94,8 @@ public class GuildController(IUserService users, GameContext db) : ControllerBas
         var result = new ResGetGuildPublicInfo();
         if (GuildDirectory.Find(req.Gsn) is { } guild)
         {
-            result.Guild = GuildDirectory.ClientData(guild);
             result.Members.AddRange(GuildDirectory.Members(db, guild));
+            result.Guild = GuildDirectory.ClientData(guild);
         }
         return result;
     });
