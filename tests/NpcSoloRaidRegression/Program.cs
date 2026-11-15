@@ -24,6 +24,12 @@ typeof(GameConfig).GetField("_root", BindingFlags.NonPublic | BindingFlags.Stati
 SoloRaidSeasonSource.Bind(null);
 var manager = data.SoloRaidManagerTable[season.RaidId];
 var presets = data.SoloRaidPresetTable.Values.Where(p => p.PresetGroupId == manager.MonsterPreset).OrderBy(p => p.WaveOrder).ToArray();
+long normalBase = presets.Where(p => p.WaveOrder is >= 1 and <= 7).Sum(p =>
+{
+    var monsterId = data.WaveIntercept001Table[p.Wave].TargetList![0];
+    int group = data.MonsterTable[monsterId].StatenhanceId;
+    return data.MonsterStatEnhanceTable.Values.Where(x => x.GroupId == group && x.Lv == p.MonsterStageLv).Sum(x => (long)x.LevelHp);
+});
 File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "npc-solo-raid-definitions.json"), JsonConvert.SerializeObject(new
 {
     Config = data.GameSettings.Where(p => p.Key.Contains("raid", StringComparison.OrdinalIgnoreCase)), Presets = presets,
@@ -78,7 +84,7 @@ Test("completed daily routine enters challenge and the existing ranking endpoint
     Check(Best() is { IsClear: true, IsOpen: false, TotalDamage: > 0 }, "completed routine did not settle challenge");
     Check(Raid().TrialCount == 3, "challenge budget was not consumed exactly");
     var ranking = Ranking();
-    Check(ranking.TotalUserCount == 1 && ranking.Rankings.Single().User.Usn == (long)Npc().ID && ranking.Rankings.Single().Damage == Best()!.TotalDamage, "NPC not ranked");
+    Check(ranking.TotalUserCount == 1 && ranking.Rankings.Single().User.Usn == (long)Npc().ID && ranking.Rankings.Single().Damage == checked(Best()!.TotalDamage + normalBase), "NPC not ranked");
     Check(Inventory(Npc()) == inventory, "owned characters or teams changed");
     Check(JsonConvert.SerializeObject(State().Users.Single(u => u.ID == 1)) == JsonConvert.SerializeObject(human), "human changed");
 });

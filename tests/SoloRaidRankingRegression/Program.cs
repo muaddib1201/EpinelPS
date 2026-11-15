@@ -110,18 +110,62 @@ if (restarting)
     {
         var result = await Ranking(self);
         Check(result.TotalUserCount == 2 && result.Rankings[0].User.Usn == (long)other && result.User.Ranking == 2 &&
-            result.User.Damage == 9_000_000_000 && result.User.User.Nickname == "Solo9701", "saved rankings changed after restart");
+            NetScore(result.User.Damage) == 9_000_000_000 && result.User.User.Nickname == "Solo9701", "saved rankings changed after restart");
         Check(Player(self).SoloRaidData[raidId].SoloRaidLevels.Single().Logs.Count == 5, "saved best squads lost");
     });
 }
 else
 {
+    await Test("season 43 sends base plus observed five-team net score to overview and both ranking rows", async () =>
+    {
+        int oldRaid = raidId;
+        var oldConfig = GameConfig.Root;
+        try
+        {
+            raidId = 1000044;
+            SetSeason(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+            const long baseline = 1_130_781_186, net = 2_007_459_930, wire = 3_138_241_116;
+            Check(NormalBase(raidId) == baseline, "season 43 static normal HP no longer matches the observed base");
+            long[] teams = [1_749_538_166, 44_716_660, 133_407_166, 40_266_510, 39_531_428];
+            await Open(self);
+            ResSetSoloRaidTrialDamage? settlement = null;
+            foreach (long damage in teams) settlement = await Damage(self, damage);
+            Check(settlement!.Info.Damage == net, "battle settlement did not retain net damage");
+            var saved = Player(self).SoloRaidData[raidId].SoloRaidLevels.Single();
+            Check(saved.TotalDamage == net && saved.Logs.Select(l => l.Damage).SequenceEqual(teams), "stored score or battle logs are not net damage");
+            var overview = await Send<ResGetSoloRaidInfo>(self, "/soloraid/get", new ReqGetSoloRaidInfo());
+            var ranking = await Ranking(self);
+            Check(overview.Info.TrialDamage == wire && ranking.Rankings.Single().Damage == wire && ranking.User.Damage == wire,
+                $"expected {wire}; overview={overview.Info.TrialDamage}, list={ranking.Rankings.Single().Damage}, personal={ranking.User.Damage}");
+            Check(wire - baseline == net, "client-visible decoded score differs from net battle total");
+        }
+        finally { raidId = oldRaid; configField.SetValue(null, oldConfig); }
+    });
+    await Test("low positive score and duplicate completed best agree in both endpoints", async () =>
+    {
+        long baseline = NormalBase(raidId);
+        Best(self, 1); Best(self, 2);
+        var result = await Ranking(self);
+        var overview = await Send<ResGetSoloRaidInfo>(self, "/soloraid/get", new ReqGetSoloRaidInfo());
+        Check(result.User.Damage == baseline + 2 && overview.Info.TrialDamage == baseline + 2,
+            $"expected {baseline + 2}, ranking={result.User.Damage}, overview={overview.Info.TrialDamage}");
+    });
+    await Test("maximum representable net score encodes without overflow", async () =>
+    {
+        long baseline = NormalBase(raidId);
+        Best(self, long.MaxValue - baseline);
+        var ranking = await Ranking(self);
+        var overview = await Send<ResGetSoloRaidInfo>(self, "/soloraid/get", new ReqGetSoloRaidInfo());
+        Check(ranking.User.Damage == long.MaxValue && overview.Info.TrialDamage == long.MaxValue, "maximum score failed to encode");
+    });
     await Test("empty board returns an unranked personal profile instead of an empty protobuf", async () =>
     {
         var result = await Ranking(self);
         Check(result.TotalUserCount == 0 && result.Rankings.Count == 0 && result.User is { Ranking: 0, Damage: 0, User.Usn: (long)self },
             "empty leaderboard lacks the complete unranked user entry");
         Check(result.User.User.UserTitleDisplayData != null && result.BanResult == SoloRaidBanResult.Success, "profile defaults incomplete");
+        var overview = await Send<ResGetSoloRaidInfo>(self, "/soloraid/get", new ReqGetSoloRaidInfo());
+        Check(overview.Info.TrialDamage == 0, "missing challenge score was encoded as a positive score");
     });
     await Test("completed challenge results rank globally with 64-bit damage and stable ties", async () =>
     {
@@ -130,7 +174,7 @@ else
         Check(result.Rankings.Select(r => r.User.Usn).SequenceEqual(new long[] { (long)other, (long)self, (long)third }), "incorrect score or tie order");
         Check(result.Rankings.Select(r => r.Ranking).SequenceEqual(new long[] { 1, 2, 3 }) && result.TotalUserCount == 3,
             "rank indices or participant count incorrect");
-        Check(result.User.Ranking == 2 && result.User.Damage == 8_000_000_000, "personal score/rank missing or truncated");
+        Check(result.User.Ranking == 2 && NetScore(result.User.Damage) == 8_000_000_000, "personal score/rank missing or truncated");
     });
     await Test("normal, practice, unfinished, old-season and non-challenge stages never enter ranking", async () =>
     {
@@ -143,14 +187,14 @@ else
         Best(9707, 0); Best(9708, -1);
         Best(9709, long.MaxValue, clear: false);
         var result = await Ranking(self);
-        Check(result.TotalUserCount == 1 && result.Rankings.Single().Damage == 20, "non-qualifying scores entered leaderboard");
+        Check(result.TotalUserCount == 1 && NetScore(result.Rankings.Single().Damage) == 20, "non-qualifying scores entered leaderboard");
         Check((await Ranking(other)).User.Damage == 0 && (await Ranking(other)).User.Ranking == 0, "normal damage became personal challenge damage");
     });
     await Test("legacy duplicate completed records contribute only the highest result per account", async () =>
     {
         Best(self, 100); Best(self, 500); Best(self, 200); Best(other, 300);
         var result = await Ranking(self);
-        Check(result.TotalUserCount == 2 && result.Rankings.Count == 2 && result.User.Damage == 500 && result.User.Ranking == 1,
+        Check(result.TotalUserCount == 2 && result.Rankings.Count == 2 && NetScore(result.User.Damage) == 500 && result.User.Ranking == 1,
             "duplicate legacy rows changed participant count or selected a lower best");
     });
     await Test("rank entries contain SQLite names, appearance and union membership", async () =>
@@ -185,7 +229,7 @@ else
             var details = await RankerSquad(self, row.User.Usn, requestedRaid);
             Check(details.Logs.Select(log => log.Damage).SequenceEqual(damages),
                 $"expected five ordered best-run squad damages, received {details.Logs.Count} logs");
-            Check(details.Logs.Sum(log => log.Damage) == row.Damage, "squad damage did not add up to the ranked result");
+            Check(details.Logs.Sum(log => log.Damage) == NetScore(row.Damage), "squad damage did not add up to the ranked result");
             var members = details.Logs.Select(log => log.Team.Single()).ToArray();
             Check(members.Select(m => m.Combat).SequenceEqual(new[] { 3000, 3001, 3002, 3003, 3004 }) &&
                 members.All(m => m.Slot == 1 && m.Tid == tid && m.Lv == 400), "saved squad snapshots were lost or reordered");
@@ -278,7 +322,7 @@ else
         await Open(self);
         await Damage(self, 1_000);
         var result = await Ranking(self);
-        Check(result.User.Damage == 9_000, "unfinished run replaced best");
+        Check(NetScore(result.User.Damage) == 9_000, "unfinished run replaced best");
         Check(Player(self).SoloRaidData[raidId].SoloRaidLevels.Count == 2, "current run or existing best disappeared");
     });
     await Test("five-team lower and equal attempts preserve best score and original squad logs", async () =>
@@ -294,7 +338,7 @@ else
                 "current run settlement reports the wrong damage/status");
             var records = Player(self).SoloRaidData[raidId].SoloRaidLevels;
             Check(records.Count == 1 && JsonConvert.SerializeObject(records[0]) == snapshot, "lower/equal run destroyed the best result or its logs");
-            Check((await Ranking(self)).User.Damage == 9_000, "leaderboard regressed after another attempt");
+            Check(NetScore((await Ranking(self)).User.Damage) == 9_000, "leaderboard regressed after another attempt");
         }
     });
     await Test("a new five-team personal best updates both rankings and the solo raid overview", async () =>
@@ -302,11 +346,11 @@ else
         Best(self, 100); Best(other, 4_000_000_000);
         await Open(self);
         for (int i = 0; i < 4; i++) await Damage(self, 1_000_000_000);
-        Check((await Ranking(self)).User.Damage == 100, "incomplete high run entered leaderboard");
+        Check(NetScore((await Ranking(self)).User.Damage) == 100, "incomplete high run entered leaderboard");
         await Damage(self, 1_000_000_000);
         var result = await Ranking(self);
         var overview = await Send<ResGetSoloRaidInfo>(self, "/soloraid/get", new ReqGetSoloRaidInfo());
-        Check(result.User.Damage == 5_000_000_000 && result.User.Ranking == 1 && overview.Info.TrialDamage == result.User.Damage,
+        Check(NetScore(result.User.Damage) == 5_000_000_000 && result.User.Ranking == 1 && overview.Info.TrialDamage == result.User.Damage,
             "overview and ranking disagree on the completed best");
         Check(Player(self).SoloRaidData[raidId].SoloRaidLevels.Single().Logs.Count == 5, "completed best squad logs missing");
     });
@@ -315,10 +359,10 @@ else
         Best(self, 100);
         await Open(self); await Damage(self, 200);
         await Send<ResCloseSoloRaidTrial>(self, "/soloraid/trial/close", new ReqCloseSoloRaidTrial { RaidId = raidId, RaidLevel = 8 });
-        Check((await Ranking(self)).User.Damage == 200, "closed result did not enter ranking");
+        Check(NetScore((await Ranking(self)).User.Damage) == 200, "closed result did not enter ranking");
         await Open(self); await Damage(self, 50);
         await Send<ResCloseSoloRaidTrial>(self, "/soloraid/trial/close", new ReqCloseSoloRaidTrial { RaidId = raidId, RaidLevel = 8 });
-        Check((await Ranking(self)).User.Damage == 200, "lower closed result replaced best");
+        Check(NetScore((await Ranking(self)).User.Damage) == 200, "lower closed result replaced best");
     });
     await Test("rank queries and battle completion remain consistent under concurrent requests", async () =>
     {
@@ -331,7 +375,7 @@ else
                 "ranking read observed a partially updated result");
         }));
         await Task.WhenAll(readings.Append(Task.Run(async () => { for (int i = 0; i < 5; i++) await Damage(self, 200); })));
-        Check((await Ranking(self)).User.Damage == 1_000, "final completed result missing");
+        Check(NetScore((await Ranking(self)).User.Damage) == 1_000, "final completed result missing");
     });
     await Test("default season has the official fixed deadline and retains it after config reload", async () =>
     {
@@ -384,9 +428,9 @@ else
                 await Rejected<ResCloseSoloRaidPractice>("/soloraid/practice/close", new ReqCloseSoloRaidPractice { RaidId = raidId, RaidLevel = 8 });
                 await Rejected<ResFastBattleSoloRaid>("/soloraid/fastbattle", new ReqFastBattleSoloRaid { RaidId = raidId, RaidLevel = 1, ClearCount = 3 });
                 Check(JsonConvert.SerializeObject(State().Users) == snapshot, "rejected battle changed saved scores, teams, attempts or rewards");
-                Check((await Ranking(self)).User.Damage == 123_456, "final standings became unreadable");
+                Check(NetScore((await Ranking(self)).User.Damage) == 123_456, "final standings became unreadable");
                 var info = await Send<ResGetSoloRaidInfo>(self, "/soloraid/get", new ReqGetSoloRaidInfo());
-                Check(info.Info.TrialDamage == 123_456 && info.Info.Period.EndDate == now.AddDays(expired ? -1 : 2).UtcTicks,
+                Check(NetScore(info.Info.TrialDamage) == 123_456 && info.Info.Period.EndDate == now.AddDays(expired ? -1 : 2).UtcTicks,
                     "overview lost the score or the fixed configured deadline");
             }
             finally { configField.SetValue(null, fixtureConfig); }
@@ -462,6 +506,20 @@ SoloRaidLevelData Best(ulong id, long damage, SoloRaidType type = SoloRaidType.T
     raid.SoloRaidLevels.Add(result);
     return result;
 }
+long NormalBase(int managerId)
+{
+    var manager = data.SoloRaidManagerTable[managerId];
+    long total = 0;
+    for (int level = 1; level <= 7; level++)
+    {
+        var preset = data.SoloRaidPresetTable.Values.Single(p => p.PresetGroupId == manager.MonsterPreset && p.WaveOrder == level);
+        var monsterId = data.WaveIntercept001Table[preset.Wave].TargetList![0];
+        int group = data.MonsterTable[monsterId].StatenhanceId;
+        total = checked(total + data.MonsterStatEnhanceTable.Values.Where(x => x.GroupId == group && x.Lv == preset.MonsterStageLv).Sum(x => (long)x.LevelHp));
+    }
+    return total;
+}
+long NetScore(long wire) => wire == 0 ? 0 : checked(wire - NormalBase(raidId));
 Task<ResGetSoloRaidRanking> Ranking(ulong id) => Send<ResGetSoloRaidRanking>(id, "/soloraid/getranking", new ReqGetSoloRaidRanking());
 Task<ResGetSoloRaidRankerSquad> RankerSquad(ulong viewer, long target, int requestedRaid) =>
     Send<ResGetSoloRaidRankerSquad>(viewer, "/soloraid/getrankersquad",
