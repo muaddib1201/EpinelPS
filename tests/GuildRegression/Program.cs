@@ -44,9 +44,14 @@ if (!restarting)
             for (int n = 1; n <= 5; n++) u.SynchroSlots.Add(new SynchroSlot { Slot = n });
             return u;
         })).ToArray();
+    var collector = users.Single(u => u.ID == founder);
+    collector.Memorial = [100101, 100102, 100101, 100201, 100301, 100401, 200101, 0, int.MaxValue];
+    collector.JukeboxBgm = [1, 2, 1, 9300001, 4001, int.MaxValue];
     // An old save has users and wallets, but no guild registry.
     var legacySave = JObject.FromObject(new { DbVersion = 5, Users = users });
     legacySave["Users"]![1]!["Guild"] = JValue.CreateNull();
+    legacySave["Users"]![1]![nameof(User.Memorial)] = JValue.CreateNull();
+    legacySave["Users"]![1]![nameof(User.JukeboxBgm)] = JValue.CreateNull();
     File.WriteAllText(save, legacySave.ToString());
     using var db = GameContext.CreateNew();
     db.Database.EnsureDeleted();
@@ -215,6 +220,30 @@ await Test("another user can discover the guild by name or ID and view the found
     Check(profile.Data.Guild?.Gsn == guild.Gsn && profile.Data.User.GuildName == name && profile.Data.Desc == "Bio901", "viewer's data leaked into founder profile");
     var outsider = await Read(other, "User/Get", new ReqGetUserData(), ResGetUserData.Parser);
     Check(outsider.Gsn == 0 && outsider.Currency.Single(c => c.Type == 99).Value == 900, "outsider changed");
+});
+await Test("self and visiting profiles count distinct owned relics by series", async () => {
+    var expected = new Dictionary<int, int> {
+        [100100] = 2, [100200] = 1, [100300] = 1, [100400] = 1, [200100] = 1
+    };
+    foreach (var viewer in new[] { founder, other })
+    {
+        var profile = await Read(viewer, "User/GetProfile", new ReqGetProfileData { TargetUsn = (long)founder }, ResGetProfileData.Parser);
+        var counts = profile.Data.MemorialCount.ToDictionary(row => row.MemorialSeriesId, row => row.Count);
+        Check(counts.Count == expected.Count && expected.All(pair => counts.GetValueOrDefault(pair.Key) == pair.Value),
+            $"expected six relics across five series, got {profile.Data.MemorialCount}");
+    }
+    var empty = await Read(founder, "User/GetProfile", new ReqGetProfileData { TargetUsn = (long)other }, ResGetProfileData.Parser);
+    Check(empty.Data.MemorialCount.Count == 0, "an empty collection displayed the viewer's relics");
+});
+await Test("profile BGM counts acquired tracks from the campaign and events, excluding default music", async () => {
+    var library = await Read(founder, "User/GetWallpaper", new ReqGetWallpaper(), ResGetWallpaper.Parser);
+    Check(library.JukeboxIdList.Contains(4001) && library.JukeboxIdList.Contains(9300001),
+        "the jukebox should still offer both the default track and the earned event track");
+    foreach (var (target, earned) in new[] { (founder, 3), (other, 0) })
+    {
+        var profile = await Read(other, "User/GetProfile", new ReqGetProfileData { TargetUsn = (long)target }, ResGetProfileData.Parser);
+        Check(profile.Data.JukeboxCount == earned, $"profile reported {profile.Data.JukeboxCount}, expected {earned} acquired tracks");
+    }
 });
 await Test("a new grade-one guild has an inactive raid with no attempts used", async () => {
     long id = Saved(founder).Guild.guildId ?? 0;

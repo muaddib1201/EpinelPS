@@ -1,5 +1,4 @@
 using EpinelPS.Data;
-
 using EpinelPS.LobbyServer.Guild;
 
 namespace EpinelPS.LobbyServer.LobbyUser;
@@ -55,9 +54,21 @@ public class GetUserProfile : LobbyMessage
             if (user.CompletedTacticAcademyLessons.Count > 0)
                 response.Data.LastTacticAcademyLesson = user.CompletedTacticAcademyLessons.Last();
 
-            //if(user.Memorial.Count > 0)
-            //    response.Data.MemorialCount.Add(new NetMemorialCount { Count = user.Memorial.Count });
-            response.Data.JukeboxCount = user.JukeboxBgm?.Count ?? 0;
+            var ownedMemories = (user.Memorial ?? []).Distinct()
+                .Select(id => GameData.Instance.MemorialMemoryTable.GetValueOrDefault(id))
+                .OfType<MemorialMemoryRecord>();
+            foreach (var series in ownedMemories.GroupBy(memory => memory.MemorialMemorySeriesId))
+            {
+                response.Data.MemorialCount.Add(new NetMemorialCount
+                {
+                    MemorialSeriesId = series.Key,
+                    Count = series.Count()
+                });
+            }
+
+            var songs = GameData.Instance.jukeboxListDataRecords;
+            response.Data.JukeboxCount = (user.JukeboxBgm ?? []).Distinct()
+                .Count(id => songs.TryGetValue(id, out var song) && !song.IsDefaultBgm);
         }
 
         await WriteDataAsync(response);

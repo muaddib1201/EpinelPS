@@ -122,6 +122,21 @@ public class SoloRaidHelper
         JsonDb.Save();
     }
 
+    internal static int GetTodayNormalPlayCount(User user)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var season = SoloRaidSeasonSource.Current(now);
+        if (!IsPlayable(season, 0, now)) return 0;
+
+        lock (JsonDb.SaveLock)
+        {
+            // Badge polling must not perform the daily reset or create a raid record.
+            if (!user.SoloRaidData.TryGetValue(season!.RaidId, out var raid) || raid.LastDateDay < user.GetDateDay())
+                return 0;
+            return raid.RaidOpenCount;
+        }
+    }
+
     /// <summary>
     /// Gets the user solo raid info
     /// </summary>
