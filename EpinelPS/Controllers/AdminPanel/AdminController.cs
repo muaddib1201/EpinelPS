@@ -2,6 +2,7 @@
 using EpinelPS.Data;
 using EpinelPS.Models.Admin;
 using EpinelPS.Utils;
+using EpinelPS.Services;
 using Microsoft.AspNetCore.Mvc;
 using Paseto;
 using Paseto.Builder;
@@ -10,9 +11,10 @@ using System.Diagnostics;
 namespace EpinelPS.Controllers.AdminPanel;
 
 [Route("admin")]
-public class AdminController(ILogger<AdminController> logger) : Controller
+public partial class AdminController(ILogger<AdminController> logger, TimeProvider? clock = null) : Controller
 {
     private readonly ILogger<AdminController> _logger = logger;
+    private DateTime ScheduleNowUtc => (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
 
     public static bool CheckAuth(HttpContext context)
     {
@@ -55,12 +57,21 @@ public class AdminController(ILogger<AdminController> logger) : Controller
 
     [Route("Events"), ActionName("Events")]
     [HttpPost]
+    [ValidateAntiForgeryToken]
     public IActionResult EventsSave([FromForm] List<int>? activeBannerIds)
     {
         if (!CheckAuth(HttpContext)) return Redirect("/admin/");
 
-        JsonDb.Instance.ActiveEventBannerIds = activeBannerIds ?? [];
-        JsonDb.Save();
+        var ids = (activeBannerIds ?? []).Distinct().ToList();
+        if (!ModelState.IsValid || ids.Any(id => !GameData.Instance.LobbyPrivateBannerTable.ContainsKey(id))) return BadRequest();
+        lock (JsonDb.SaveLock)
+        {
+            var state = JsonDb.Instance;
+            foreach (int id in ids)
+                EventScheduleService.EnsureDefaultEndUtc(state, GameData.Instance.LobbyPrivateBannerTable[id].EventId, ScheduleNowUtc);
+            state.ActiveEventBannerIds = ids;
+            JsonDb.Save();
+        }
 
         TempData["MessageKey"] = "events.config.saved";
         return View(JsonDb.Instance.ActiveEventBannerIds);
@@ -68,6 +79,7 @@ public class AdminController(ILogger<AdminController> logger) : Controller
 
     [Route("Events/ActivateLatest")]
     [HttpPost]
+    [ValidateAntiForgeryToken]
     public IActionResult ActivateLatestEvent()
     {
         if (!CheckAuth(HttpContext)) return Redirect("/admin/");
@@ -75,8 +87,12 @@ public class AdminController(ILogger<AdminController> logger) : Controller
         var latest = GameData.Instance.LobbyPrivateBannerTable.Values.LastOrDefault();
         if (latest != null)
         {
-            JsonDb.Instance.ActiveEventBannerIds = [latest.Id];
-            JsonDb.Save();
+            lock (JsonDb.SaveLock)
+            {
+                EventScheduleService.EnsureDefaultEndUtc(JsonDb.Instance, latest.EventId, ScheduleNowUtc);
+                JsonDb.Instance.ActiveEventBannerIds = [latest.Id];
+                JsonDb.Save();
+            }
         }
 
         return Redirect("/admin/Events");

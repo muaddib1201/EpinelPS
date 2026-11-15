@@ -1,4 +1,7 @@
 @using EpinelPS.Data
+@using EpinelPS.Database
+@using EpinelPS.Services
+@using System.Globalization
 @model List<int>
 @{
     ViewData["Title"] = "Event configuration";
@@ -27,6 +30,8 @@
                 </button>
             </div>
         </div>
+
+        <div class="alert alert-info py-2" data-i18n="events.schedule.help">Dates use Beijing time (UTC+8). Newly enabled events without a deadline start a fixed 14-day countdown when saved. Time edits preserve progress and claims.</div>
 
         @* Success message *@
         <div id="saveAlert" class="alert alert-success py-2" style="display: none;"></div>
@@ -87,6 +92,7 @@
                                 <th style="border-bottom: 1px solid #555; font-weight: 600; padding: 0.5rem 0.75rem; background-color: #3d3d3f; color: #e0e0e0;" data-i18n="events.colName">Event Name</th>
                                 <th style="width: 120px; border-bottom: 1px solid #555; font-weight: 600; padding: 0.5rem 0.75rem; background-color: #3d3d3f; color: #e0e0e0;" data-i18n="events.colBannerId">Banner ID</th>
                                 <th style="width: 120px; border-bottom: 1px solid #555; font-weight: 600; padding: 0.5rem 0.75rem; background-color: #3d3d3f; color: #e0e0e0;" data-i18n="events.colEventId">Event ID</th>
+                                <th style="min-width: 245px;" data-i18n="events.schedule.column">End time / countdown (Beijing)</th>
                             </tr>
                         </thead>
                         <tbody id="eventTbody">
@@ -94,6 +100,7 @@
                             {
                                 var isChecked = activeIds.Contains(item.Id);
                                 var names = bannerNames[item.Id];
+                                var end = EventScheduleService.GetConfiguredEndUtc(JsonDb.Instance, item.EventId);
                                 <tr class="event-row @(isChecked ? "row-active" : "")"
                                     data-id="@item.Id" data-name="@names.English"
                                     data-name-en="@names.English" data-name-zh="@names.Chinese"
@@ -109,6 +116,11 @@
                                     <td class="event-name">@names.English</td>
                                     <td>@item.Id</td>
                                     <td>@item.EventId</td>
+                                    <td class="schedule-cell" data-event-id="@item.EventId" data-end-utc="@(end?.ToString("O", CultureInfo.InvariantCulture) ?? "")">
+                                        <div class="schedule-end small">@(end?.AddHours(8).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) ?? "—")</div>
+                                        <div class="schedule-remaining small text-muted" aria-live="off"></div>
+                                        <button type="button" class="btn btn-outline-primary btn-sm schedule-edit mt-1" data-banner-id="@item.Id" data-i18n="events.schedule.edit">Set / extend</button>
+                                    </td>
                                 </tr>
                             }
                         </tbody>
@@ -125,7 +137,48 @@
     </form>
 </div>
 
+<dialog id="eventScheduleDialog" aria-labelledby="eventScheduleTitle">
+    <form method="post" action="/admin/Events/Schedule" id="eventScheduleForm">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="BannerId" id="scheduleBannerId" />
+        <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
+            <h2 id="eventScheduleTitle" class="h5 mb-0" data-i18n="events.schedule.title">Event end time</h2>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="scheduleClose" data-i18n="common.cancel">Cancel</button>
+        </div>
+        <div id="scheduleEventName" class="fw-bold mb-1"></div>
+        <p class="small text-muted" data-i18n="events.schedule.shared">Applies to the main activity and all related children. Existing progress and claimed rewards are preserved.</p>
+        <div class="alert alert-secondary py-2"><span data-i18n="events.schedule.current">Current deadline</span>: <span id="scheduleCurrentEnd"></span></div>
+        <label for="scheduleOperation" class="form-label" data-i18n="events.schedule.operation">Action</label>
+        <select name="Operation" id="scheduleOperation" class="form-select mb-3">
+            <option value="duration" data-i18n="events.schedule.duration">Start a new countdown from now</option>
+            <option value="extend" data-i18n="events.schedule.extend">Extend the existing deadline</option>
+            <option value="absolute" data-i18n="events.schedule.absolute">Set an exact Beijing date/time</option>
+        </select>
+        <div id="scheduleDaysFields">
+            <div id="schedulePresets" class="d-flex gap-2 mb-2">
+                @foreach (int days in new[] { 14, 20, 21 })
+                {
+                    <button type="button" class="btn btn-outline-primary schedule-preset" data-days="@days">@days</button>
+                }
+            </div>
+            <label for="scheduleDays" class="form-label" data-i18n="events.schedule.days">Days (custom)</label>
+            <input type="number" name="Days" id="scheduleDays" class="form-control" min="1" max="3650" step="1" value="14" required />
+            <p id="scheduleActionHint" class="small text-muted mt-2"></p>
+        </div>
+        <div id="scheduleDateFields" hidden>
+            <label for="scheduleEndBeijing" class="form-label" data-i18n="events.schedule.beijing">End time (Beijing, UTC+8)</label>
+            <input type="datetime-local" name="EndBeijing" id="scheduleEndBeijing" class="form-control" step="1" required disabled />
+            <button type="button" id="scheduleResetClock" class="btn btn-outline-secondary btn-sm mt-2" data-i18n="events.schedule.resetClock">Use 03:59:59 on this date</button>
+        </div>
+        <div id="scheduleFeedback" class="alert mt-3" role="status" hidden></div>
+        <button type="submit" id="scheduleSubmit" class="btn btn-primary w-100 mt-3" data-i18n="events.schedule.save">Save end time</button>
+    </form>
+</dialog>
+
 <style>
+    #eventScheduleDialog { width: min(560px, calc(100% - 24px)); max-height: calc(100vh - 32px); overflow-y: auto; border: 1px solid #555; border-radius: 12px; padding: 24px; color: #eee; background: #252527; }
+    #eventScheduleDialog::backdrop { background: rgba(0, 0, 0, 0.65); }
+    .schedule-cell { cursor: default; }
     .row-active {
         background-color: rgba(56, 178, 121, 0.2) !important;
     }
@@ -290,7 +343,7 @@
         }
 
         // ---- Click row to toggle checkbox ----
-        document.querySelectorAll('.event-row td:not(:first-child)').forEach(function (td) {
+        document.querySelectorAll('.event-row td:not(:first-child):not(.schedule-cell)').forEach(function (td) {
             td.addEventListener('click', function () {
                 var row = this.closest('.event-row');
                 var cb = row.querySelector('.event-checkbox');
@@ -323,4 +376,5 @@
         </text>
         }
     </script>
+    <script src="/admin/assets/js/event-schedules.js" asp-append-version="true"></script>
 }
