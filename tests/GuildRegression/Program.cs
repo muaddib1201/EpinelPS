@@ -44,6 +44,9 @@ if (!restarting)
             for (int n = 1; n <= 5; n++) u.SynchroSlots.Add(new SynchroSlot { Slot = n });
             return u;
         })).ToArray();
+    var collector = users.Single(u => u.ID == founder);
+    collector.Memorial = [100101, 100102, 100101, 100201, 100301, 100401, 200101, 0, int.MaxValue];
+    collector.JukeboxBgm = [1, 2, 1, 4001, int.MaxValue];
     // An old save has users and wallets, but no guild registry.
     var legacySave = JObject.FromObject(new { DbVersion = 5, Users = users });
     legacySave["Users"]![1]!["Guild"] = JValue.CreateNull();
@@ -215,6 +218,30 @@ await Test("another user can discover the guild by name or ID and view the found
     Check(profile.Data.Guild?.Gsn == guild.Gsn && profile.Data.User.GuildName == name && profile.Data.Desc == "Bio901", "viewer's data leaked into founder profile");
     var outsider = await Read(other, "User/Get", new ReqGetUserData(), ResGetUserData.Parser);
     Check(outsider.Gsn == 0 && outsider.Currency.Single(c => c.Type == 99).Value == 900, "outsider changed");
+});
+await Test("self and visiting profiles count distinct owned relics by series", async () => {
+    var expected = new Dictionary<int, int> {
+        [100100] = 2, [100200] = 1, [100300] = 1, [100400] = 1, [200100] = 1
+    };
+    foreach (var viewer in new[] { founder, other })
+    {
+        var profile = await Read(viewer, "User/GetProfile", new ReqGetProfileData { TargetUsn = (long)founder }, ResGetProfileData.Parser);
+        var counts = profile.Data.MemorialCount.ToDictionary(row => row.MemorialSeriesId, row => row.Count);
+        Check(counts.Count == expected.Count && expected.All(pair => counts.GetValueOrDefault(pair.Key) == pair.Value),
+            $"expected six relics across five series, got {profile.Data.MemorialCount}");
+    }
+    var empty = await Read(founder, "User/GetProfile", new ReqGetProfileData { TargetUsn = (long)other }, ResGetProfileData.Parser);
+    Check(empty.Data.MemorialCount.Count == 0, "an empty collection displayed the viewer's relics");
+});
+await Test("profile BGM totals match the viewed player's unlocked jukebox catalogue", async () => {
+    int defaultCount = data.jukeboxListDataRecords.Values.Count(song => song.IsDefaultBgm);
+    foreach (var (target, earned) in new[] { (founder, 2), (other, 0) })
+    {
+        var library = await Read(target, "User/GetWallpaper", new ReqGetWallpaper(), ResGetWallpaper.Parser);
+        var profile = await Read(other, "User/GetProfile", new ReqGetProfileData { TargetUsn = (long)target }, ResGetProfileData.Parser);
+        Check(library.JukeboxIdList.Count == defaultCount + earned && profile.Data.JukeboxCount == library.JukeboxIdList.Count,
+            $"profile reported {profile.Data.JukeboxCount}, jukebox has {library.JukeboxIdList.Count}, expected {defaultCount + earned}");
+    }
 });
 await Test("a new grade-one guild has an inactive raid with no attempts used", async () => {
     long id = Saved(founder).Guild.guildId ?? 0;
