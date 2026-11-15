@@ -102,6 +102,7 @@ public sealed class StoryStageBattle
     public int StageId { get; set; }
     public int TeamNumber { get; set; }
     public int? Result { get; set; }
+    public long ResultClientTime { get; set; }
     public HashSet<string> ResultKeys { get; set; } = [];
     public byte[]? Response { get; set; }
 }

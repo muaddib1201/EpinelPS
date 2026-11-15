@@ -12,10 +12,13 @@ internal static class ClearEventStageHelper
         if (history?.Battle is not { } entry || entry.StageId != req.StageId || entry.TeamNumber != req.TeamNumber)
             throw EventStoryHelper.Reject("No matching story battle was entered.");
         if (key != null && history.ProcessedKeys.Contains(key)) throw EventStoryHelper.Reject("Story result belongs to an earlier battle.");
+        long clientTime = req.AntiCheatAdditionalInfo?.ClientLocalTime ?? 0;
         ResClearEventStage response;
         if (entry.Response != null)
         {
-            if (entry.Result != req.BattleResult) throw EventStoryHelper.Reject("Story battle has already settled.");
+            if (entry.Result != req.BattleResult ||
+                (entry.ResultClientTime > 0 && clientTime > 0 && entry.ResultClientTime != clientTime))
+                throw EventStoryHelper.Reject("Story battle has already settled.");
             response = Replay(story, entry.Response);
         }
         else
@@ -24,6 +27,7 @@ internal static class ClearEventStageHelper
             entry.Result = req.BattleResult;
             entry.Response = response.ToByteArray();
         }
+        if (clientTime > 0) entry.ResultClientTime = clientTime;
         if (key != null) entry.ResultKeys.Add(key);
         return response;
     }
