@@ -163,6 +163,50 @@ else
         Check(profile.Nickname == "Solo9701" && profile.Icon == 10016 && profile.Frame == 11 && profile.IconPrism &&
             profile.GuildName == "SoloUnion" && profile.Lv == 237 && profile.UserTitleDisplayData != null, "profile data missing");
     });
+    await Test("ranker squad details return the five saved teams of the target's ranked run in battle order", async () =>
+    {
+        Best(self, 123);
+        long[] damages = [2_200_000_000, 70, 40, 20, 10];
+        var best = Best(other, damages.Sum());
+        best.Logs = damages.Select((damage, i) => new SoloRaidLogData
+        {
+            Damage = damage,
+            Team = [new TeamCharacterData { Slot = 1, Csn = 100 + i, Tid = tid, Lv = 400, Combat = 3000 + i }]
+        }).ToList();
+        Best(other, 400);
+        Best(other, long.MaxValue, open: true);
+        Best(other, long.MaxValue, type: SoloRaidType.Practice);
+        Player(other).SoloRaidData[raidId].LastDateDay = 20200101;
+        string before = JsonConvert.SerializeObject(State().Users);
+        var ranking = await Ranking(self);
+        var row = ranking.Rankings.Single(r => r.User.Usn == (long)other);
+        foreach (var requestedRaid in new[] { raidId, 0 })
+        {
+            var details = await RankerSquad(self, row.User.Usn, requestedRaid);
+            Check(details.Logs.Select(log => log.Damage).SequenceEqual(damages),
+                $"expected five ordered best-run squad damages, received {details.Logs.Count} logs");
+            Check(details.Logs.Sum(log => log.Damage) == row.Damage, "squad damage did not add up to the ranked result");
+            var members = details.Logs.Select(log => log.Team.Single()).ToArray();
+            Check(members.Select(m => m.Combat).SequenceEqual(new[] { 3000, 3001, 3002, 3003, 3004 }) &&
+                members.All(m => m.Slot == 1 && m.Tid == tid && m.Lv == 400), "saved squad snapshots were lost or reordered");
+        }
+        Check((await RankerSquad(self, (long)self, raidId)).Logs.Single().Damage == 123, "personal detail returned another player's squad");
+        Check(JsonConvert.SerializeObject(State().Users) == before, "reading ranker squad details changed a saved account");
+    });
+    await Test("ranker squad details never substitute a different user, season or unfinished challenge", async () =>
+    {
+        Best(self, 100);
+        Best(other, 300, open: true);
+        Best(other, 700, season: raidId - 1);
+        Check((await RankerSquad(self, (long)other, raidId)).Logs.Count == 0, "an open trial or another season supplied a squad");
+        Check((await RankerSquad(self, (long)self, int.MaxValue)).Logs.Count == 0, "an unknown season fell back to the current record");
+        Check((await RankerSquad(self, long.MaxValue, raidId)).Logs.Count == 0, "unknown target returned a squad");
+        Best(other, 800);
+        Player(other).IsBanned = true;
+        Check((await RankerSquad(self, (long)other, raidId)).Logs.Count == 0, "a banned target exposed a ranked squad");
+        var banned = await RankerSquad(other, (long)self, raidId);
+        Check(banned.BanResult == SoloRaidBanResult.Banned && banned.Logs.Count == 0, "ranker squad response lost the viewer's ban result");
+    });
     await Test("banned accounts are excluded and the requesting account receives its ban result", async () =>
     {
         Best(self, 10); Best(other, 20); Player(other).IsBanned = true;
@@ -419,6 +463,9 @@ SoloRaidLevelData Best(ulong id, long damage, SoloRaidType type = SoloRaidType.T
     return result;
 }
 Task<ResGetSoloRaidRanking> Ranking(ulong id) => Send<ResGetSoloRaidRanking>(id, "/soloraid/getranking", new ReqGetSoloRaidRanking());
+Task<ResGetSoloRaidRankerSquad> RankerSquad(ulong viewer, long target, int requestedRaid) =>
+    Send<ResGetSoloRaidRankerSquad>(viewer, "/soloraid/getrankersquad",
+        new ReqGetSoloRaidRankerSquad { TargetUsn = target, RaidId = requestedRaid });
 async Task<int> BadgeNormalPlayCount(ulong id) =>
     (await Send<ResPermanentContentBadgeData>(id, "/badge/permanentcontent", new ReqPermanentContentBadgeData())).TodaySoloRaidNormalPlayCount;
 Task<ResOpenSoloRaidTrial> Open(ulong id) => Send<ResOpenSoloRaidTrial>(id, "/soloraid/trial/open", new ReqOpenSoloRaidTrial { RaidLevel = 8 });

@@ -340,7 +340,7 @@ public class SoloRaidHelper
         {
             int raidId = GetRaidId();
             var ranked = JsonDb.Instance.Users.Where(u => !u.IsBanned)
-                .Select(u => (User: u, Damage: CompletedTrialDamage(u, raidId)))
+                .Select(u => (User: u, Damage: BestCompletedTrial(u, raidId)?.TotalDamage ?? 0))
                 .Where(r => r.Damage > 0)
                 .OrderByDescending(r => r.Damage).ThenBy(r => r.User.ID).ToList();
 
@@ -359,14 +359,6 @@ public class SoloRaidHelper
             response.BanResult = user.IsBanned ? SoloRaidBanResult.Banned : SoloRaidBanResult.Success;
             response.User = response.Rankings.FirstOrDefault(r => r.User.Usn == (long)user.ID)?.Clone()
                 ?? new NetSoloRaidRankingData { User = RankingProfile(user) };
-        }
-
-        static long CompletedTrialDamage(User user, int raidId)
-        {
-            // GetSoloRaidData resets daily attempts; a ranking query must only read records.
-            if (!user.SoloRaidData.TryGetValue(raidId, out var raid)) return 0;
-            return raid.SoloRaidLevels.Where(r => r.RaidLevel == 8 && r.Type == SoloRaidType.Trial &&
-                r.IsClear && !r.IsOpen && r.TotalDamage > 0).Select(r => r.TotalDamage).DefaultIfEmpty(0).Max();
         }
 
         static NetWholeUserData RankingProfile(User user)
@@ -392,6 +384,32 @@ public class SoloRaidHelper
             };
         }
     }
+
+    private static SoloRaidLevelData? BestCompletedTrial(User user, int raidId)
+    {
+        // GetSoloRaidData resets daily attempts; reading a leaderboard or its squads must not.
+        if (!user.SoloRaidData.TryGetValue(raidId, out var raid)) return null;
+        return raid.SoloRaidLevels.Where(r => r.RaidLevel == 8 && r.Type == SoloRaidType.Trial &&
+            r.IsClear && !r.IsOpen && r.TotalDamage > 0).MaxBy(r => r.TotalDamage);
+    }
+
+    internal static ResGetSoloRaidRankerSquad GetRankerSquad(User viewer, long targetUsn, int raidId)
+    {
+        lock (JsonDb.SaveLock)
+        {
+            if (viewer.IsBanned) return new() { BanResult = SoloRaidBanResult.Banned };
+
+            ResGetSoloRaidRankerSquad response = new();
+            if (targetUsn <= 0 || JsonDb.GetUser((ulong)targetUsn) is not { IsBanned: false } target)
+                return response;
+
+            if (raidId == 0) raidId = CurrentRaidId() ?? 0;
+            if (raidId > 0 && BestCompletedTrial(target, raidId) is { } best)
+                response.Logs.AddRange(best.Logs.Select(log => log.ToNet()));
+            return response;
+        }
+    }
+
     public static void FastBattle(User user, ref ResFastBattleSoloRaid response, int raidId, int raidLevel, int clearCount)
     {
         lock (JsonDb.SaveLock) FastBattleCore(user, ref response, raidId, raidLevel, clearCount);
@@ -635,11 +653,13 @@ public class SoloRaidHelper
         return monster.StatenhanceId;
     }
 
-    public static int GetRaidId()
+    private static int? CurrentRaidId()
     {
         var season = SoloRaidSeasonSource.Current();
         if (season is null || !season.IsValid || !GameData.Instance.SoloRaidManagerTable.ContainsKey(season.RaidId))
-            throw new SoloRaidPeriodException();
+            return null;
         return season.RaidId;
     }
+
+    public static int GetRaidId() => CurrentRaidId() ?? throw new SoloRaidPeriodException();
 }
