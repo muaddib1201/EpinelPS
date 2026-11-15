@@ -406,21 +406,25 @@ public class SoloRaidHelper
     private static long NormalClearHp(int raidId)
     {
         var data = GameData.Instance;
-        if (!data.SoloRaidManagerTable.TryGetValue(raidId, out var manager)) return 0;
+        if (!data.SoloRaidManagerTable.TryGetValue(raidId, out var manager))
+            throw new InvalidDataException($"Missing Solo Raid manager {raidId} for the season score.");
         var stages = data.SoloRaidPresetTable.Values
             .Where(p => p.PresetGroupId == manager.MonsterPreset && p.DifficultyType == DifficultyType.Common)
             .OrderBy(p => p.WaveOrder).ToArray();
-        if (stages.Length != 7) return 0;
+        if (stages.Length != 7)
+            throw new InvalidDataException($"Solo Raid {raidId} has {stages.Length} normal stages instead of seven.");
 
         decimal total = 0;
         for (int i = 0; i < stages.Length; i++)
         {
-            if (stages[i].WaveOrder != i + 1) return 0;
             decimal hp = data.GetSoloRaidBossHp(stages[i]);
-            if (hp <= 0) return 0;
+            if (stages[i].WaveOrder != i + 1 || hp <= 0)
+                throw new InvalidDataException($"Missing normal boss HP for Solo Raid {raidId}, stage {i + 1}.");
             total += hp;
         }
-        return total <= long.MaxValue ? (long)total : 0;
+        if (total > long.MaxValue)
+            throw new InvalidDataException($"Normal boss HP for Solo Raid {raidId} exceeds the season score field.");
+        return (long)total;
     }
 
     internal static ResGetSoloRaidRankerSquad GetRankerSquad(User viewer, long targetUsn, int raidId)

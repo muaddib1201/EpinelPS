@@ -27,6 +27,7 @@ public class GetInfo : LobbyMessage
         }
         catch (Exception ex)
         {
+            response.PeriodResult = SoloRaidPeriodResult.Failure;
             Logging.WriteLine($"GetSoloRaidInfo error: {ex.Message}", LogType.Error);
         }
 
