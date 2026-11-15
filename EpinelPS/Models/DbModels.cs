@@ -87,6 +87,24 @@ public class EventData
     public int FreeTicket { get; set; } = 0;
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public ChallengeStageData? Challenge { get; set; }
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public StoryStageSettlements? StorySettlements { get; set; }
+}
+public sealed class StoryStageSettlements
+{
+    public StoryStageBattle? Battle { get; set; }
+    public string? LastSweepKey { get; set; }
+    public byte[]? LastSweepResponse { get; set; }
+    public HashSet<string> ProcessedKeys { get; set; } = [];
+}
+public sealed class StoryStageBattle
+{
+    public int StageId { get; set; }
+    public int TeamNumber { get; set; }
+    public int? Result { get; set; }
+    public long ResultClientTime { get; set; }
+    public HashSet<string> ResultKeys { get; set; } = [];
+    public byte[]? Response { get; set; }
 }
 public class ChallengeStageData
 {

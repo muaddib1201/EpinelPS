@@ -1,3 +1,4 @@
+using EpinelPS.Database;
 using EpinelPS.Utils;
 
 namespace EpinelPS.LobbyServer.Event.Shop;
@@ -13,7 +14,9 @@ public class BuyProduct : LobbyMessage
         User user = GetUser();
         try
         {
-            EventShopHelper.BuyShopProduct(user, ref response, req);
+            lock (user)
+            lock (JsonDb.SaveLock)
+                EventShopHelper.BuyShopProduct(user, ref response, req);
         }
         catch (Exception ex)
         {

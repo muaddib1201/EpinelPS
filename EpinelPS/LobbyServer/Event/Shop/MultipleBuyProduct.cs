@@ -1,3 +1,4 @@
+using EpinelPS.Database;
 using EpinelPS.Utils;
 
 namespace EpinelPS.LobbyServer.Event.Shop;
@@ -30,7 +31,9 @@ public class MultipleBuyProduct : LobbyMessage
 
         try
         {
-            EventShopHelper.BuyShopMultipleProduct(user, ref response, req);
+            lock (user)
+            lock (JsonDb.SaveLock)
+                EventShopHelper.BuyShopMultipleProduct(user, ref response, req);
         }
         catch (Exception ex)
         {
