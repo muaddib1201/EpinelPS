@@ -136,6 +136,29 @@ internal static class AdminScheduleChecks
             var saved = JObject.Parse(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "db.json")));
             Check(JToken.DeepEquals(claims, saved["Users"]), "persisted claims/progress changed");
         });
+        await Test("failed persistence rolls back activation and deadline changes on all write routes", async () =>
+        {
+            data.LobbyPrivateBannerTable[999200] = new() { Id = 999200, EventId = 999201 };
+            data.eventManagers[999201] = new() { Id = 999201, EventSystemType = EventSystemType.ShopEvent, EventBannerResourceTable = "" };
+            foreach (string route in new[] { "/admin/Events", "/admin/Events/ActivateLatest", "/admin/Events/Schedule" })
+            {
+                var before = JObject.FromObject(State());
+                string blocker = Path.Combine(AppContext.BaseDirectory, "db.json.tmp");
+                Check(!File.Exists(blocker) && !Directory.Exists(blocker), "the save-failure fixture path already exists");
+                Directory.CreateDirectory(blocker);
+                try
+                {
+                    using var response = await Post(route, route.EndsWith("/Schedule") ? Fields("duration", 14) : new() { new("activeBannerIds", "999200") });
+                    Check(response.StatusCode == HttpStatusCode.InternalServerError, "save-failure fixture did not exercise the persistence failure");
+                    Check(JToken.DeepEquals(before, JObject.FromObject(State())), $"{route} left unsaved activation/deadline mutations in memory");
+                }
+                finally
+                {
+                    Directory.Delete(blocker);
+                    jsonDb.GetProperty("Instance")!.SetValue(null, before.ToObject<CoreInfo>()!);
+                }
+            }
+        });
         if (preview && failed == 0)
         {
             clock.Set(DateTime.UtcNow);

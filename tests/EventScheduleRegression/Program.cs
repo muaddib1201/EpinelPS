@@ -4,6 +4,7 @@ using EpinelPS.Data;
 using EpinelPS.Database;
 using EpinelPS.LobbyServer;
 using EpinelPS.LobbyServer.Event;
+using EpinelPS.LobbyServer.Gacha;
 using EpinelPS.Models;
 using Google.Protobuf;
 using Microsoft.AspNetCore.Http;
@@ -23,6 +24,8 @@ var progress = new Progress<double>();
 foreach (var row in await data.LoadZip<EventManagerRecord>("EventManagerTable.json", progress)) data.eventManagers.Add(row.Id, row);
 foreach (var row in await data.LoadZip<LobbyPrivateBannerRecord>("LobbyPrivateBannerTable.json", progress)) data.LobbyPrivateBannerTable.Add(row.Id, row);
 foreach (var row in await data.LoadZip<DailyMissionEventSettingRecord_Raw>("DailyMissionEventSettingTable.json", progress)) data.DailyMissionEventSettingTable.Add(row.Id, row);
+foreach (var row in await data.LoadZip<GachaTypeRecord>("GachaTypeTable.json", progress)) data.gachaTypes.Add(row.Id, row);
+foreach (var row in await data.LoadZip<GachaPaybackRecord_Raw>("GachaPaybackTable.json", progress)) data.GachaPaybackRecords.Add(row.Id, row);
 
 const int rootEvent = 83500, bannerId = 10124;
 int[] related = [83500, 40124, 40125, 60124, 100053, 83501, 83502, 83503];
@@ -140,14 +143,69 @@ await Test("nested parent and set-field children inherit the root deadline witho
     data.eventManagers[999021] = new() { Id = 999021, SetField = 999020 };
     data.eventManagers[999022] = new() { Id = 999022, ParentsEventId = 999021, SetField = 999020 };
     await WithDeadlines(new() { [rootEvent] = new DateTime(2030, 1, 2, 19, 59, 59, DateTimeKind.Utc),
-        [999001] = new DateTime(2030, 2, 3, 4, 5, 6, DateTimeKind.Utc) }, () =>
+        [999001] = new DateTime(2030, 2, 3, 4, 5, 6, DateTimeKind.Utc) }, async () =>
     {
+        var list = await List();
+        var joined = await Joined();
         foreach (int id in new[] { 999020, 999021, 999022 })
+        {
+            Check(list.EventList.Any(e => e.Id == id) && joined.EventWithJoinData.Any(e => e.EventData.Id == id), $"nested event {id} is missing from public event responses");
             Check(ResolveEnd(id, new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc)) == new DateTime(2030, 1, 2, 19, 59, 59, DateTimeKind.Utc),
                 $"nested event {id} did not use the main deadline");
+        }
         Check(ResolveEnd(999001, DateTime.UtcNow) == new DateTime(2030, 2, 3, 4, 5, 6, DateTimeKind.Utc), "an unrelated root lost its own deadline");
-        return Task.CompletedTask;
     });
+});
+await Test("mixed recruitment, login, payback and free-recruit links include every descendant in public responses", async () =>
+{
+    data.eventManagers[999050] = new() { Id = 999050, ParentsEventId = rootEvent, EventSystemType = EventSystemType.ShopEvent, EventBannerResourceTable = "event_schedule_fixture" };
+    data.eventManagers[999051] = new() { Id = 999051, EventSystemType = EventSystemType.LoginEvent, EventBannerResourceTable = "event_schedule_fixture" };
+    data.eventManagers[999052] = new() { Id = 999052, ParentsEventId = 999051, EventSystemType = EventSystemType.ShopEvent, EventBannerResourceTable = "" };
+    data.eventManagers[999053] = new() { Id = 999053, SetField = 999052, EventSystemType = EventSystemType.ShopEvent, EventBannerResourceTable = "" };
+    data.eventManagers[999054] = new() { Id = 999054, EventSystemType = EventSystemType.PickupGachaEvent, EventBannerResourceTable = "event_schedule_fixture" };
+    data.eventManagers[999055] = new() { Id = 999055, EventSystemType = EventSystemType.ShopEvent, EventBannerResourceTable = "" };
+    data.eventManagers[999056] = new() { Id = 999056, ParentsEventId = 999055, EventSystemType = EventSystemType.ShopEvent, EventBannerResourceTable = "" };
+    data.eventManagers[999057] = new() { Id = 999057, EventSystemType = EventSystemType.ShopEvent, EventBannerResourceTable = "" };
+    data.eventManagers[999058] = new() { Id = 999058, SetField = 999057, EventSystemType = EventSystemType.ShopEvent, EventBannerResourceTable = "" };
+    data.gachaTypes[999060] = new() { Id = 999060, EventId = 999054, DailyFreeGachaEventId = 999057 };
+    data.GachaPaybackRecords[999061] = new() { Id = 999061, GachaId = 999060, EventId = 999055 };
+    data.eventManagers[999071] = new() { Id = 999071, ParentsEventId = 999001, EventSystemType = EventSystemType.ShopEvent, EventBannerResourceTable = "" };
+    data.eventManagers[999080] = new() { Id = 999080, ParentsEventId = 999081 };
+    data.eventManagers[999081] = new() { Id = 999081, SetField = 999080 };
+    await WithDeadlines(new() { [rootEvent] = new DateTime(2030, 1, 2, 19, 59, 59, DateTimeKind.Utc) }, async () =>
+    {
+        var list = await List();
+        var joined = await Joined();
+        foreach (int id in Enumerable.Range(999050, 9))
+        {
+            var entry = list.EventList.SingleOrDefault(e => e.Id == id);
+            var other = joined.EventWithJoinData.SingleOrDefault(e => e.EventData.Id == id)?.EventData;
+            Check(entry != null && other != null, $"indirect child {id} is missing from public responses");
+            Check(entry!.EventEndDate == new DateTime(2030, 1, 2, 19, 59, 59, DateTimeKind.Utc).Ticks && other!.EventDisableDate == entry.EventEndDate, $"indirect child {id} lost the root deadline");
+        }
+        Check(list.EventList.All(e => e.Id != 999071), "a child from an unrelated group leaked into this activity");
+        Check(ResolveEnd(999080, new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc)) == new DateTime(2030, 1, 31, 0, 0, 0, DateTimeKind.Utc), "an unowned relationship cycle did not retain its legacy fallback");
+    });
+});
+await Test("daily free-recruit detail uses the owning activity deadline", async () =>
+{
+    await WithDeadlines(new() { [rootEvent] = new DateTime(2030, 1, 2, 19, 59, 59, DateTimeKind.Utc) }, async () =>
+    {
+        var response = ResCheckDailyFreeGacha.Parser.ParseFrom(await Send(new CheckGachaDailyEvent(), new ReqCheckDailyFreeGacha { GachaId = 999060 }));
+        long expected = new DateTime(2030, 1, 2, 19, 59, 59, DateTimeKind.Utc).Ticks;
+        Check(response.EventData?.EventEndDate == expected && response.EventData.EventDisableDate == expected, "free-recruit detail used its independent rolling deadline");
+    });
+});
+await Test("unconfigured login and daily free-recruit details retain their legacy local wire ticks", async () =>
+{
+    data.eventManagers[999090] = new() { Id = 999090, EventSystemType = EventSystemType.LoginEvent, EventBannerResourceTable = "" };
+    data.gachaTypes[999091] = new() { Id = 999091, DailyFreeGachaEventId = 999090 };
+    long before = DateTime.Now.AddDays(13).Ticks;
+    var login = ResLoginEventData.Parser.ParseFrom(await Send(new EventLoginGet(), new ReqLoginEventData { EventId = 999090 }));
+    Check(login.EndDate >= before && login.EndDate <= DateTime.Now.AddDays(13).Ticks, "unedited login deadline shifted from local to UTC ticks");
+    before = DateTime.Now.AddDays(20).Ticks;
+    var free = ResCheckDailyFreeGacha.Parser.ParseFrom(await Send(new CheckGachaDailyEvent(), new ReqCheckDailyFreeGacha { GachaId = 999091 }));
+    Check(free.EventData.EventEndDate >= before && free.EventData.EventEndDate <= DateTime.Now.AddDays(20).Ticks, "unedited free-recruit deadline shifted from local to UTC ticks");
 });
 await Test("a configured countdown stays fixed across its deadline and a configuration round trip", async () =>
 {
