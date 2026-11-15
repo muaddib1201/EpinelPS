@@ -9,6 +9,7 @@
 
 <div class="adminui-dashboard">
     <form method="post" action="/admin/Events" id="eventForm">
+        @Html.AntiForgeryToken()
         @* Top bar *@
         <div class="d-flex justify-content-between align-items-center mb-4">
             <div>
