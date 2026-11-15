@@ -160,6 +160,9 @@ await Test("a configured countdown stays fixed across its deadline and a configu
     });
 });
 
+var adminChecks = await AdminScheduleChecks.Run(data, user.ID, db, workspace);
+passed += adminChecks.Passed;
+failed += adminChecks.Failed;
 Console.WriteLine($"RESULT {passed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;
 
