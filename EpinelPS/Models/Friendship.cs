@@ -7,6 +7,9 @@ public class FriendshipState
     public Dictionary<ulong, FriendGiftHistory> Gifts { get; set; } = [];
     public int Day { get; set; }
     public int SentCount { get; set; }
+    // The recipient can trigger an NPC gift before the sender's daily routine logs its own sends.
+    public long NpcGiftsSentOutsideRoutine { get; set; }
+    public bool ShouldSerializeNpcGiftsSentOutsideRoutine() => NpcGiftsSentOutsideRoutine != 0;
     public int ReceivedCount { get; set; }
     public bool NpcFriendsInitialized { get; set; }
     public List<FriendRequestReceipt> Receipts { get; set; } = [];

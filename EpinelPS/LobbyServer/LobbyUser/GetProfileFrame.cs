@@ -1,4 +1,5 @@
 ﻿using EpinelPS.Data;
+using EpinelPS.Database;
 
 namespace EpinelPS.LobbyServer.LobbyUser;
 
@@ -15,13 +16,15 @@ public class GetProfileFrame : LobbyMessage
             .OfType<RewardRecord>().SelectMany(r => r.Rewards).Where(r => r.RewardType == RewardType.Frame)
             .Select(r => r.RewardId).ToHashSet();
         HashSet<int> owned;
-        lock (user) owned = user.FrameList.Append(user.ProfileFrame).ToHashSet();
+        lock (user)
+        lock (JsonDb.SaveLock)
+            owned = user.FrameList.Append(user.ManagedNpc == null ? user.ProfileFrame : 1).ToHashSet();
 
         foreach (var frameRecord in GameData.Instance.userFrameTable.Values)
         {
             // Preserve the legacy non-ranking catalogue and the equipped frame.
             // Ranking frames are owned only after their reward mail is claimed.
-            if (!rankingFrames.Contains(frameRecord.Id) || owned.Contains(frameRecord.Id))
+            if (owned.Contains(frameRecord.Id) || user.ManagedNpc == null && !rankingFrames.Contains(frameRecord.Id))
                 response.Frames.Add(frameRecord.Id);
         }
 

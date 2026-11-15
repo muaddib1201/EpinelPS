@@ -173,46 +173,28 @@ public static class LobbyHandler
     }
     public static NetWholeUserData CreateWholeUserDataFromDbUser(User user)
     {
-        using var ctx1 = GameContext.CreateNew();
-        var userDB = ctx1.Users.Find((ulong)user.ID);
-        NetWholeUserData ret = new()
+        using var db = GameContext.CreateNew();
+        var profile = db.Users.Find(user.ID) ?? throw new InvalidOperationException("Missing user profile.");
+        lock (JsonDb.SaveLock)
         {
-            Lv = user.userPointData.UserLevel,
-            Frame = user.ProfileFrame,
-            Icon = user.ProfileIconId,
-            IconPrism = user.ProfileIconIsPrism,
-            UserTitleId = user.TitleId,
-            Nickname = userDB.Nickname,
-            GuildName = GuildDirectory.Membership(user)?.Name ?? "",
-            Usn = (long)user.ID,
-            LastActionAt = user.ManagedNpc?.LastActionUtc.Ticks ?? DateTimeOffset.UtcNow.Ticks,
-            Server = 1001
-        };
-
-        return ret;
+            return new NetWholeUserData
+            {
+                Lv = user.userPointData.UserLevel,
+                Frame = user.ProfileFrame,
+                Icon = user.ProfileIconId,
+                IconPrism = user.ProfileIconIsPrism,
+                UserTitleId = user.TitleId,
+                Nickname = profile.Nickname,
+                GuildName = GuildDirectory.Membership(user)?.Name ?? "",
+                Usn = (long)user.ID,
+                LastActionAt = user.ManagedNpc?.LastActionUtc.Ticks ?? DateTimeOffset.UtcNow.Ticks,
+                Server = 1001
+            };
+        }
     }
 
-    public static NetWholeUserData CreateWholeUserDataFromDbUser(ulong id)
-    {
-        using var ctx2 = GameContext.CreateNew();
-        var userDB = ctx2.Users.Find((ulong)id);
-        var user = JsonDb.Instance.Users.Where(x=>x.ID == id).FirstOrDefault();
-        NetWholeUserData ret = new()
-        {
-            Lv = user.userPointData.UserLevel,
-            Frame = user.ProfileFrame,
-            Icon = user.ProfileIconId,
-            IconPrism = user.ProfileIconIsPrism,
-            UserTitleId = user.TitleId,
-            Nickname = userDB.Nickname,
-            GuildName = GuildDirectory.Membership(user)?.Name ?? "",
-            Usn = (long)user.ID,
-            LastActionAt = user.ManagedNpc?.LastActionUtc.Ticks ?? DateTimeOffset.UtcNow.Ticks,
-            Server = 1001
-        };
-
-        return ret;
-    }
+    public static NetWholeUserData CreateWholeUserDataFromDbUser(ulong id) =>
+        CreateWholeUserDataFromDbUser(JsonDb.GetUser(id) ?? throw new InvalidOperationException("Unknown profile user."));
 }
 
 public class GameClientInfo

@@ -63,8 +63,7 @@ public static partial class ManagedNpcService
             .ToArray();
         private readonly Dictionary<int, int> chapterBosses = data.StageDataRecords.Values
             .Where(s => s.ChapterMod == ChapterMod.Normal && s.StageType == StageType.Main && s.StageCategory == StageCategory.Boss)
-            .GroupBy(s => s.ChapterId).Where(g => data.ChapterCampaignData.ContainsKey(g.Key))
-            .ToDictionary(g => data.ChapterCampaignData[g.Key].Id, g => g.Max(s => s.Id));
+            .GroupBy(s => s.ChapterId).ToDictionary(g => g.Key, g => g.Max(s => s.Id));
         private readonly HashSet<(CorporationTowerType, int)> towerFloors = data.towerTable.Values.Select(t => (t.Type, t.Floor)).ToHashSet();
         private readonly HashSet<string> episodes = data.AttractiveLevelReward.Values.Select(r => r.AttractiveScenarioGroupId)
             .OfType<string>().Where(id => id.Length > 0).ToHashSet();
@@ -116,7 +115,8 @@ public static partial class ManagedNpcService
                     UserTitleAcquireConditionType.UserTitleClearChapter => chapterBosses.TryGetValue(value, out int boss) && user.IsStageCompleted(boss),
                     UserTitleAcquireConditionType.UserTitleOutpostScenario => user.ClearedOutpostScenarioIds.Distinct().Count() >= value,
                     UserTitleAcquireConditionType.UserTitleAttractiveScenario => user.CompletedScenarios.Intersect(episodes).Count() >= value,
-                    UserTitleAcquireConditionType.UserTitleSendFriendPointCount => friendPointsSent >= value,
+                    UserTitleAcquireConditionType.UserTitleSendFriendPointCount =>
+                        friendPointsSent + (user.Friendships?.NpcGiftsSentOutsideRoutine ?? 0) >= value,
                     UserTitleAcquireConditionType.UserTitleRookieArenaPlayCount => rookieBattles >= value,
                     UserTitleAcquireConditionType.UserTitleLostSectorPerfectClearCount => user.LostSectorData.Values.Count(s => s.CompletedPerfectly) >= value,
                     UserTitleAcquireConditionType.UserTitleTowerClearTotalCount => user.TowerProgress

@@ -1,4 +1,5 @@
-﻿using EpinelPS.Data; // For GameData access
+﻿using EpinelPS.Data;
+using EpinelPS.Database;
 
 namespace EpinelPS.LobbyServer.LobbyUser;
 
@@ -7,17 +8,18 @@ public class GetUserTitle : LobbyMessage
 {
     protected override async Task HandleAsync()
     {
-        ReqGetUserTitleList req = await ReadData<ReqGetUserTitleList>();
-        ResGetUserTitleList r = new();
-
-        // Access GameData and get all UserTitle IDs
-        Dictionary<int, UserTitleRecord> userTitleRecords = GameData.Instance.userTitleRecords;
-
-        foreach (int titleId in userTitleRecords.Keys)
+        await ReadData<ReqGetUserTitleList>();
+        var user = GetUser();
+        var catalogue = GameData.Instance.userTitleRecords;
+        ResGetUserTitleList response = new();
+        lock (JsonDb.SaveLock)
         {
-            r.UserTitleList.Add(new ResGetUserTitleList.Types.NetUserTitle() { UserTitleId = titleId });
+            response.CurrentUserTitle = user.TitleId;
+            IEnumerable<int> titles = user.ManagedNpc == null ? catalogue.Keys : user.TitleList.Append(1).Distinct().Where(catalogue.ContainsKey);
+            foreach (int titleId in titles)
+                response.UserTitleList.Add(new ResGetUserTitleList.Types.NetUserTitle { UserTitleId = titleId });
         }
 
-        await WriteDataAsync(r);
+        await WriteDataAsync(response);
     }
 }

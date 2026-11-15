@@ -110,7 +110,7 @@ public static class FriendshipService
         foreach (var friend in Friends(user))
         {
             Prepare(friend, now);
-            if (SendOne(user, friend)) sent++;
+            if (SendOne(user, friend, npcRoutine: true)) sent++;
             if (ClaimOne(user, friend)) received++;
         }
         if (sent > 0) user.AddTrigger(Trigger.SendFriendShipPoint, sent);
@@ -154,13 +154,14 @@ public static class FriendshipService
         }
     }
 
-    private static bool SendOne(User sender, User receiver)
+    private static bool SendOne(User sender, User receiver, bool npcRoutine = false)
     {
         var state = State(sender);
         var history = History(sender, receiver.ID);
         if (state.Day == 0 || state.Day < State(receiver).Day || state.SentCount >= DailyLimit || history.SentDay >= state.Day) return false;
         history.SentDay = state.Day;
         state.SentCount++;
+        if (sender.ManagedNpc != null && !npcRoutine) state.NpcGiftsSentOutsideRoutine++;
         return true;
     }
 
