@@ -9,9 +9,11 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 var root = Environment.GetEnvironmentVariable("NIKKE_WORKSPACE_ROOT")
     ?? throw new Exception("Use the isolated NIKKE test workflow");
+var savePath = Path.Combine(AppContext.BaseDirectory, "db.json");
 var pack = Directory.GetFiles(Path.Combine(root, "Server and Server selector/cache"), "StaticData.pack", SearchOption.AllDirectories).Single();
 var data = new GameData(pack);
 typeof(GameData).GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, data);
@@ -148,6 +150,10 @@ await OpenRoute(11);
 var initialFinish = Route11Ending(6109, 113401, 1108, restart: false);
 var initial = await Finish(initialFinish);
 int beforeReplay = initial.PlayData.PlayCount;
+// Older servers persisted only LastFinishSignature for a settled route.
+var legacyRoute = JObject.Parse(File.ReadAllText(savePath))["Users"]![0]!["TextAdventurePlusDatas"]!["83501"]!;
+Assert(legacyRoute["LastFinishSignature"] != null && legacyRoute["EarlierFinishSignatures"] == null,
+    "An ordinary settlement must keep the legacy single-receipt save format");
 ReloadSave();
 var otherRoute = new ReqFinishMiniGameTextAdventurePlus { EventTextAdvPlusManagerTableId = 83501, EventTextAdvPlusRouteTableId = 12, IsRestart = true };
 otherRoute.EventTextAdvPlusEventPageTableIdList.Add(7201);
@@ -205,7 +211,7 @@ void Populate<T>(string fieldName, T[] rows)
 }
 void ReloadSave()
 {
-    var saved = JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "db.json")))!;
+    var saved = JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(savePath))!;
     user = saved.Users.Single();
     typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb", true)!.GetProperty("Instance")!.SetValue(null, saved);
 }

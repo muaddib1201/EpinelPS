@@ -9,4 +9,5 @@ public class TextAdventurePlusData
     public int ActiveRouteId { get; set; }
     public string? LastFinishSignature { get; set; }
     public HashSet<string> EarlierFinishSignatures { get; set; } = [];
+    public bool ShouldSerializeEarlierFinishSignatures() => EarlierFinishSignatures.Count != 0;
 }
