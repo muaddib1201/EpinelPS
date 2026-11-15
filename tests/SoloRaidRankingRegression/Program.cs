@@ -158,6 +158,74 @@ else
         var overview = await Send<ResGetSoloRaidInfo>(self, "/soloraid/get", new ReqGetSoloRaidInfo());
         Check(ranking.User.Damage == long.MaxValue && overview.Info.TrialDamage == long.MaxValue, "maximum score failed to encode");
     });
+    await Test("another season uses its own HP and saturates without changing raw order or battle logs", async () =>
+    {
+        int originalRaid = raidId;
+        var originalConfig = GameConfig.Root;
+        SoloRaidPresetRecord? changedPreset = null;
+        int originalLevel = 0;
+        try
+        {
+            long season43 = NormalBase(1000044);
+            var candidates = new List<(int Id, long Hp)>();
+            foreach (var candidate in data.SoloRaidManagerTable.Values.Where(m => m.Id != 1000044))
+            {
+                try { candidates.Add((candidate.Id, NormalBase(candidate.Id))); }
+                catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException) { }
+            }
+            Check(candidates.Count > 0, "no other complete season in isolated static data");
+            var selected = candidates.FirstOrDefault(c => c.Hp != season43);
+            if (selected == default)
+            {
+                selected = candidates[0];
+                var manager = data.SoloRaidManagerTable[selected.Id];
+                var stages = data.SoloRaidPresetTable.Values.Where(p => p.PresetGroupId == manager.MonsterPreset && p.WaveOrder is >= 1 and <= 7).OrderBy(p => p.WaveOrder).ToArray();
+                changedPreset = stages[0]; originalLevel = changedPreset.MonsterStageLv;
+                changedPreset.MonsterStageLv = stages[1].MonsterStageLv;
+                selected = (selected.Id, NormalBase(selected.Id));
+                Check(selected.Hp != season43, "fixture adjustment failed to create a different normal HP base");
+            }
+            raidId = selected.Id;
+            SetSeason(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+            Console.WriteLine($"SeasonBase43={season43}, otherSeason={raidId}, otherBase={selected.Hp}, fixtureModified={changedPreset != null}, completeOtherSeasons={candidates.Count}, distinctBases={candidates.Select(c => c.Hp).Append(season43).Distinct().Count()}");
+            Best(self, long.MaxValue - selected.Hp + 1);
+            Best(other, long.MaxValue);
+            var ranking = await Ranking(self);
+            var overview = await Send<ResGetSoloRaidInfo>(self, "/soloraid/get", new ReqGetSoloRaidInfo());
+            Check(ranking.Rankings.Select(r => r.User.Usn).SequenceEqual(new long[] { (long)other, (long)self }), "saturation changed raw ranking order");
+            Check(ranking.Rankings.All(r => r.Damage == long.MaxValue) && overview.Info.TrialDamage == long.MaxValue, "scores above the limit did not saturate");
+            var logs = await RankerSquad(self, (long)other, raidId);
+            Check(logs.Logs.Single().Damage == long.MaxValue && Player(other).SoloRaidData[raidId].SoloRaidLevels.Single().TotalDamage == long.MaxValue, "saturation changed raw battle logs or saved score");
+        }
+        finally
+        {
+            if (changedPreset != null) changedPreset.MonsterStageLv = originalLevel;
+            raidId = originalRaid;
+            configField.SetValue(null, originalConfig);
+        }
+    });
+    await Test("missing normal stage fails overview and ranking instead of returning a partial score", async () =>
+    {
+        Best(self, 2_007_459_930);
+        var manager = data.SoloRaidManagerTable[raidId];
+        var stage = data.SoloRaidPresetTable.Values.Single(p => p.PresetGroupId == manager.MonsterPreset && p.WaveOrder == 4);
+        Check(data.SoloRaidPresetTable.Remove(stage.Id), "failed to remove isolated fixture stage");
+        try
+        {
+            var overview = await Send<ResGetSoloRaidInfo>(self, "/soloraid/get", new ReqGetSoloRaidInfo());
+            Check(overview.PeriodResult == SoloRaidPeriodResult.Failure, $"missing normal stage returned {overview.PeriodResult} with score {overview.Info?.TrialDamage}");
+        }
+        finally { data.SoloRaidPresetTable.Add(stage.Id, stage); }
+    });
+    await Test("missing normal stage returns HTTP 503 for ranking", async () =>
+    {
+        Best(self, 2_007_459_930);
+        var manager = data.SoloRaidManagerTable[raidId];
+        var stage = data.SoloRaidPresetTable.Values.Single(p => p.PresetGroupId == manager.MonsterPreset && p.WaveOrder == 4);
+        Check(data.SoloRaidPresetTable.Remove(stage.Id), "failed to remove isolated fixture stage");
+        try { await Send<ResGetSoloRaidRanking>(self, "/soloraid/getranking", new ReqGetSoloRaidRanking(), expectedStatus: 503); }
+        finally { data.SoloRaidPresetTable.Add(stage.Id, stage); }
+    });
     await Test("empty board returns an unranked personal profile instead of an empty protobuf", async () =>
     {
         var result = await Ranking(self);
@@ -530,7 +598,7 @@ Task<ResOpenSoloRaidTrial> Open(ulong id) => Send<ResOpenSoloRaidTrial>(id, "/so
 Task<ResSetSoloRaidTrialDamage> Damage(ulong id, long damage) => Send<ResSetSoloRaidTrialDamage>(id, "/soloraid/trial/setdamage",
     new ReqSetSoloRaidTrialDamage { RaidLevel = 8, Damage = damage, AntiCheatBattleData = new()
         { Characters = { new NetAntiCheatCharacter { Tid = tid, Csn = 1, Slot = 1, CharacterSpec = new() { Level = 237, Combat = 1234 } } } } });
-async Task<T> Send<T>(ulong id, string route, IMessage request) where T : IMessage<T>, new()
+async Task<T> Send<T>(ulong id, string route, IMessage request, int expectedStatus = 200) where T : IMessage<T>, new()
 {
     using var scope = services.CreateScope();
     var ctx = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
@@ -539,7 +607,9 @@ async Task<T> Send<T>(ulong id, string route, IMessage request) where T : IMessa
     ctx.Response.Body = new MemoryStream();
     if (id != 0) ctx.Request.Headers.Authorization = "Bearer " + Token(id, tokenKey);
     await LobbyHandler.DispatchSingle(ctx);
-    Check(ctx.Response.StatusCode == 200 && ctx.Response.ContentType == "application/octet-stream+protobuf", "invalid response transport");
+    Check(ctx.Response.StatusCode == expectedStatus, $"{route} expected HTTP {expectedStatus}, got {ctx.Response.StatusCode}");
+    if (expectedStatus != 200) return new T();
+    Check(ctx.Response.ContentType == "application/octet-stream+protobuf", "invalid response transport");
     T reply = new(); reply.MergeFrom(((MemoryStream)ctx.Response.Body).ToArray()); return reply;
 }
 async Task Test(string name, Func<Task> action)
