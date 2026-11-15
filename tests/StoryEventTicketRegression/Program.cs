@@ -22,6 +22,7 @@ await Load("EventDungeonStageTable", data.EventDungeonStageTable, r => r.Id);
 await Load("EventDungeonSpotBattleTable", data.EventDungeonSpotBattleTable, r => r.Id);
 await Load("AutoChargeTable", data.AutoChargeTable, r => r.Id);
 await Load("RewardTable", data.RewardDataRecords, r => r.Id);
+await Load("ContentsShopProductTable", data.ContentsShopProductTable, r => r.Id);
 var savePath = Path.Combine(AppContext.BaseDirectory, "db.json");
 var store = typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb", true)!.GetProperty("Instance")!;
 var info = new CoreInfo { BondRewardLevelsMigrated = true };
@@ -106,6 +107,26 @@ Check(rollback.EventInfo[eventId].FreeTicket == 1 && Items(rollback, rewardItem)
 Check((await Sweep(rollback, 1, 9)).RemainTicket == 0 && Items(rollback, rewardItem) == 4, "Retry after a failed save must commit exactly once");
 Console.WriteLine("PASS daily allowance, failed save rollback and retry");
 
+var embedded = NewUser(8, 0);
+const int towerEvent = 40045, towerStoryStage = 104510106;
+embedded.EventInfo[towerEvent] = new EventData { LastDay = embedded.GetDateDay(), FreeTicket = 1 };
+await Call<ResEnterEventStage>(embedded, "enterstage", new ReqEnterEventStage { EventId = towerEvent, StageId = towerStoryStage });
+var tower = await Call<ResClearEventStage>(embedded, "clearstage",
+    new ReqClearEventStage { EventId = towerEvent, StageId = towerStoryStage, BattleResult = 1 });
+Check(tower.RemainTicket == 0 && tower.BonusReward.Item.Count > 0 && embedded.EventInfo[towerEvent].ClearedStages.Contains(towerStoryStage),
+    "An embedded story minigame must still settle its entry ticket, dungeon bonus and progression");
+Console.WriteLine("PASS embedded story stages retain their original settlement");
+
+var shopper = NewUser(9, 0, 1);
+shopper.Currency[(CurrencyType)99] = 1000;
+await Task.WhenAll(
+    Task.Run(() => Call<ResEventShopBuyProduct>(shopper, "/event/shopbuyproduct",
+        new ReqEventShopBuyProduct { EventId = 80124, ShopProductTid = 9012401, Quantity = 1, Order = 1 })),
+    Task.Run(() => Sweep(shopper, 1, 10)));
+Check((await Get(shopper)).RemainTicket == 5 && Items(shopper, rewardItem) == 4 &&
+    shopper.EventShopBuyCountInfo[80124].datas.Single().BuyCount == 1, "Buying five event tickets while spending one must preserve both operations");
+Console.WriteLine("PASS event shop purchase and sweep share the wallet");
+
 async Task Load<T>(string table, Dictionary<int, T> target, Func<T, int> id) where T : new()
 {
     foreach (var row in await data.LoadZip<T>(table + ".json", new Progress<double>())) target.Add(id(row), row);
@@ -142,7 +163,8 @@ async Task<T> Call<T>(User u, string route, IMessage request, byte? nonce = null
     using var output = new MemoryStream();
     context.Request.Body = input;
     context.Response.Body = output;
-    var handler = (LobbyMessage)Activator.CreateInstance(LobbyHandler.Handlers["/event/storydungeon/" + route].GetType())!;
+    var path = route.StartsWith('/') ? route : "/event/storydungeon/" + route;
+    var handler = (LobbyMessage)Activator.CreateInstance(LobbyHandler.Handlers[path].GetType())!;
     await handler.HandleAsync(context);
     if (context.Response.StatusCode >= 400) throw new BadHttpRequestException("Story battle rejected", context.Response.StatusCode);
     var response = new T();
