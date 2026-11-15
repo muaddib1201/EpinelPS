@@ -7,8 +7,8 @@ public class GetUserTitle : LobbyMessage
 {
     protected override async Task HandleAsync()
     {
-        ReqGetUserTitleList req = await ReadData<ReqGetUserTitleList>();
-        ResGetUserTitleList r = new();
+        await ReadData<ReqGetUserTitleList>();
+        ResGetUserTitleList r = new() { CurrentUserTitle = GetUser().TitleId };
 
         // Access GameData and get all UserTitle IDs
         Dictionary<int, UserTitleRecord> userTitleRecords = GameData.Instance.userTitleRecords;
