@@ -68,6 +68,10 @@ await Reject(() => Call<ResEnterMiniGameTextAdventurePlus>("/MiniGame/TextAdvent
 
 var noClaim = await ClaimProgress(31);
 Assert(noClaim.ReceivedEventTextAdvPlusProgressRewardIdList.Count == 0 && noClaim.Reward.Currency.Count == 0, "Rewards must require a discovered ending");
+var inlineFinish = Route11Ending(6110, 113701, 1109, restart: true);
+var unopened = await Finish(inlineFinish);
+Assert(unopened.PlayData.PlayCount == 0 && unopened.PlayData.EventTextAdvPlusEventPageTableIdList.Count == 0 &&
+    unopened.PlayData.AcquiredEventTextAdvPlusLootItemTableIdList.Count == 0, "Restarting must not open a route the player has never entered");
 await OpenRoute(11);
 var finish = new ReqFinishMiniGameTextAdventurePlus { EventTextAdvPlusManagerTableId = 83501, EventTextAdvPlusRouteTableId = 11, EventTextAdvPlusFirstSelectTableId = firstSelects.First(s => s.RouteId == 11).Id };
 finish.EventTextAdvPlusEventPageTableIdList.AddRange([6101, 6101]);
@@ -115,9 +119,7 @@ Assert((await Call<ResRemoveBadgeMiniGameTextAdventurePlusEnding>("/MiniGame/Tex
 await Call<ResLogSelectOptionMiniGameTextAdventurePlus>("/MiniGame/TextAdventurePlus/Log/Select", new ReqLogSelectOptionMiniGameTextAdventurePlus { EventTextAdvPlusManagerTableId = 83501 });
 await Call<ResLogInterruptMiniGameTextAdventurePlus>("/MiniGame/TextAdventurePlus/Log/Interrupt", new ReqLogInterruptMiniGameTextAdventurePlus { EventTextAdvPlusManagerTableId = 83501 });
 
-var saved = JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "db.json")))!;
-user = saved.Users.Single();
-typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb", true)!.GetProperty("Instance")!.SetValue(null, saved);
+ReloadSave();
 var restored = await Enter();
 Assert(restored.PlayData.PlayCount == 2 && restored.PlayData.EventTextAdvPlusEventPageTableIdList.Order().SequenceEqual(new[] { 6101, 8101 }) && restored.PlayData.AcquiredEventTextAdvPlusLootItemTableIdList.SequenceEqual([loot]) && restored.ReceivedEventTextAdvPlusProgressRewardIdList.SequenceEqual([31]) && restored.ReceivedEventTextAdvPlusEventPageTableIdList.SequenceEqual([8101]) && restored.PlayData.BadgeRemovedEventTextAdvPlusRouteTableIdList.Count == 3, "Progress, claims and seen badges must survive the real JSON save roundtrip");
 Console.WriteLine("PASS: badges, telemetry and saved player data survive reload");
@@ -141,6 +143,34 @@ var restarted = await Call<ResFinishMiniGameTextAdventurePlus>("/MiniGame/TextAd
 Assert(restarted.PlayData.PlayCount == 4 && restarted.PlayData.EventTextAdvPlusEventPageTableIdList.Contains(6103), "Restarting inside a route must preserve the next ending without requiring another Enter/Route");
 Assert((await Call<ResFinishMiniGameTextAdventurePlus>("/MiniGame/TextAdventurePlus/Finish", finish)).PlayData.PlayCount == 4, "Restarted finish retries must not increment play count");
 Console.WriteLine("PASS: restarting within a route preserves the following result and deduplicates retries");
+
+await OpenRoute(11);
+var initialFinish = Route11Ending(6109, 113401, 1108, restart: false);
+var initial = await Finish(initialFinish);
+int beforeReplay = initial.PlayData.PlayCount;
+ReloadSave();
+var otherRoute = new ReqFinishMiniGameTextAdventurePlus { EventTextAdvPlusManagerTableId = 83501, EventTextAdvPlusRouteTableId = 12, IsRestart = true };
+otherRoute.EventTextAdvPlusEventPageTableIdList.Add(7201);
+Assert((await Finish(otherRoute)).PlayData.Equals(initial.PlayData), "An inline restart must not switch to a different route after settlement");
+var inline = await Finish(inlineFinish);
+Assert(inline.PlayData.PlayCount == beforeReplay + 1 && inline.PlayData.EventTextAdvPlusEventPageTableIdList.Contains(6110) &&
+    inline.PlayData.EventTextAdvPlusSelectOptionTableIdList.Contains(113701) && inline.PlayData.AcquiredEventTextAdvPlusLootItemTableIdList.Contains(1109),
+    "Replaying after a normal finish without Enter/Route must save the new ending, choice and loot");
+Assert((await Finish(inlineFinish)).PlayData.Equals(inline.PlayData), "Retrying the inline settlement must return the same progress");
+var next = await Finish(Route11Ending(6111, 113901, 1118, restart: true));
+Assert(next.PlayData.PlayCount == beforeReplay + 2, "A second distinct inline ending must count once");
+ReloadSave();
+Assert((await Finish(inlineFinish)).PlayData.Equals(next.PlayData) && (await Finish(initialFinish)).PlayData.Equals(next.PlayData),
+    "Delayed retries from the same route visit must not add plays or change unlocks after reload");
+var afterReplay = (await Enter()).PlayData;
+Assert(afterReplay.EventTextAdvPlusEventPageTableIdList.Contains(6110) && afterReplay.EventTextAdvPlusEventPageTableIdList.Contains(6111) &&
+    afterReplay.AcquiredEventTextAdvPlusLootItemTableIdList.Contains(1109) && afterReplay.AcquiredEventTextAdvPlusLootItemTableIdList.Contains(1118),
+    "Both replay endings and memory items must survive re-entry from disk");
+await OpenRoute(12);
+await Reject(() => Finish(inlineFinish));
+await OpenRoute(11);
+Assert((await Finish(initialFinish)).PlayData.PlayCount == beforeReplay + 3, "Explicitly opening a new run must allow an identical settlement again");
+Console.WriteLine("PASS: normal finish followed by inline replays saves both collections across reload and counts each distinct settlement once");
 
 user = new User { ID = 2, Currency = [] };
 typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb", true)!.GetProperty("Instance")!.SetValue(null, new CoreInfo { Users = [user], BondRewardLevelsMigrated = true });
@@ -173,6 +203,26 @@ void Populate<T>(string fieldName, T[] rows)
     if (typeof(GameData).GetField(fieldName)?.GetValue(data) is not System.Collections.IDictionary table) return;
     foreach (var row in rows) table.Add((int)typeof(T).GetField("Id")!.GetValue(row)!, row);
 }
+void ReloadSave()
+{
+    var saved = JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "db.json")))!;
+    user = saved.Users.Single();
+    typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb", true)!.GetProperty("Instance")!.SetValue(null, saved);
+}
+ReqFinishMiniGameTextAdventurePlus Route11Ending(int ending, int option, int lootId, bool restart)
+{
+    var request = new ReqFinishMiniGameTextAdventurePlus
+    {
+        EventTextAdvPlusManagerTableId = 83501, EventTextAdvPlusRouteTableId = 11,
+        EventTextAdvPlusFirstSelectTableId = 1101, IsRestart = restart
+    };
+    request.EventTextAdvPlusEventPageTableIdList.Add(ending);
+    request.EventTextAdvPlusSelectOptionTableIdList.Add(option);
+    request.AcquiredEventTextAdvPlusLootItemTableIdList.Add(lootId);
+    return request;
+}
+Task<ResFinishMiniGameTextAdventurePlus> Finish(ReqFinishMiniGameTextAdventurePlus request) =>
+    Call<ResFinishMiniGameTextAdventurePlus>("/MiniGame/TextAdventurePlus/Finish", request);
 Task<ResEnterMiniGameTextAdventurePlus> Enter() => Call<ResEnterMiniGameTextAdventurePlus>("/MiniGame/TextAdventurePlus/Enter", new ReqEnterMiniGameTextAdventurePlus { EventTextAdvPlusManagerTableId = 83501 });
 Task<ResEnterMiniGameTextAdventurePlusRoute> OpenRoute(int routeId) => Call<ResEnterMiniGameTextAdventurePlusRoute>("/MiniGame/TextAdventurePlus/Enter/Route", new ReqEnterMiniGameTextAdventurePlusRoute { EventTextAdvPlusManagerTableId = 83501, EventTextAdvPlusRouteTableId = routeId });
 Task<ResCheckRewardMiniGameTextAdventurePlus> CheckReward() => Call<ResCheckRewardMiniGameTextAdventurePlus>("/MiniGame/TextAdventurePlus/Reward/Check", new ReqCheckRewardMiniGameTextAdventurePlus { EventTextAdvPlusManagerTableId = 83501 });
