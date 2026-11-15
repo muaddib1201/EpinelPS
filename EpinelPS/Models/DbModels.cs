@@ -92,9 +92,18 @@ public class EventData
 }
 public sealed class StoryStageSettlements
 {
-    public string? LastKey { get; set; }
-    public byte[] LastResponse { get; set; } = [];
-    public HashSet<string> EarlierKeys { get; set; } = [];
+    public StoryStageBattle? Battle { get; set; }
+    public string? LastSweepKey { get; set; }
+    public byte[]? LastSweepResponse { get; set; }
+    public HashSet<string> ProcessedKeys { get; set; } = [];
+}
+public sealed class StoryStageBattle
+{
+    public int StageId { get; set; }
+    public int TeamNumber { get; set; }
+    public int? Result { get; set; }
+    public HashSet<string> ResultKeys { get; set; } = [];
+    public byte[]? Response { get; set; }
 }
 public class ChallengeStageData
 {

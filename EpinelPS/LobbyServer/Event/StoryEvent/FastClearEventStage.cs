@@ -7,10 +7,6 @@ public class FastClearEventStage : StoryDungeonMessage
     {
         var req = await ReadData<ReqFastClearEventStage>();
         var key = PacketKey("sweep");
-        await Reply(req.EventId, story =>
-        {
-            var settled = ClearEventStageHelper.Settle(story, req.StageId, req.ClearCount, won: true, quick: true, key);
-            return new ResFastClearEventStage { RemainTicket = settled.RemainTicket, Reward = settled.Reward, BonusReward = settled.BonusReward };
-        });
+        await Reply(req.EventId, story => ClearEventStageHelper.FastClear(story, req, key));
     }
 }

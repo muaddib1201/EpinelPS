@@ -8,6 +8,9 @@ public abstract class StoryDungeonMessage : LobbyMessage
     private protected string? PacketKey(string operation) => ctx?.Items["Nonce"] is byte[] { Length: > 0 } nonce
         ? $"{operation}/{Convert.ToHexString(nonce)}" : null;
 
+    private protected string? BattleKey(string operation, int stage, int team, long? clientTime) =>
+        clientTime > 0 ? $"{operation}/{stage}/{team}/{clientTime}" : PacketKey(operation);
+
     private protected async Task Reply<T>(int eventId, Func<EventStoryHelper, T> action) where T : IMessage, new()
     {
         var user = GetUser(UserId);

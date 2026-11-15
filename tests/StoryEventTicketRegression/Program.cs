@@ -15,6 +15,7 @@ var root = Environment.GetEnvironmentVariable("NIKKE_WORKSPACE_ROOT") ?? throw n
 var pack = Directory.GetFiles(Path.Combine(root, "Server and Server selector/cache"), "StaticData.pack", SearchOption.AllDirectories).Single();
 var data = new GameData(pack);
 typeof(GameData).GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, data);
+await Load("EventManagerTable", data.eventManagers, r => r.Id);
 await Load("EventStoryTable", data.EventStoryTable, r => r.Id);
 await Load("EventDungeonTable", data.EventDungeonTable, r => r.Id);
 await Load("EventDungeonDifficultTable", data.EventDungeonDifficultTable, r => r.Id);
@@ -127,6 +128,23 @@ Check((await Get(shopper)).RemainTicket == 5 && Items(shopper, rewardItem) == 4 
     shopper.EventShopBuyCountInfo[80124].datas.Single().BuyCount == 1, "Buying five event tickets while spending one must preserve both operations");
 Console.WriteLine("PASS event shop purchase and sweep share the wallet");
 
+var rewrapped = NewUser(10, 2);
+await Enter(rewrapped);
+await Clear(rewrapped, 1, 0, 11);
+await Clear(rewrapped, 1, 0, 12);
+Check((await Clear(rewrapped, 1, 0, 12)).RemainTicket == 1 && Items(rewrapped, rewardItem) == 4,
+    "A manual settlement without a client clock must remain attached to the same entry across transport retries");
+await Enter(rewrapped);
+await Reject(() => Clear(rewrapped, 1, 0, 12));
+Check((await Clear(rewrapped, 1, 0, 13)).RemainTicket == 0 && Items(rewrapped, rewardItem) == 8,
+    "A delayed result must not consume the following manual entry");
+var challenge = NewUser(11, 0);
+challenge.EventInfo[60124] = new EventData { LastDay = 20250101, FreeTicket = 2 };
+await Reject(() => Call<ResStoryDungeonEventData>(challenge, "get", new ReqStoryDungeonEventData { EventId = 60124 }));
+Check(challenge.EventInfo[60124].FreeTicket == 2 && challenge.EventInfo[60124].LastDay == 20250101,
+    "The story wallet must never reset challenge tickets");
+Console.WriteLine("PASS manual entry identity and separate challenge wallet");
+
 async Task Load<T>(string table, Dictionary<int, T> target, Func<T, int> id) where T : new()
 {
     foreach (var row in await data.LoadZip<T>(table + ".json", new Progress<double>())) target.Add(id(row), row);
@@ -150,8 +168,8 @@ async Task Reject(Func<Task> action)
 }
 Task<ResStoryDungeonEventData> Get(User u) => Call<ResStoryDungeonEventData>(u, "get", new ReqStoryDungeonEventData { EventId = eventId });
 Task<ResEnterEventStage> Enter(User u) => Call<ResEnterEventStage>(u, "enterstage", new ReqEnterEventStage { EventId = eventId, StageId = stage, TeamNumber = 1 });
-Task<ResClearEventStage> Clear(User u, int result, long time) => Call<ResClearEventStage>(u, "clearstage",
-    new ReqClearEventStage { EventId = eventId, StageId = stage, TeamNumber = 1, BattleResult = result, AntiCheatAdditionalInfo = new() { ClientLocalTime = time } });
+Task<ResClearEventStage> Clear(User u, int result, long time, byte? nonce = null) => Call<ResClearEventStage>(u, "clearstage",
+    new ReqClearEventStage { EventId = eventId, StageId = stage, TeamNumber = 1, BattleResult = result, AntiCheatAdditionalInfo = new() { ClientLocalTime = time } }, nonce);
 Task<ResFastClearEventStage> Sweep(User u, int count, byte key) => Call<ResFastClearEventStage>(u, "fastclearstage",
     new ReqFastClearEventStage { EventId = eventId, StageId = stage, TeamNumber = 1, ClearCount = count }, key);
 async Task<T> Call<T>(User u, string route, IMessage request, byte? nonce = null) where T : IMessage<T>, new()

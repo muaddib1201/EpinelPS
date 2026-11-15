@@ -6,8 +6,7 @@ public class ClearEventStage : StoryDungeonMessage
     protected override async Task HandleAsync()
     {
         var req = await ReadData<ReqClearEventStage>();
-        var time = req.AntiCheatAdditionalInfo?.ClientLocalTime;
-        var key = time > 0 ? $"battle/{req.StageId}/{req.TeamNumber}/{time}" : PacketKey("clear");
-        await Reply(req.EventId, story => ClearEventStageHelper.Settle(story, req.StageId, 1, req.BattleResult == 1, quick: false, key));
+        var key = BattleKey("clear", req.StageId, req.TeamNumber, req.AntiCheatAdditionalInfo?.ClientLocalTime);
+        await Reply(req.EventId, story => ClearEventStageHelper.Clear(story, req, key));
     }
 }
