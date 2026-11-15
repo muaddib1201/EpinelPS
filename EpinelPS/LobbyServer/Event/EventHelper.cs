@@ -22,28 +22,19 @@ public class EventHelper
         }
 
         var eventManagers = GameData.Instance.eventManagers.Values.ToList();
+        var schedule = EventScheduleService.CreateSnapshot(JsonDb.Instance);
         foreach (var banner in lobbyPrivateBanners)
         {
             // Get all events (including child events) associated with this banner
-            List<NetEventData> events = GetEventData(banner, eventManagers);
+            List<NetEventData> events = GetEventData(banner, eventManagers, schedule);
             log.Debug($"Banner EventId: {banner.EventId} has {events.Count} associated events: {JsonConvert.SerializeObject(events)}");
-            AddEvents(ref response, events);
+            AddEvents(ref response, events, schedule);
 
-            // Additionally, get any gacha events associated with this banner
-            List<EventSystemType> systemTypes = [EventSystemType.PickupGachaEvent, EventSystemType.BoxGachaEvent, EventSystemType.LoginEvent];
-            List<NetEventData> gachaEvents = GetEventDataBySystemTypes(banner, eventManagers, systemTypes);
-            log.Debug($"Banner EventId: {banner.EventId} has {gachaEvents.Count} associated gacha events: {JsonConvert.SerializeObject(gachaEvents)}");
-            AddEvents(ref response, gachaEvents);
-
-            // add challenge events
-            var challengeEvents = GetChallengeEventData(banner, eventManagers);
-            log.Debug($"Banner EventId: {banner.EventId} has {challengeEvents.Count} associated challenge events: {JsonConvert.SerializeObject(challengeEvents)}");
-            AddEvents(ref response, challengeEvents);
         }
         // add daily mission events
-        List<NetEventData> dailyMissionEvents = GetDailyMissionEventData(user, eventManagers);
+        List<NetEventData> dailyMissionEvents = GetDailyMissionEventData(user, eventManagers, schedule);
         log.Debug($"Found {dailyMissionEvents.Count} associated daily mission events: {JsonConvert.SerializeObject(dailyMissionEvents)}");
-        AddEvents(ref response, dailyMissionEvents);
+        AddEvents(ref response, dailyMissionEvents, schedule);
     }
 
     public static void AddJoinedEvents(User user, ref ResGetJoinedEvent response)
@@ -57,158 +48,33 @@ public class EventHelper
         }
 
         var eventManagers = GameData.Instance.eventManagers.Values.ToList();
+        var schedule = EventScheduleService.CreateSnapshot(JsonDb.Instance);
         foreach (var banner in lobbyPrivateBanners)
         {
 
             // Get all events (including child events) associated with this banner
-            var events = GetEventData(banner, eventManagers);
+            var events = GetEventData(banner, eventManagers, schedule);
             log.Debug($"Banner EventId: {banner.EventId} has {events.Count} associated events: {JsonConvert.SerializeObject(events)}");
-            AddJoinedEvents(ref response, events);
+            AddJoinedEvents(ref response, events, schedule);
 
-            // add gacha events
-            List<EventSystemType> systemTypes = [EventSystemType.PickupGachaEvent, EventSystemType.BoxGachaEvent, EventSystemType.LoginEvent];
-            List<NetEventData> gachaEvents = GetEventDataBySystemTypes(banner, eventManagers, systemTypes);
-            log.Debug($"Banner EventId: {banner.EventId} has {gachaEvents.Count} associated gacha events: {JsonConvert.SerializeObject(gachaEvents)}");
-            AddJoinedEvents(ref response, gachaEvents);
-
-            // add challenge events
-            List<NetEventData> challengeEvents = GetChallengeEventData(banner, eventManagers);
-            log.Debug($"Banner EventId: {banner.EventId} has {challengeEvents.Count} associated challenge events: {JsonConvert.SerializeObject(challengeEvents)}");
-            AddJoinedEvents(ref response, challengeEvents);
         }
         // add daily mission events
-        List<NetEventData> dailyMissionEvents = GetDailyMissionEventData(user, eventManagers);
+        List<NetEventData> dailyMissionEvents = GetDailyMissionEventData(user, eventManagers, schedule);
         log.Debug($"Found {dailyMissionEvents.Count} associated daily mission events: {JsonConvert.SerializeObject(dailyMissionEvents)}");
-        AddJoinedEvents(ref response, dailyMissionEvents);
+        AddJoinedEvents(ref response, dailyMissionEvents, schedule);
     }
 
-    private static List<NetEventData> GetEventData(LobbyPrivateBannerRecord banner, List<EventManagerRecord> eventManagers)
+    private static List<NetEventData> GetEventData(LobbyPrivateBannerRecord banner, List<EventManagerRecord> eventManagers, EventScheduleService.Snapshot schedule)
     {
-        List<NetEventData> events = [];
-
-        if (!eventManagers.Any(em => em.Id == banner.EventId))
+        var main = eventManagers.FirstOrDefault(e => e.Id == banner.EventId);
+        if (main == null)
         {
             Logging.WriteLine($"No event manager found for Banner EventId: {banner.EventId}", LogType.Warning);
-            return events;
+            return [];
         }
-        // Add the main event associated with the banner
-        var mainEvent = eventManagers.First(em => em.Id == banner.EventId);
-        events.Add(new NetEventData()
-        {
-            Id = mainEvent.Id,
-            EventSystemType = (int)mainEvent.EventSystemType,
-            // EventStartDate = banner.StartDate.Ticks,
-            // EventVisibleDate = banner.StartDate.Ticks,
-            // EventDisableDate = banner.EndDate.Ticks,
-            // EventEndDate = banner.EndDate.Ticks
-        });
-        // Add child events associated with the main event
-        var childEvents = eventManagers.Where(em => em.ParentsEventId == banner.EventId || em.SetField == banner.EventId).ToList();
-        foreach (var childEvent in childEvents)
-        {
-            events.Add(new NetEventData()
-            {
-                Id = childEvent.Id,
-                EventSystemType = (int)childEvent.EventSystemType,
-                // EventStartDate = banner.StartDate.Ticks,
-                // EventVisibleDate = banner.StartDate.Ticks,
-                // EventDisableDate = banner.EndDate.Ticks,
-                // EventEndDate = banner.EndDate.Ticks
-            });
-        }
-        return events;
-    }
-
-    private static List<NetEventData> GetEventDataBySystemTypes(LobbyPrivateBannerRecord banner, List<EventManagerRecord> eventManagers, List<EventSystemType> systemTypes)
-    {
-        List<NetEventData> events = [];
-        // Find all event banner resource tables associated with this banner's EventId
-        List<string> eventBannerResourceTables = [.. eventManagers.Where(em =>
-            (em.SetField == banner.EventId || em.ParentsEventId == banner.EventId)
-            && em.EventBannerResourceTable.StartsWith("event_")).Select(em => em.EventBannerResourceTable)];
-        eventBannerResourceTables = [.. eventBannerResourceTables.Distinct()];
-        log.Debug($"Banner EventId: {banner.EventId} has {eventBannerResourceTables.Count} associated event banner resource tables: {JsonConvert.SerializeObject(eventBannerResourceTables)}");
-        if (eventBannerResourceTables.Count == 0)
-        {
-            Logging.WriteLine($"No associated event banner resource tables found for Banner EventId: {banner.EventId}", LogType.Warning);
-            return events;
-        }
-
-        // Find all events matching the banner resource tables and specified system types
-        var gachaEvents = eventManagers.Where(em =>
-        eventBannerResourceTables.Contains(em.EventBannerResourceTable)
-        && systemTypes.Contains(em.EventSystemType)).ToList();
-        log.Debug($"Found {gachaEvents.Count} gacha events from banner resource tables: {JsonConvert.SerializeObject(gachaEvents)}");
-        if (gachaEvents.Count == 0)
-        {
-            Logging.WriteLine($"No gacha events found for Banner EventId: {banner.EventId}", LogType.Warning);
-            return events;
-        }
-
-        // Add each gacha event to the list
-        foreach (var gachaEvent in gachaEvents)
-        {
-            events.Add(new NetEventData()
-            {
-                Id = gachaEvent.Id,
-                EventSystemType = (int)gachaEvent.EventSystemType,
-                // EventStartDate = banner.StartDate.Ticks,
-                // EventVisibleDate = banner.StartDate.Ticks,
-                // EventDisableDate = banner.EndDate.Ticks,
-                // EventEndDate = banner.EndDate.Ticks
-            });
-
-            // We also need to check if there is a step payback event attached to the gacha
-           foreach(var gachaBanner in GameData.Instance.gachaTypes.Where(g => g.Value.EventId == gachaEvent.Id))
-            {
-                // We have the gacha, now check for a payback table
-                foreach(var payback in GameData.Instance.GachaPaybackRecords.Where( p => p.Value.GachaId == gachaBanner.Value.Id)){
-
-                    // Get the type from the evevent manager table
-                    if (GameData.Instance.eventManagers.ContainsKey(payback.Value.EventId)){
-
-                        var ev = GameData.Instance.eventManagers[payback.Value.EventId];
-
-                        events.Add(new NetEventData()
-                        {
-                            Id = ev.Id,
-                            EventSystemType = (int) ev.EventSystemType
-                        });
-                    }
-                }
-            }
-        }
-        return events;
-    }
-
-    private static List<NetEventData> GetChallengeEventData(LobbyPrivateBannerRecord banner, List<EventManagerRecord> eventManagers)
-    {
-        List<NetEventData> events = [];
-
-        // Find all challenge events (ChallengeModeEvent) associated with this banner's EventId
-        var challengeEvents = eventManagers.Where(em =>
-        em.ParentsEventId == banner.EventId && em.EventSystemType == EventSystemType.ChallengeModeEvent).ToList();
-        log.Debug($"Found {challengeEvents.Count} challenge events from banner resource tables: {JsonConvert.SerializeObject(challengeEvents)}");
-        if (challengeEvents.Count == 0)
-        {
-            Logging.WriteLine($"No challenge events found for Banner EventId: {banner.EventId}", LogType.Warning);
-            return events;
-        }
-
-        // Add each challenge event to the list
-        foreach (var challengeEvent in challengeEvents)
-        {
-            events.Add(new NetEventData()
-            {
-                Id = challengeEvent.Id,
-                EventSystemType = (int)challengeEvent.EventSystemType,
-                // EventStartDate = banner.StartDate.Ticks,
-                // EventVisibleDate = banner.StartDate.Ticks,
-                // EventDisableDate = banner.EndDate.Ticks,
-                // EventEndDate = banner.EndDate.Ticks
-            });
-        }
-        return events;
+        // Resolve the full group once per request, including nested and indirect recruitment children.
+        return new[] { main }.Concat(eventManagers.Where(e => e.Id != main.Id && schedule.GetRootEventId(e.Id) == main.Id))
+            .Select(e => new NetEventData { Id = e.Id, EventSystemType = (int)e.EventSystemType }).ToList();
     }
 
     /// <summary>
@@ -247,7 +113,7 @@ public class EventHelper
     private static DateTime GetEventEnd(int eventId, DateTime nowUtc) =>
         EventScheduleService.GetEndUtc(JsonDb.Instance, eventId, nowUtc);
 
-    private static void AddEvents(ref ResGetEventList response, List<NetEventData> eventDatas)
+    private static void AddEvents(ref ResGetEventList response, List<NetEventData> eventDatas, EventScheduleService.Snapshot schedule)
     {
         foreach (var eventData in eventDatas)
         {
@@ -255,7 +121,7 @@ public class EventHelper
             // Avoid adding duplicate events
             if (!response.EventList.Any(e => e.Id == eventData.Id))
             {
-                long endDate = GetEventEnd(eventData.Id, DateTime.UtcNow).Ticks;
+                long endDate = schedule.GetEndUtc(eventData.Id, DateTime.UtcNow).Ticks;
                 if (eventData.EventStartDate == 0) eventData.EventStartDate = GetEventStart(eventData.Id, DateTime.UtcNow).Ticks;
                 if (eventData.EventVisibleDate == 0) eventData.EventVisibleDate = DateTime.UtcNow.AddDays(-21).Ticks;
                 if (eventData.EventDisableDate == 0) eventData.EventDisableDate = endDate;
@@ -271,7 +137,7 @@ public class EventHelper
         }
     }
 
-    private static void AddJoinedEvents(ref ResGetJoinedEvent response, List<NetEventData> eventDatas)
+    private static void AddJoinedEvents(ref ResGetJoinedEvent response, List<NetEventData> eventDatas, EventScheduleService.Snapshot schedule)
     {
         foreach (var eventData in eventDatas)
         {
@@ -279,7 +145,7 @@ public class EventHelper
             // Avoid adding duplicate events
             if (!response.EventWithJoinData.Any(e => e.EventData.Id == eventData.Id))
             {
-                long endDate = GetEventEnd(eventData.Id, DateTime.UtcNow).Ticks;
+                long endDate = schedule.GetEndUtc(eventData.Id, DateTime.UtcNow).Ticks;
                 if (eventData.EventStartDate == 0) eventData.EventStartDate = GetEventStart(eventData.Id, DateTime.UtcNow).Ticks;
                 if (eventData.EventVisibleDate == 0) eventData.EventVisibleDate = DateTime.UtcNow.AddDays(-21).Ticks;
                 if (eventData.EventDisableDate == 0) eventData.EventDisableDate = endDate;
@@ -298,7 +164,7 @@ public class EventHelper
         }
     }
 
-    private static List<NetEventData> GetDailyMissionEventData(User user, List<EventManagerRecord> eventManagers)
+    private static List<NetEventData> GetDailyMissionEventData(User user, List<EventManagerRecord> eventManagers, EventScheduleService.Snapshot schedule)
     {
         List<NetEventData> events = [];
 
@@ -319,7 +185,7 @@ public class EventHelper
         // Add each daily event to the list
         foreach (var dailyEvent in dailyEvents)
         {
-            long endDate = GetEventEnd(dailyEvent.Id, DateTime.UtcNow).Ticks;
+            long endDate = schedule.GetEndUtc(dailyEvent.Id, DateTime.UtcNow).Ticks;
             events.Add(new NetEventData()
             {
                 Id = dailyEvent.Id,

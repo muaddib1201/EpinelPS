@@ -12,7 +12,7 @@ public class EventLoginGet : LobbyMessage
         ReqLoginEventData req = await ReadData<ReqLoginEventData>();
         User user = GetUser();
         int evId = req.EventId;
-        long end = EventScheduleService.GetEndUtc(JsonDb.Instance, evId, DateTime.UtcNow, legacyDays: 13).Ticks;
+        long end = EventScheduleService.GetFixedEndUtc(JsonDb.Instance, evId)?.Ticks ?? DateTime.Now.AddDays(13).Ticks;
         ResLoginEventData response = new()
         {
             EndDate = end,

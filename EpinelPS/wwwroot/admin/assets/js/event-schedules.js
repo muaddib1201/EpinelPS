@@ -7,6 +7,7 @@
     const date = document.getElementById('scheduleEndBeijing');
     const feedback = document.getElementById('scheduleFeedback');
     const submit = document.getElementById('scheduleSubmit');
+    const close = document.getElementById('scheduleClose');
     const cells = Array.from(document.querySelectorAll('.schedule-cell'));
     let currentCell = null;
     let clockOffset = 0;
@@ -49,6 +50,7 @@
     }
 
     document.querySelectorAll('.schedule-edit').forEach(button => button.addEventListener('click', () => {
+        if (submit.disabled) return;
         currentCell = button.closest('.schedule-cell');
         document.getElementById('scheduleBannerId').value = button.dataset.bannerId;
         document.getElementById('scheduleEventName').textContent = button.closest('.event-row').querySelector('.event-name').textContent;
@@ -59,7 +61,8 @@
         refreshCountdowns();
         dialog.showModal();
     }));
-    document.getElementById('scheduleClose').addEventListener('click', () => dialog.close());
+    close.addEventListener('click', () => dialog.close());
+    dialog.addEventListener('cancel', event => { if (submit.disabled) event.preventDefault(); });
     operation.addEventListener('change', updateOperation);
     document.querySelectorAll('.schedule-preset').forEach(button => button.addEventListener('click', () => { days.value = button.dataset.days; }));
     document.getElementById('scheduleResetClock').addEventListener('click', () => {
@@ -72,6 +75,7 @@
         if (!form.reportValidity() || submit.disabled) return;
         const body = new URLSearchParams(new FormData(form));
         submit.disabled = true;
+        close.disabled = true;
         feedback.hidden = true;
         try {
             const response = await fetch(form.action, { method: 'POST', credentials: 'same-origin', body });
@@ -93,6 +97,7 @@
         } finally {
             feedback.hidden = false;
             submit.disabled = false;
+            close.disabled = false;
         }
     });
 

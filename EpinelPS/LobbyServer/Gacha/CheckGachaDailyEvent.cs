@@ -1,5 +1,7 @@
 ﻿using EpinelPS.Data;
 using EpinelPS.Utils;
+using EpinelPS.Database;
+using EpinelPS.Services;
 using Microsoft.EntityFrameworkCore.Metadata;
 
 namespace EpinelPS.LobbyServer.Gacha;
@@ -19,6 +21,7 @@ public class CheckGachaDailyEvent : LobbyMessage
         try
         {
             var evntFree = GameData.Instance.eventManagers[GameData.Instance.gachaTypes[req.GachaId].DailyFreeGachaEventId];
+            long end = EventScheduleService.GetFixedEndUtc(JsonDb.Instance, evntFree.Id)?.Ticks ?? DateTime.Now.AddDays(20).Ticks;
 
             response.FreeCount = user.GachaDailyFreePulls.Contains(evntFree.Id) ? 0 : 1 ;
             response.EventData = new NetEventData()
@@ -27,8 +30,8 @@ public class CheckGachaDailyEvent : LobbyMessage
                 EventSystemType = (int)evntFree.EventSystemType,
                 EventVisibleDate = DateTime.UtcNow.Subtract(TimeSpan.FromDays(7)).Ticks,
                 EventStartDate = DateTime.UtcNow.Subtract(TimeSpan.FromDays(1)).Ticks,
-                EventEndDate = DateTime.Now.AddDays(20).Ticks,
-                EventDisableDate = DateTime.Now.AddDays(20).Ticks
+                EventEndDate = end,
+                EventDisableDate = end
             };
         }
         catch (Exception ex)

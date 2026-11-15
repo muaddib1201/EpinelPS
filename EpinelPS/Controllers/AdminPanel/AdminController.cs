@@ -64,14 +64,7 @@ public partial class AdminController(ILogger<AdminController> logger, TimeProvid
 
         var ids = (activeBannerIds ?? []).Distinct().ToList();
         if (!ModelState.IsValid || ids.Any(id => !GameData.Instance.LobbyPrivateBannerTable.ContainsKey(id))) return BadRequest();
-        lock (JsonDb.SaveLock)
-        {
-            var state = JsonDb.Instance;
-            foreach (int id in ids)
-                EventScheduleService.EnsureDefaultEndUtc(state, GameData.Instance.LobbyPrivateBannerTable[id].EventId, ScheduleNowUtc);
-            state.ActiveEventBannerIds = ids;
-            JsonDb.Save();
-        }
+        SaveEventActivation(ids);
 
         TempData["MessageKey"] = "events.config.saved";
         return View(JsonDb.Instance.ActiveEventBannerIds);
@@ -87,12 +80,7 @@ public partial class AdminController(ILogger<AdminController> logger, TimeProvid
         var latest = GameData.Instance.LobbyPrivateBannerTable.Values.LastOrDefault();
         if (latest != null)
         {
-            lock (JsonDb.SaveLock)
-            {
-                EventScheduleService.EnsureDefaultEndUtc(JsonDb.Instance, latest.EventId, ScheduleNowUtc);
-                JsonDb.Instance.ActiveEventBannerIds = [latest.Id];
-                JsonDb.Save();
-            }
+            SaveEventActivation([latest.Id]);
         }
 
         return Redirect("/admin/Events");

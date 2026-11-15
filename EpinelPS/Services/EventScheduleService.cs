@@ -5,59 +5,85 @@ namespace EpinelPS.Services;
 
 public static class EventScheduleService
 {
-    public static int? GetRootEventId(int eventId)
+    internal static Snapshot CreateSnapshot(CoreInfo state) => new(GameData.Instance, state.EventEndUtc);
+
+    internal sealed class Snapshot
     {
-        var data = GameData.Instance;
-        var roots = data.LobbyPrivateBannerTable.Values.Select(b => b.EventId).ToHashSet();
-        int? DirectRoot(int id)
+        private readonly GameData data;
+        private readonly IReadOnlyDictionary<int, DateTime> deadlines;
+        private readonly HashSet<int> roots;
+        private readonly Dictionary<int, List<int>> extraParents = [];
+        private readonly Dictionary<int, int?> resolved = [];
+
+        internal Snapshot(GameData data, IReadOnlyDictionary<int, DateTime> deadlines)
+        {
+            this.data = data;
+            this.deadlines = deadlines;
+            roots = data.LobbyPrivateBannerTable.Values.Select(b => b.EventId).Where(id => id > 0).ToHashSet();
+            void Link(int child, int parent)
+            {
+                if (child <= 0 || parent <= 0 || child == parent) return;
+                if (!extraParents.TryGetValue(child, out var links)) extraParents[child] = links = [];
+                links.Add(parent);
+            }
+            foreach (var group in data.eventManagers.Values
+                .Where(e => e.EventBannerResourceTable?.StartsWith("event_", StringComparison.Ordinal) == true)
+                .GroupBy(e => e.EventBannerResourceTable))
+            {
+                var anchors = group.Where(e => e.ParentsEventId > 0 || e.SetField > 0 || roots.Contains(e.Id)).Select(e => e.Id).ToArray();
+                foreach (var row in group.Where(e => e.EventSystemType is EventSystemType.PickupGachaEvent or EventSystemType.BoxGachaEvent or EventSystemType.LoginEvent))
+                    foreach (int anchor in anchors) Link(row.Id, anchor);
+            }
+            foreach (var payback in data.GachaPaybackRecords.Values)
+                if (data.gachaTypes.TryGetValue(payback.GachaId, out var gacha)) Link(payback.EventId, gacha.EventId);
+            foreach (var gacha in data.gachaTypes.Values) Link(gacha.DailyFreeGachaEventId, gacha.EventId);
+        }
+
+        private int? FindRoot(int id, bool includeIndirect)
         {
             var queue = new Queue<int>();
             var visited = new HashSet<int>();
+            var matches = new HashSet<int>();
             queue.Enqueue(id);
             while (queue.TryDequeue(out int next))
             {
                 if (next <= 0 || !visited.Add(next)) continue;
-                if (roots.Contains(next)) return next;
-                if (!data.eventManagers.TryGetValue(next, out var row)) continue;
-                queue.Enqueue(row.ParentsEventId);
-                queue.Enqueue(row.SetField);
+                if (roots.Contains(next)) { matches.Add(next); continue; }
+                if (data.eventManagers.TryGetValue(next, out var row))
+                {
+                    queue.Enqueue(row.ParentsEventId);
+                    queue.Enqueue(row.SetField);
+                }
+                if (includeIndirect && extraParents.TryGetValue(next, out var links))
+                    foreach (int parent in links) queue.Enqueue(parent);
             }
-            return null;
+            return matches.Count == 1 ? matches.Single() : null;
         }
 
-        int? RecruitmentRoot(int id)
+        internal int? GetRootEventId(int eventId)
         {
-            var direct = DirectRoot(id);
-            if (direct != null) return direct;
-            if (!data.eventManagers.TryGetValue(id, out var row) ||
-                row.EventSystemType is not (EventSystemType.PickupGachaEvent or EventSystemType.BoxGachaEvent or EventSystemType.LoginEvent) ||
-                row.EventBannerResourceTable?.StartsWith("event_", StringComparison.Ordinal) != true) return null;
-            // Matches EventHelper's resource-table association, but do not guess between two roots.
-            var matches = data.eventManagers.Values.Where(e => e.EventBannerResourceTable == row.EventBannerResourceTable)
-                .Select(e => DirectRoot(e.Id)).Where(root => root != null).Distinct().Take(2).ToArray();
-            return matches.Length == 1 ? matches[0] : null;
+            if (!resolved.TryGetValue(eventId, out var root))
+                resolved[eventId] = root = FindRoot(eventId, includeIndirect: false) ?? FindRoot(eventId, includeIndirect: true);
+            return root;
         }
 
-        var root = RecruitmentRoot(eventId);
-        if (root != null) return root;
-        var paybackRoots = data.GachaPaybackRecords.Values.Where(p => p.EventId == eventId)
-            .Select(p => data.gachaTypes.GetValueOrDefault(p.GachaId))
-            .Where(g => g != null).Select(g => RecruitmentRoot(g!.EventId))
-            .Where(id => id != null).Distinct().Take(2).ToArray();
-        return paybackRoots.Length == 1 ? paybackRoots[0] : null;
+        internal DateTime? GetFixedEndUtc(int eventId) => GetRootEventId(eventId) is int root ? ConfiguredEnd(deadlines, root) : null;
+        internal DateTime GetEndUtc(int eventId, DateTime nowUtc) => GetFixedEndUtc(eventId) ?? nowUtc.AddDays(30);
     }
 
-    public static DateTime? GetConfiguredEndUtc(CoreInfo state, int rootEventId)
+    public static DateTime? GetConfiguredEndUtc(CoreInfo state, int rootEventId) => ConfiguredEnd(state.EventEndUtc, rootEventId);
+
+    private static DateTime? ConfiguredEnd(IReadOnlyDictionary<int, DateTime> deadlines, int rootEventId)
     {
-        if (state.EventEndUtc.TryGetValue(rootEventId, out var value))
+        if (deadlines.TryGetValue(rootEventId, out var value))
             return value.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(value, DateTimeKind.Utc) : value.ToUniversalTime();
         // Existing MARIA-n official schedule. Explicit administration settings take precedence.
         return rootEventId == 83500 ? new DateTime(2026, 11, 18, 19, 59, 59, DateTimeKind.Utc) : null;
     }
 
-    public static DateTime GetEndUtc(CoreInfo state, int eventId, DateTime nowUtc, int legacyDays = 30) =>
-        GetRootEventId(eventId) is int root && GetConfiguredEndUtc(state, root) is DateTime end
-            ? end : nowUtc.AddDays(legacyDays);
+    public static DateTime? GetFixedEndUtc(CoreInfo state, int eventId) => CreateSnapshot(state).GetFixedEndUtc(eventId);
+
+    public static DateTime GetEndUtc(CoreInfo state, int eventId, DateTime nowUtc) => CreateSnapshot(state).GetEndUtc(eventId, nowUtc);
 
     // Callers hold JsonDb.SaveLock. Replace the dictionary so readers never enumerate a mutated instance.
     public static void SetEndUtc(CoreInfo state, int rootEventId, DateTime endUtc) =>

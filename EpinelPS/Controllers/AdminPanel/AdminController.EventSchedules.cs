@@ -9,6 +9,29 @@ namespace EpinelPS.Controllers.AdminPanel;
 
 public partial class AdminController
 {
+    private void SaveEventActivation(List<int> ids)
+    {
+        lock (JsonDb.SaveLock)
+        {
+            var state = JsonDb.Instance;
+            var previousActive = state.ActiveEventBannerIds;
+            var previousEnd = state.EventEndUtc;
+            try
+            {
+                foreach (int id in ids)
+                    EventScheduleService.EnsureDefaultEndUtc(state, GameData.Instance.LobbyPrivateBannerTable[id].EventId, ScheduleNowUtc);
+                state.ActiveEventBannerIds = ids;
+                JsonDb.Save();
+            }
+            catch
+            {
+                state.ActiveEventBannerIds = previousActive;
+                state.EventEndUtc = previousEnd;
+                throw;
+            }
+        }
+    }
+
     [HttpPost, Route("Events/Schedule"), ValidateAntiForgeryToken]
     public IActionResult SaveEventSchedule([FromForm] EventScheduleInput input)
     {
