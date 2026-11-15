@@ -183,6 +183,36 @@ else
         await Ranking(self); await Ranking(self);
         Check(JsonConvert.SerializeObject(State()) == before && File.ReadAllBytes(save).SequenceEqual(fileBefore), "rank query mutated attempts or save data");
     });
+    await Test("lobby badge reports normal entries used after a sweep independently of challenge attempts", async () =>
+    {
+        Best(self, 10, type: SoloRaidType.Normal, level: 7);
+        var sweep = await Send<ResFastBattleSoloRaid>(self, "/soloraid/fastbattle",
+            new ReqFastBattleSoloRaid { RaidId = raidId, RaidLevel = 7, ClearCount = 3 });
+        Check(sweep.PeriodResult == SoloRaidPeriodResult.Success && sweep.RaidOpenCount == 3, "three normal sweeps did not settle");
+        int used = await BadgeNormalPlayCount(self);
+        Check(used == 3, $"lobby badge returned {used} normal entries used after three sweeps");
+
+        Best(other, 20);
+        var otherRaid = Player(other).SoloRaidData[raidId];
+        otherRaid.RaidOpenCount = 1;
+        otherRaid.TrialCount = 3;
+        Check(await BadgeNormalPlayCount(other) == 1, "challenge attempts or another player affected the badge");
+    });
+    await Test("lobby badge ignores stale and missing records without changing raid progress", async () =>
+    {
+        Best(self, 42);
+        var yesterday = Player(self).SoloRaidData[raidId];
+        yesterday.LastDateDay = 20200101;
+        yesterday.RaidOpenCount = 3;
+        yesterday.TrialCount = 2;
+        int previousRaid = data.SoloRaidManagerTable.Keys.First(id => id != raidId);
+        Best(other, 50, season: previousRaid);
+        Player(other).SoloRaidData[previousRaid].RaidOpenCount = 3;
+        string before = JsonConvert.SerializeObject(State().Users);
+        foreach (ulong id in new[] { self, other, third })
+            Check(await BadgeNormalPlayCount(id) == 0, "a stale or missing current-season record gave a nonzero badge count");
+        Check(JsonConvert.SerializeObject(State().Users) == before, "reading the badge created or reset raid progress");
+    });
     await Test("unranked players see other participants and their own zero-score row", async () =>
     {
         Best(other, 123);
@@ -294,7 +324,9 @@ else
             {
                 var now = DateTimeOffset.UtcNow;
                 SetSeason(now.AddDays(expired ? -2 : 1), now.AddDays(expired ? -1 : 2));
+                Player(self).SoloRaidData[raidId].RaidOpenCount = 2;
                 string snapshot = JsonConvert.SerializeObject(State().Users);
+                Check(await BadgeNormalPlayCount(self) == 0, "an inactive season supplied normal attempts to the lobby badge");
                 await Rejected<ResOpenSoloRaid>("/soloraid/open", new ReqOpenSoloRaid { RaidId = raidId, RaidLevel = 1 });
                 await Rejected<ResOpenSoloRaidTrial>("/soloraid/trial/open", new ReqOpenSoloRaidTrial { RaidLevel = 8 });
                 await Rejected<ResOpenSoloRaidPractice>("/soloraid/practice/open", new ReqOpenSoloRaidPractice { RaidLevel = 8 });
@@ -387,6 +419,8 @@ SoloRaidLevelData Best(ulong id, long damage, SoloRaidType type = SoloRaidType.T
     return result;
 }
 Task<ResGetSoloRaidRanking> Ranking(ulong id) => Send<ResGetSoloRaidRanking>(id, "/soloraid/getranking", new ReqGetSoloRaidRanking());
+async Task<int> BadgeNormalPlayCount(ulong id) =>
+    (await Send<ResPermanentContentBadgeData>(id, "/badge/permanentcontent", new ReqPermanentContentBadgeData())).TodaySoloRaidNormalPlayCount;
 Task<ResOpenSoloRaidTrial> Open(ulong id) => Send<ResOpenSoloRaidTrial>(id, "/soloraid/trial/open", new ReqOpenSoloRaidTrial { RaidLevel = 8 });
 Task<ResSetSoloRaidTrialDamage> Damage(ulong id, long damage) => Send<ResSetSoloRaidTrialDamage>(id, "/soloraid/trial/setdamage",
     new ReqSetSoloRaidTrialDamage { RaidLevel = 8, Damage = damage, AntiCheatBattleData = new()
