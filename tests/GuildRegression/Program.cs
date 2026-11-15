@@ -50,6 +50,8 @@ if (!restarting)
     // An old save has users and wallets, but no guild registry.
     var legacySave = JObject.FromObject(new { DbVersion = 5, Users = users });
     legacySave["Users"]![1]!["Guild"] = JValue.CreateNull();
+    legacySave["Users"]![1]![nameof(User.Memorial)] = JValue.CreateNull();
+    legacySave["Users"]![1]![nameof(User.JukeboxBgm)] = JValue.CreateNull();
     File.WriteAllText(save, legacySave.ToString());
     using var db = GameContext.CreateNew();
     db.Database.EnsureDeleted();

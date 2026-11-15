@@ -158,6 +158,9 @@ public class GameData
     [LoadRecord("OutpostBattleTable.json", "Id")]
     public readonly Dictionary<int, OutpostBattleRecord> OutpostBattle = [];
 
+    [LoadRecord("MemorialMemoryTable.json", "MemorialMemoryId")]
+    public readonly Dictionary<int, MemorialMemoryRecord> MemorialMemoryTable = [];
+
     [LoadRecord("JukeboxListTable.json", "Id")]
     public readonly Dictionary<int, JukeboxListRecord> jukeboxListDataRecords = [];
 
