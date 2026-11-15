@@ -407,13 +407,20 @@ if (!restarting)
         Check((await Read(940, "guild/updatenotice", change, ResUpdateGuildNotice.Parser)).Result == SetGuildNoticeResult.NotMember,
               "a foreign union identifier was ignored");
         Check(original.Equals(SavedSettings(id)), "a rejected edit changed the saved announcement");
-        Saved(941).Guild.MemberType = 2;
+        var jsonDb = typeof(User).Assembly.GetType("EpinelPS.Database.JsonDb")!;
+        var core = (CoreInfo)jsonDb.GetProperty("Instance")!.GetValue(null)!;
+        var membership = core.Users.Single(u => u.ID == 941).Guild;
+        membership.MemberType = 2;
         try
         {
             var deputy = await Read(941, "guild/updatenotice", new ReqUpdateGuildNotice { Gsn = id, Notice = original.Notice }, ResUpdateGuildNotice.Parser);
             Check(deputy.Result == SetGuildNoticeResult.Okay, "deputy could not edit the announcement");
         }
-        finally { Saved(941).Guild.MemberType = 3; }
+        finally
+        {
+            membership.MemberType = 3;
+            jsonDb.GetMethod("Save")!.Invoke(null, null);
+        }
     });
     await Test("empty, whitespace-only and overlength announcements do not overwrite the saved text", async () => {
         long id = Saved(940).Guild.guildId!.Value;
