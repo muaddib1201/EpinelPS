@@ -142,6 +142,11 @@ public class SoloRaidHelper
     /// </summary>
     public static NetUserSoloRaidInfo GetUserSoloRaidInfo(User user)
     {
+        lock (JsonDb.SaveLock) return GetUserSoloRaidInfoCore(user);
+    }
+
+    private static NetUserSoloRaidInfo GetUserSoloRaidInfoCore(User user)
+    {
         var season = SoloRaidSeasonSource.Current();
         if (season is null || !season.IsValid) throw new SoloRaidPeriodException();
         int SoloRaidManagerTid = season.RaidId;
@@ -163,11 +168,11 @@ public class SoloRaidHelper
         var openLevelData = raidData.SoloRaidLevels.Where(r => r.IsOpen).OrderBy(x => x.RaidLevel).FirstOrDefault();
         if (openLevelData is not null) info.LastOpenRaid = new NetSoloRaid { Level = openLevelData.RaidLevel, Type = openLevelData.Type };
 
-        var trialLevelData = GetSoloRaidLevelData(raidData, 8, SoloRaidType.Trial);
-        if (trialLevelData is null) return info;
+        if (GetSoloRaidLevelData(raidData, 8, SoloRaidType.Trial) is null) return info;
 
         info.TrialCount = raidData.TrialCount;
-        info.TrialDamage = trialLevelData.TotalDamage;
+        if (BestCompletedTrial(user, SoloRaidManagerTid) is { } best)
+            info.TrialDamage = SeasonTotal(best.TotalDamage, NormalClearHp(SoloRaidManagerTid));
 
         return info;
     }
@@ -344,6 +349,7 @@ public class SoloRaidHelper
                 .Where(r => r.Damage > 0)
                 .OrderByDescending(r => r.Damage).ThenBy(r => r.User.ID).ToList();
 
+            long normalHp = ranked.Count == 0 ? 0 : NormalClearHp(raidId);
             response.Rankings.Clear();
             for (int i = 0; i < ranked.Count; i++)
             {
@@ -351,7 +357,7 @@ public class SoloRaidHelper
                 response.Rankings.Add(new NetSoloRaidRankingData
                 {
                     Ranking = i + 1,
-                    Damage = entry.Damage,
+                    Damage = SeasonTotal(entry.Damage, normalHp),
                     User = RankingProfile(entry.User),
                 });
             }
@@ -391,6 +397,30 @@ public class SoloRaidHelper
         if (!user.SoloRaidData.TryGetValue(raidId, out var raid)) return null;
         return raid.SoloRaidLevels.Where(r => r.RaidLevel == 8 && r.Type == SoloRaidType.Trial &&
             r.IsClear && !r.IsOpen && r.TotalDamage > 0).MaxBy(r => r.TotalDamage);
+    }
+
+    // The overview and ranking carry a season total. Their challenge readouts deduct the normal-stage HP.
+    private static long SeasonTotal(long challengeDamage, long normalHp) =>
+        challengeDamage > long.MaxValue - normalHp ? long.MaxValue : challengeDamage + normalHp;
+
+    private static long NormalClearHp(int raidId)
+    {
+        var data = GameData.Instance;
+        if (!data.SoloRaidManagerTable.TryGetValue(raidId, out var manager)) return 0;
+        var stages = data.SoloRaidPresetTable.Values
+            .Where(p => p.PresetGroupId == manager.MonsterPreset && p.DifficultyType == DifficultyType.Common)
+            .OrderBy(p => p.WaveOrder).ToArray();
+        if (stages.Length != 7) return 0;
+
+        decimal total = 0;
+        for (int i = 0; i < stages.Length; i++)
+        {
+            if (stages[i].WaveOrder != i + 1) return 0;
+            decimal hp = data.GetSoloRaidBossHp(stages[i]);
+            if (hp <= 0) return 0;
+            total += hp;
+        }
+        return total <= long.MaxValue ? (long)total : 0;
     }
 
     internal static ResGetSoloRaidRankerSquad GetRankerSquad(User viewer, long targetUsn, int raidId)

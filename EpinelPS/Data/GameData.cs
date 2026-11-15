@@ -1024,6 +1024,16 @@ public class GameData
     {
         return RewardDataRecords.TryGetValue(rewardId, out RewardRecord? record) ? record : null;
     }
+
+    internal decimal GetSoloRaidBossHp(SoloRaidPresetRecord stage)
+    {
+        if (!WaveIntercept001Table.TryGetValue(stage.Wave, out var wave) || wave.TargetList is not { Count: > 0 } ||
+            !MonsterTable.TryGetValue(wave.TargetList[0], out var boss)) return 0;
+
+        return MonsterStatEnhanceTable.Values.Where(s => s.GroupId == boss.StatenhanceId && s.Lv == stage.MonsterStageLv)
+            .Sum(s => (decimal)s.LevelHp);
+    }
+
     /// <summary>
     /// Returns the level and its minimum value for XP value
     /// </summary>

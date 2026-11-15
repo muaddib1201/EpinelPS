@@ -120,9 +120,7 @@ public static partial class ManagedNpcService
             if (!data.WaveIntercept001Table.TryGetValue(preset.Wave, out var wave) || wave.TargetList is not { Count: > 0 } ||
                 wave.TargetList.Any(id => !data.MonsterTable.TryGetValue(id, out var target) ||
                     !data.MonsterStatEnhanceTable.Values.Any(s => s.GroupId == target.StatenhanceId && s.Lv == preset.MonsterStageLv && s.LevelHp > 0))) return false;
-            var monster = data.MonsterTable[wave.TargetList[0]];
-            decimal hp = data.MonsterStatEnhanceTable.Values.Where(s => s.GroupId == monster.StatenhanceId && s.Lv == preset.MonsterStageLv)
-                .Sum(s => (decimal)s.LevelHp);
+            decimal hp = data.GetSoloRaidBossHp(preset);
             if (hp <= 0 || hp > long.MaxValue / 20) return false;
             if (new[] { preset.RewardId, preset.FirstClearRewardId }.Any(id => id > 0 && data.GetRewardTableEntry(id) == null)) return false;
             result.Add(new(preset, (long)hp, wave.BattleTime > 0 ? Math.Min(3600, wave.BattleTime) : 180));
