@@ -24,6 +24,18 @@ internal static class GuildDirectory
     internal static SavedGuild? Find(long id) => id is > 0 and <= int.MaxValue
         ? JsonDb.Instance.Guilds.GetValueOrDefault((int)id) : null;
 
+    internal static NetGuildData ClientData(SavedGuild guild)
+    {
+        var data = guild.Data;
+        // Challenger (0) has numbered tiers starting at 1. Older saves use
+        // the nonexistent (0, 0) pair for an unranked Union. The client table
+        // localizes Beginner through RankType=6, TierNumber=0.
+        if (data.UnionRaidTier != 0 || data.UnionRaidTierNumber != 0) return data;
+        var unranked = data.Clone();
+        unranked.UnionRaidTier = (int)UnionRaidRankingTier.Beginner;
+        return unranked;
+    }
+
     internal static NetSimpleGuildData? Membership(User user)
     {
         lock (JsonDb.SaveLock)
@@ -36,7 +48,7 @@ internal static class GuildDirectory
     internal static NetSimpleGuildData Summary(SavedGuild guild)
     {
         GuildActivity.Refresh(guild, DateTime.UtcNow);
-        var data = guild.Data;
+        var data = ClientData(guild);
         return new NetSimpleGuildData
         {
             Gsn = data.Gsn, Name = data.Name, Emblem = data.Emblem, Grade = data.Grade,
@@ -114,7 +126,8 @@ internal static class GuildDirectory
         var guild = new SavedGuild
         {
             Data = new NetGuildData { Gsn = id, Name = name, Emblem = emblem, Locale = req.Locale,
-                Grade = 1, JoinType = Open, JoinLevel = Setting("DefaultGuildJoinLevel") },
+                Grade = 1, JoinType = Open, JoinLevel = Setting("DefaultGuildJoinLevel"),
+                UnionRaidTier = (int)UnionRaidRankingTier.Beginner },
             CreationLog = new NetGuildLog { Seq = 1, Id = "GUILD_JOURNAL_GUILD_CREATE", CreatedAt = membership.JoinedAt,
                 Arguments = { new NetGuildLogArgs { Value = founder.Nickname } } }
         };

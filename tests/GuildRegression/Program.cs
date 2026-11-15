@@ -397,7 +397,6 @@ await Test("legacy unranked unions return the localized beginner tier without ch
         var visible = await Read(other, "guild/publicinfo", new ReqGetGuildPublicInfo { Gsn = id }, ResGetGuildPublicInfo.Parser);
         var list = await Read(other, "guild/recommendlist", new ReqRecommendGuildList(), ResRecommendGuildList.Parser);
         var search = await Read(other, "guild/search", new ReqSearchGuildList { Search = id.ToString() }, ResSearchGuildList.Parser);
-        var profile = await Read(940, "User/Get", new ReqGetUserData(), ResGetUserData.Parser);
         Check(own.Guild.UnionRaidTier == 6 && own.Guild.UnionRaidTierNumber == 0 && visible.Guild.UnionRaidTier == 6 &&
               list.Guilds.Single(g => g.Gsn == id).UnionRaidTier == 6 && search.Guilds.Single().UnionRaidTier == 6,
               "an unranked union returned a missing tier instead of localized beginner");
