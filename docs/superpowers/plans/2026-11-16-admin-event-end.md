@@ -30,24 +30,26 @@
 
 Files: tests/EventScheduleRegression/Program.cs, tests/EventScheduleRegression/AdminScheduleChecks.cs; EpinelPS/Models/CoreInfoModel.cs; EpinelPS/Services/EventScheduleService.cs; EpinelPS/LobbyServer/Event/EventHelper.cs; EpinelPS/LobbyServer/Event/EventLoginGet.cs.
 
-- [ ] Add failing protocol tests using a deserialized root deadline: explicit overrides apply to list/joined/login, nested parents and set-field links; unrelated groups retain their own dates; the same deadline survives requests before and after expiry.
-- [ ] Run the EventScheduleRegression suite through nikke_workflow.py and confirm failures are missing override behavior.
-- [ ] Add EventEndUtc configuration and centralized root/deadline resolution. Preserve official MARIA-n and legacy fallbacks when no override exists; route all three event response types through the resolver.
-- [ ] Rerun focused regressions and confirm the protocol tests pass.
+- [x] Add failing protocol tests using a deserialized root deadline: explicit overrides apply to list/joined/login, nested parents and set-field links; unrelated groups retain their own dates; the same deadline survives requests before and after expiry.
+- [x] Run the EventScheduleRegression suite through nikke_workflow.py and confirm failures are missing override behavior.
+- [x] Add EventEndUtc configuration and centralized root/deadline resolution. Preserve official MARIA-n and legacy fallbacks when no override exists; route all three event response types through the resolver.
+- [x] Rerun focused regressions and confirm the protocol tests pass.
 
 ## Task 2: Admin editor and validation
 
 Files: EpinelPS/Controllers/AdminPanel/AdminController.cs; EpinelPS/Controllers/AdminPanel/AdminController.EventSchedules.cs; EpinelPS/Models/Admin/EventScheduleInput.cs; EpinelPS/Views/Admin/Events.cshtml; EpinelPS/wwwroot/admin/assets/js/event-schedules.js; the four existing admin i18n JSON files; tests/EventScheduleRegression/AdminScheduleChecks.cs.
 
-- [ ] Add real loopback MVC tests for set-days, explicit Beijing date, extensions, expired renewals, activation initialization, reload, invalid values/actions/IDs, unauthorized/CSRF requests and unchanged saved claims. Confirm missing-route failures before implementation.
-- [ ] Implement authenticated/antiforgery-protected schedule edits under JsonDb.SaveLock, returning the persisted UTC deadline and canonical main event ID. Initialize only missing ordinary deadlines when activation is saved.
-- [ ] Add a localized end/countdown column and one modal outside the activation form. Offer 14/20/21/custom days, explicit Beijing date, optional 03:59:59 and extensions. Update all rows for the same main event on success; keep selection controls independent.
-- [ ] Verify the focused suite and exercise the rendered page/controls on the isolated loopback host. Record evidence inside .nikke/admin-event-end.
+- [x] Add real loopback MVC tests for set-days, explicit Beijing date, extensions, expired renewals, activation initialization, reload, invalid values/actions/IDs, unauthorized/CSRF requests and unchanged saved claims. Confirm missing-route failures before implementation.
+- [x] Implement authenticated/antiforgery-protected schedule edits under JsonDb.SaveLock, returning the persisted UTC deadline and canonical main event ID. Initialize only missing ordinary deadlines when activation is saved.
+- [x] Add a localized end/countdown column and one modal outside the activation form. Offer 14/20/21/custom days, explicit Beijing date, optional 03:59:59 and extensions. Update all rows for the same main event on success; keep selection controls independent.
+- [x] Verify the focused suite and exercise the rendered page/controls on the isolated loopback host. Record evidence inside .nikke/admin-event-end.
 
 ## Task 3: Review, integrate and verify
 
-- [ ] Review the complete diff with a fresh reviewer; fix material findings with regression coverage.
+- [x] Review the complete diff with a fresh reviewer; fix material findings with regression coverage.
 - [ ] Commit only relevant source/docs/tests; integrate using the project entry point and sync to the latest integration ref.
 - [ ] Run test --suite all and inspect the evidence. Report any unrelated failures accurately.
 - [ ] Inspect the exact new history for secrets/player saves, push the verified integration ref to the authorized GitHub backup, and verify it with ls-remote.
 - [ ] Report implemented controls and test results, clearly stating that deployment and game-client acceptance are pending.
+
+Additional frontend verification: `node tests/EventScheduleRegression/EditorChecks.cjs EpinelPS/wwwroot/admin/assets/js/event-schedules.js` exercises delayed responses, cancel/Escape protection and control recovery after success/failure.
