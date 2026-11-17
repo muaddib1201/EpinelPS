@@ -213,7 +213,7 @@ try
     int beforeSql = db.Triggers.Count();
     failed = false;
     try { ManagedNpcService.Tick(now.AddDays(1).AddHours(4).AddMinutes(24)); }
-    catch (NullReferenceException) { failed = true; }
+    catch (Exception ex) when (ex is NullReferenceException or ArgumentException) { failed = true; }
     Check(failed && Snapshot() == beforeFailure && db.Triggers.Count() == beforeSql,
         "failed final phase rolls back task rewards, guild contribution, arena world and opponent records before SQLite notification");
     foreach (var guild in State().Guilds.Values) foreach (int stage in shootingStages) guild.ShootingRangeScores.Remove(stage);
