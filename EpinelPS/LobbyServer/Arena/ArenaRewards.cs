@@ -93,7 +93,7 @@ internal sealed partial class ArenaService
     internal ResShowSpecialArenaReward ShowReward()
     {
         Require(true);
-        long amount = ClaimableChips(Own.ChipScaled);
+        long amount = ArenaBadgeProbe.ApplySpecialReward(ClaimableChips(Own.ChipScaled));
         return new() { Reward = new NetRewardData { Currency = { new NetCurrencyData { Type = 5000, Value = amount } } }, History = RewardHistory(0).History };
     }
     internal ResObtainSpecialArenaReward ObtainReward(ReqObtainSpecialArenaReward req)

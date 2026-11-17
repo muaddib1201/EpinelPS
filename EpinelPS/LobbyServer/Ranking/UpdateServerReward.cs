@@ -6,7 +6,8 @@ public class UpdateServerReward : LobbyMessage
     protected override async Task HandleAsync()
     {
         ReqUpdateRankingServerReward req = await ReadData<ReqUpdateRankingServerReward>();
-        ResUpdateRankingServerReward response = new() { HasNewReward = RankingService.Update(GetUser()) };
+        ResUpdateRankingServerReward response = new()
+            { HasNewReward = Arena.ArenaBadgeProbe.ApplyRankingNewReward(RankingService.Update(GetUser())) };
 
 
         await WriteDataAsync(response);

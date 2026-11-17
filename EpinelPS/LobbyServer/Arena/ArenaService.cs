@@ -140,14 +140,20 @@ internal sealed partial class ArenaService(User user, DateTime now, byte[]? nonc
     internal ResGetArena Get()
     {
         Require(false);
-        return new ResGetArena { Server = 1001, User = Data(user, false), ArenaCount = Own.RookieCount,
+        var response = new ResGetArena { Server = 1001, User = Data(user, false),
+            ArenaCount = ArenaBadgeProbe.ApplyFreeCount(false, Own.RookieCount, RookieFreePlays),
             DefenseTeam = user.UserTeams[3].Clone(), Schedules = { Schedule() } };
+        ArenaBadgeProbe.ApplySchedule(response.Schedules);
+        return response;
     }
     internal ResGetSpecialArena GetSpecial()
     {
         Require(true);
-        return new ResGetSpecialArena { Server = 1001, User = Data(user, true), SpecialArenaCount = Own.SpecialCount,
+        var response = new ResGetSpecialArena { Server = 1001, User = Data(user, true),
+            SpecialArenaCount = ArenaBadgeProbe.ApplyFreeCount(true, Own.SpecialCount, SpecialConfig?.FreePlayCount ?? 2),
             SpecialArenaPoint = Points(user), Schedules = { Schedule() } };
+        ArenaBadgeProbe.ApplySchedule(response.Schedules);
+        return response;
     }
     internal ResGetArenaEnemyList Enemies() => new() { List2 = { Rivals(false).Select(u => new NetArenaRivalData {
         User = Data(u, false), Team = ArenaTeams.Whole(u, u.UserTeams[3].Teams[0], 3) }) } };

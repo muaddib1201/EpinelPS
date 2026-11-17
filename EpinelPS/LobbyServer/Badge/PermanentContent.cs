@@ -18,6 +18,7 @@ public class PermanentContent : LobbyMessage
         var clock = ctx!.RequestServices.GetService<TimeProvider>() ?? TimeProvider.System;
         if (ArenaService.ArenaBadgeEntry(user, clock.GetUtcNow().UtcDateTime) is { } arena)
             response.ContentEnterTimes.Add(arena);
+        ArenaBadgeProbe.ApplyEnterTime(response, clock.GetUtcNow().UtcDateTime);
 
         await WriteDataAsync(response);
     }
