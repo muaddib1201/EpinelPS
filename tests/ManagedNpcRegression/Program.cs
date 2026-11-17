@@ -122,17 +122,18 @@ Call("Configure", true, 1d, now.AddDays(10));
 Call("Tick", now.AddDays(10));
 Check(((CoreInfo)instance.GetValue(null)!).Users.Where(u => u.ManagedNpc != null).Sum(u => u.ManagedNpc!.TotalActions) == totalPaused,
     "resume must not simulate paused days");
-// NPC settlements are written in one batch. A failed write leaves disk untouched and keeps
+// NPC settlements are written in one batch (stay on day ten: --verify-saved replays with the real clock).
+// A failed write leaves disk untouched and keeps
 // the settled state in memory; the next tick writes it once without settling again.
 jsonDb.GetMethod("Save")!.Invoke(null, null);
 string disk = File.ReadAllText(path);
 Directory.CreateDirectory(path + ".tmp");
 bool failed = false;
-try { Call("Tick", now.AddDays(11)); } catch (IOException) { failed = true; } catch (UnauthorizedAccessException) { failed = true; }
+try { Call("Tick", now.AddDays(10).AddMinutes(6)); } catch (IOException) { failed = true; } catch (UnauthorizedAccessException) { failed = true; }
 finally { Directory.Delete(path + ".tmp"); }
 var settledInMemory = JsonConvert.SerializeObject(instance.GetValue(null));
 Check(failed && File.ReadAllText(path) == disk, "failed batch save must leave the stored NPC and union state unchanged");
-Call("Tick", now.AddDays(11));
+Call("Tick", now.AddDays(10).AddMinutes(6));
 Check(JsonConvert.SerializeObject(instance.GetValue(null)) == settledInMemory, "retrying the save must not settle NPC activity again");
 Check(JsonConvert.SerializeObject(JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(path))!.Users.Where(u => u.ManagedNpc != null).Select(u => u.ManagedNpc!.TotalActions)) ==
     JsonConvert.SerializeObject(((CoreInfo)instance.GetValue(null)!).Users.Where(u => u.ManagedNpc != null).Select(u => u.ManagedNpc!.TotalActions)),
