@@ -20,7 +20,9 @@ internal sealed class ManagedNpcWorker(IServiceScopeFactory scopes, ILogger<Mana
                 ManagedNpcService.UpgradeRosters(DateTime.UtcNow);
                 ManagedNpcService.UpgradeSocial(DateTime.UtcNow);
                 ManagedNpcService.RefreshProfileRewards(db);
-                ManagedNpcService.Tick(DateTime.UtcNow);
+                // Settles NPCs one at a time and yields the save lock between them,
+                // so player requests are not queued behind the whole population.
+                await ManagedNpcService.TickAsync(DateTime.UtcNow, stoppingToken);
                 LobbyServer.Ranking.RankingService.ObserveSafely();
             }
             catch (Exception ex) { logger.LogError(ex, "NPC 托管更新失败，将在下一轮重试。"); }

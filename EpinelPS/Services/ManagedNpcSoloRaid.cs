@@ -21,7 +21,7 @@ public static partial class ManagedNpcService
             ? new(season.RaidId, stages) : null;
     }
 
-    private static void RunSoloRaidDaily(User user, DateTime now, Lazy<NpcRaidSchedule?> schedule)
+    private static void RunSoloRaidDaily(User user, DateTime now, Lazy<NpcRaidSchedule?> schedule, SettlementBatch batch)
     {
         if (user.ManagedNpc is not { } npc || user.IsBanned || !DailyUnlocked(user, ContentsOpen.SoloRaid)) return;
         var season = schedule.Value;
@@ -41,9 +41,9 @@ public static partial class ManagedNpcService
         var challengeSquads = NpcRaidSquads(user, stages[7].Preset.CharacterLv > 0 ? stages[7].Preset.CharacterLv : null, maxTeams);
         if (normalSquads.Count == 0 || challengeSquads.Count == 0) return;
 
-        // Own the save once, together with rewards and the replay checkpoint. The client
+        // Own the settlement once, together with rewards and the replay checkpoint. The client
         // open/close helpers save independently, so they cannot be used inside this boundary.
-        SettleDailyPhase(user, now, false, () =>
+        SettleDailyPhase(user, now, false, batch, () =>
         {
             var raid = saved ?? new SoloRaidInfo { RaidId = season.RaidId, LastDateDay = raidDay };
             user.SoloRaidData[season.RaidId] = raid;

@@ -46,14 +46,16 @@ internal static class MissionProgressDelivery
         }
     }
 
-    internal static void Flush(User user)
+    // Returns true when the queue was delivered. Batch callers pass save: false and write
+    // the save once; delivery is idempotent if that later save does not happen.
+    internal static bool Flush(User user, bool save = true)
     {
         lock (user)
         lock (JsonDb.SaveLock)
         {
-            if (JsonDb.GetUser(user.ID) != user) return;
+            if (JsonDb.GetUser(user.ID) != user) return false;
             var pending = user.PendingMissionTriggers.ToArray();
-            if (pending.Length == 0) return;
+            if (pending.Length == 0) return false;
             try
             {
                 using var db = GameContext.CreateNew();
@@ -73,12 +75,14 @@ internal static class MissionProgressDelivery
                 db.SaveChanges();
                 foreach (var trigger in delivered) MessengerMessageCreator.OnTriggerAdded(user, trigger);
                 user.PendingMissionTriggers.Clear();
-                JsonDb.Save();
+                if (save) JsonDb.Save();
+                return true;
             }
             catch (Exception ex)
             {
                 user.PendingMissionTriggers = pending.ToList();
                 Logging.WriteLine($"Mission notifications for user {user.ID} remain queued: {ex.Message}", LogType.Warning);
+                return false;
             }
         }
     }

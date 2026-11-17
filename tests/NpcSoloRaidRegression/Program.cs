@@ -197,15 +197,22 @@ Test("same-day season rollover retains history and admits the new season", () =>
     }
     finally { season.RaidId = oldId; }
 });
-Test("failed save rolls back rewards scores and checkpoint and permits retry", () =>
+Test("failed batch save keeps the settled raid once and persists it on the next tick", () =>
 {
-    Prepare(); string before = Snapshot(); Directory.CreateDirectory(save + ".tmp"); bool rejected = false;
+    // Settlements are written in one batch. A failed write leaves the raid settled in
+    // memory only; it must not replay and must reach disk on the next successful tick.
+    Prepare(); Save(); string disk = File.ReadAllText(save); Directory.CreateDirectory(save + ".tmp"); bool rejected = false;
     try { ManagedNpcService.Tick(now); }
     catch (IOException) { rejected = true; }
     catch (UnauthorizedAccessException) { rejected = true; }
     finally { Directory.Delete(save + ".tmp"); }
-    Check(rejected && Snapshot() == before, "save failure partly committed battle");
-    ManagedNpcService.Tick(now); Check(LastClear() == 3, "rollback could not retry");
+    Check(rejected && LastClear() == 3 && File.ReadAllText(save) == disk, "failed save did not keep the raid unsaved in memory");
+    string settled = Resources(Npc());
+    ManagedNpcService.Tick(now);
+    Check(LastClear() == 3 && Resources(Npc()) == settled, "retry replayed the raid or its rewards");
+    var stored = JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(save))!.Users.Single(u => u.ManagedNpc != null);
+    Check(JsonConvert.SerializeObject(stored.SoloRaidData[season.RaidId]) == JsonConvert.SerializeObject(Raid()),
+        "next tick did not persist the settled raid");
 });
 Test("explicit-level CP reuses the formula without mutating the user", () =>
 {

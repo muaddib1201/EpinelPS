@@ -185,30 +185,41 @@ try
     ManagedNpcService.Configure(true, 1, now.AddDays(1).AddHours(4));
     ManagedNpcService.Tick(now.AddDays(1).AddHours(4));
     Check(Completed() == 1, "resume retains completed phases and reschedules remaining actions");
-    var beforeFailure = Snapshot();
+    // Phases are written in one batch per tick. A failed write keeps the settled phase in
+    // memory, withholds its SQLite notifications, and the next tick persists it once.
+    int StoredPhases() => (int)JObject.FromObject(JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(path))!
+        .Users.Single(u => u.ID == 1500000000).ManagedNpc!)["DailyRoutine"]!["CompletedPhases"]!;
+    Save();
+    int sqlBeforeFailure = db.Triggers.Count();
     Directory.CreateDirectory(path + ".tmp");
     bool failed = false;
     try { ManagedNpcService.Tick(now.AddDays(1).AddHours(4).AddMinutes(6)); }
     catch (IOException) { failed = true; }
     catch (UnauthorizedAccessException) { failed = true; }
     finally { Directory.Delete(path + ".tmp"); }
-    Check(failed && Snapshot() == beforeFailure, "failed phase save rolls back settlement and phase marker");
+    Check(failed && Completed() == 2 && StoredPhases() == 1 && db.Triggers.Count() == sqlBeforeFailure,
+        "failed batch save keeps the settled phase in memory and withholds its SQLite notifications");
+    long goldAfterSettlement = Npc().GetCurrencyVal(CurrencyType.Gold);
     ManagedNpcService.Tick(now.AddDays(1).AddHours(4).AddMinutes(6));
-    Check(Completed() == 2, "failed phase can retry once without losing progress");
+    Check(Completed() == 2 && StoredPhases() == 2 && Npc().GetCurrencyVal(CurrencyType.Gold) == goldAfterSettlement &&
+        Npc().PendingMissionTriggers.Count == 0 && db.Triggers.Count() >= sqlBeforeFailure,
+        "next tick persists the phase once without replaying it, then delivers queued notifications");
     ManagedNpcService.Tick(now.AddDays(1).AddHours(4).AddMinutes(18));
     Check(Completed() == 4, "prepare an already-settled fourth phase for final-claim rollback");
-    beforeFailure = Snapshot();
+    // Break the union shooting step, which runs after the NPC arena fights in phase five.
+    var shootingStages = data.ShootingRanges.Values.Where(s => !s.SpecActiveSpot).Select(s => s.Id).ToArray();
+    foreach (var guild in State().Guilds.Values) foreach (int stage in shootingStages) guild.ShootingRangeScores[stage] = null!;
+    var beforeFailure = Snapshot();
     int beforeSql = db.Triggers.Count();
-    Directory.CreateDirectory(path + ".tmp"); failed = false;
+    failed = false;
     try { ManagedNpcService.Tick(now.AddDays(1).AddHours(4).AddMinutes(24)); }
-    catch (IOException) { failed = true; }
-    catch (UnauthorizedAccessException) { failed = true; }
-    finally { Directory.Delete(path + ".tmp"); }
+    catch (NullReferenceException) { failed = true; }
     Check(failed && Snapshot() == beforeFailure && db.Triggers.Count() == beforeSql,
         "failed final phase rolls back task rewards, guild contribution, arena world and opponent records before SQLite notification");
+    foreach (var guild in State().Guilds.Values) foreach (int stage in shootingStages) guild.ShootingRangeScores.Remove(stage);
     ManagedNpcService.Tick(now.AddDays(1).AddHours(4).AddMinutes(24));
-    Check(Completed() == 5, "final phase retries successfully after rollback");
-    Console.WriteLine("PASS: cross-day scheduling, pause/resume and failed-save rollback preserve phase accounting");
+    Check(Completed() == 5 && StoredPhases() == 5, "final phase retries successfully after rollback and is persisted");
+    Console.WriteLine("PASS: cross-day scheduling, pause/resume, batched saves and failed-phase rollback preserve phase accounting");
     var faultDay = now.AddDays(2);
     ManagedNpcService.Tick(faultDay);
     var broken = Npc().Characters.First();
