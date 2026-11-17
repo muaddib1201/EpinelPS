@@ -18,6 +18,7 @@ public static partial class ManagedNpcService
     // and writes the whole save in one batch instead of once per NPC phase.
     internal static TimeSpan SettlementPause { get; set; } = TimeSpan.FromMilliseconds(15);
     internal static TimeSpan CommitInterval { get; set; } = TimeSpan.FromSeconds(10);
+    private static volatile bool unsavedSettlements;
 
     public static void Tick(DateTime now) => TickAsync(now).GetAwaiter().GetResult();
 
@@ -30,6 +31,8 @@ public static partial class ManagedNpcService
         lock (JsonDb.SaveLock)
             ids = JsonDb.Instance.Users.Where(u => u.ManagedNpc != null).Select(u => u.ID).Order().ToArray();
         var batch = new SettlementBatch();
+        // Settlements from a tick whose save failed are still only in memory.
+        if (unsavedSettlements) batch.RetrySave();
         Exception? firstFailure = null;
         bool commitFailed = false;
         foreach (ulong id in ids)
@@ -163,6 +166,7 @@ public static partial class ManagedNpcService
         internal bool Due => dirty && age.Elapsed >= CommitInterval;
         internal bool Pending => dirty || notify.Count > 0;
         internal void Notify(User user) => notify.Add(user);
+        internal void RetrySave() => dirty = true;
         internal void Settled(User user)
         {
             if (!dirty) age.Restart();
@@ -172,7 +176,9 @@ public static partial class ManagedNpcService
 
         internal async Task CommitAsync()
         {
-            lock (JsonDb.SaveLock) JsonDb.Save();
+            try { lock (JsonDb.SaveLock) JsonDb.Save(); }
+            catch { unsavedSettlements = true; throw; }
+            unsavedSettlements = false;
             dirty = false;
             var users = notify.ToArray();
             notify.Clear();
