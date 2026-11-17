@@ -122,13 +122,22 @@ Call("Configure", true, 1d, now.AddDays(10));
 Call("Tick", now.AddDays(10));
 Check(((CoreInfo)instance.GetValue(null)!).Users.Where(u => u.ManagedNpc != null).Sum(u => u.ManagedNpc!.TotalActions) == totalPaused,
     "resume must not simulate paused days");
-var snapshot = JsonConvert.SerializeObject(instance.GetValue(null));
+// NPC settlements are written in one batch. A failed write leaves disk untouched and keeps
+// the settled state in memory; the next tick writes it once without settling again.
+jsonDb.GetMethod("Save")!.Invoke(null, null);
+string disk = File.ReadAllText(path);
 Directory.CreateDirectory(path + ".tmp");
 bool failed = false;
 try { Call("Tick", now.AddDays(11)); } catch (IOException) { failed = true; } catch (UnauthorizedAccessException) { failed = true; }
 finally { Directory.Delete(path + ".tmp"); }
-Check(failed && JsonConvert.SerializeObject(instance.GetValue(null)) == snapshot, "save failure must roll back NPC and union changes");
-Console.WriteLine("PASS: varied persistent growth, daily caps, replay, backward clock, pause, bounded logs and failed-save rollback");
+var settledInMemory = JsonConvert.SerializeObject(instance.GetValue(null));
+Check(failed && File.ReadAllText(path) == disk, "failed batch save must leave the stored NPC and union state unchanged");
+Call("Tick", now.AddDays(11));
+Check(JsonConvert.SerializeObject(instance.GetValue(null)) == settledInMemory, "retrying the save must not settle NPC activity again");
+Check(JsonConvert.SerializeObject(JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(path))!.Users.Where(u => u.ManagedNpc != null).Select(u => u.ManagedNpc!.TotalActions)) ==
+    JsonConvert.SerializeObject(((CoreInfo)instance.GetValue(null)!).Users.Where(u => u.ManagedNpc != null).Select(u => u.ManagedNpc!.TotalActions)),
+    "the next tick must persist the settled NPC activity");
+Console.WriteLine("PASS: varied persistent growth, daily caps, replay, backward clock, pause, bounded logs and failed-save retry");
 db.ChangeTracker.Clear();
 db.Database.EnsureDeleted();
 DbInitializer.Initialize(db);
