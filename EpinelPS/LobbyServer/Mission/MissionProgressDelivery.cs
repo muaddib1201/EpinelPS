@@ -46,9 +46,11 @@ internal static class MissionProgressDelivery
         }
     }
 
+    internal static void Flush(User user) => FlushQueued(user, save: true);
+
     // Returns true when the queue was delivered. Batch callers pass save: false and write
     // the save once; delivery is idempotent if that later save does not happen.
-    internal static bool Flush(User user, bool save = true)
+    internal static bool FlushQueued(User user, bool save)
     {
         lock (user)
         lock (JsonDb.SaveLock)

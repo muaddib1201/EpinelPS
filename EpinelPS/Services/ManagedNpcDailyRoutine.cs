@@ -185,7 +185,7 @@ public static partial class ManagedNpcService
             bool delivered = false;
             foreach (var user in users)
             {
-                delivered |= MissionProgressDelivery.Flush(user, save: false);
+                delivered |= MissionProgressDelivery.FlushQueued(user, save: false);
                 await Task.Delay(SettlementPause);
             }
             // Delivery is idempotent; if this save is lost the queue is delivered again.
