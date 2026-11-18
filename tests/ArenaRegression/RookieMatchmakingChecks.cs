@@ -149,9 +149,8 @@ internal static class RookieMatchmakingChecks
             await list(human.ID);
             Check(human.Arena.RookieRefresh == cursor + 1 && human.Arena.SpecialRefresh == 0, "mode cursors interfered");
             expected["Arena"]!["RookieRefresh"] = cursor + 1;
-            expected["Arena"]!["RookieReminderSeenUtc"] = now;
             Check(JToken.DeepEquals(expected, JObject.FromObject(human)) && others == JsonConvert.SerializeObject(players.Skip(1)),
-                "first rookie list changed more than its cursor and daily acknowledgement");
+                "first rookie list changed more than its cursor");
             var persisted = JsonConvert.DeserializeObject<CoreInfo>(File.ReadAllText(save))!;
             Check(persisted.Users.Single(u => u.ID == human.ID).Arena!.RookieRefresh == cursor + 1, "refresh cursor was not saved");
             Check(expectedSpecial.SequenceEqual((await special(human.ID)).List2.Select(r => r.User.User.Usn)), "rookie change altered special opponents");

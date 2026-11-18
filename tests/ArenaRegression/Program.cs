@@ -746,112 +746,50 @@ if (!restarting)
 }
 if (restarting)
 {
-    await Test("arena reminder acknowledgement survives a server restart", async () =>
+    await Test("recorded arena overview visits survive a server restart", async () =>
     {
-        Check(await ArenaRemindersQuiet(7020), "an acknowledged rookie entry returned after restart");
+        Check(Player(7020).Arena!.OverviewEnteredUtc is { } saved && saved > DateTime.UnixEpoch &&
+            await ArenaEnteredAt(7020) == DateTime.SpecifyKind(saved, DateTimeKind.Utc), "restart lost or replaced the recorded overview visit");
         Check(await ArenaEnteredAt(7019) == clock.Now.AddHours(4).UtcDateTime,
             "restart lost the later overview visit after local midnight");
         var entry = await Post<ResGetArena>(7020, "arena/get", new ReqGetArena());
-        Check(entry.ArenaCount == 0, "acknowledging a reminder spent a free entry");
+        Check(entry.ArenaCount == 0, "recording a visit spent a free entry");
     });
 }
 else
 {
-    await Test("rank one after a claim stays quiet at 5% with either two or zero free special attempts", async () =>
+    await Test("Arena badge reports the recorded overview visit without synthesising daily reminders", async () =>
     {
-        const ulong id = 7019;
-        var arena = Player(id).Arena!;
-        arena.RookieCount = 5;
-        arena.SpecialRank = 1;
-        arena.ChipScaled = 463 * 10000m;
-        await Post<ResObtainSpecialArenaReward>(id, "arena/special/obtainreward", new ReqObtainSpecialArenaReward());
-        foreach (var used in new[] { 0, 2 })
-        {
-            arena.SpecialCount = used;
-            arena.ChipScaled = 500 * 10000m;
-            var special = await Post<ResGetSpecialArena>(id, "arena/special/get", new ReqGetSpecialArena());
-            var opponents = await Post<ResGetSpecialArenaEnemyList>(id, "arena/special/getenemylist", new ReqGetSpecialArenaEnemyList());
-            var reward = await Post<ResShowSpecialArenaReward>(id, "arena/special/showreward", new ReqShowSpecialArenaReward());
-            Check(special.SpecialArenaCount == used && special.User.Rank == 1 && opponents.List2.Count == 0 &&
-                reward.Reward.Currency.Single(c => c.Type == 5000).Value == 500, "changed the rank, tickets, opponents or available chips");
-            Check(await ArenaRemindersQuiet(id), $"special badge due after a claim with {2 - used} free attempts");
-        }
-        arena.ChipScaled = 9000 * 10000m;
-        Check(await ArenaRemindersQuiet(id), "same-day refill rearmed an already claimed reward");
-    });
-    await Test("special reminder uses the claimable gauge at exactly half, independent of free or paid tickets", async () =>
-    {
-        var (viewer, _) = await RatingPair(false, false);
-        var arena = viewer.Arena!;
-        arena.RookieCount = 5;
-        viewer.Currency[(CurrencyType)6001] = 3;
-        var capacity = data.GameSettings["ArenaSpecialBoxRewardLimitValue1"];
-        var original = capacity.Value;
-        var present = clock.Now;
-        try
-        {
-            capacity.Value = "10000"; // Exercise an exact 50% boundary as well as the shipped odd capacity.
-            await Post<ResObtainSpecialArenaReward>(viewer.ID, "arena/special/obtainreward", new ReqObtainSpecialArenaReward());
-            foreach (var used in new[] { 0, 2 })
-            {
-                arena.SpecialCount = used;
-                arena.ChipScaled = 4999.99m * 10000m;
-                Check(await ArenaRemindersQuiet(viewer.ID), $"reward below half was announced with {2 - used} free plays");
-                arena.ChipScaled = 5000m * 10000m;
-                Check(!await ArenaRemindersQuiet(viewer.ID), $"reward at half was suppressed with {2 - used} free plays");
-            }
-            arena.ChipScaled = 4999m * 10000m;
-            string before = JsonConvert.SerializeObject(arena);
-            clock.Now = present.AddMinutes(1);
-            Check(!await ArenaRemindersQuiet(viewer.ID), "a reward crossing half between arena requests did not rearm the aggregate");
-            Check(before == JsonConvert.SerializeObject(arena), "reading the badge settled the box or consumed a play");
-        }
-        finally { capacity.Value = original; clock.Now = present; }
-    });
-    await Test("entering special first leaves rookie due and does not clear another player's reminder", async () =>
-    {
-        var (viewer, other) = await RatingPair(false, false);
-        viewer.Arena!.RookieCount = 4;
-        viewer.Arena!.ChipScaled = 8000m * 10000m;
-        await Post<ResGetSpecialArenaEnemyList>(viewer.ID, "arena/special/getenemylist", new ReqGetSpecialArenaEnemyList());
-        Check(!await ArenaRemindersQuiet(viewer.ID), "special entry cleared the available rookie reminder");
-        await Post<ResGetArenaEnemyList>(viewer.ID, "arena/getenemylist", new ReqGetArenaEnemyList());
-        Check(await ArenaRemindersQuiet(viewer.ID) && !await ArenaRemindersQuiet(other.ID), "daily acknowledgements leaked between accounts");
-    });
-    await Test("arena overview prefetch preserves separate daily reminders at the reward boundary", async () =>
-    {
+        // Free attempts, a half-full reward box and a new game day used to replace the visit
+        // with 1970 to light a reminder. The Ark badge does not follow this value; report the visit.
         const ulong id = 7020;
         var arena = Player(id).Arena!;
+        arena.OverviewEnteredUtc = null;
         arena.RewardHistory.Clear();
         arena.RookieCount = 0;
         arena.SpecialCount = 2;
-        arena.ChipScaled = 4999 * 10000m;
+        arena.ChipScaled = 5000 * 10000m;
+        Check(await ArenaEnteredAtOrNull(id) == null, "an arena that was never opened reported an entry time");
         await Post<ResGetArena>(id, "arena/get", new ReqGetArena());
         await Post<ResGetSpecialArena>(id, "arena/special/get", new ReqGetSpecialArena());
-        await Post<ResRecordContentEnter>(id, "badge/record/content", new ReqRecordContentEnter { ContentType = NetEnteredContentType.Arena });
-        await Post<ResGetSpecialArenaEnemyList>(id, "arena/special/getenemylist", new ReqGetSpecialArenaEnemyList());
-        Check(!await ArenaRemindersQuiet(id), "opening the overview or special arena acknowledged rookie");
         await Post<ResGetArenaEnemyList>(id, "arena/getenemylist", new ReqGetArenaEnemyList());
-        Check(await ArenaRemindersQuiet(id), "rookie visit did not clear the last reminder below half capacity");
-        arena.ChipScaled = 5000 * 10000m;
-        Check(!await ArenaRemindersQuiet(id), "an early special visit consumed the later 50% reminder");
-        await Post<ResGetArenaEnemyList>(id, "arena/getenemylist", new ReqGetArenaEnemyList());
-        Check(!await ArenaRemindersQuiet(id), "revisiting rookie cleared the pending special reminder");
         await Post<ResGetSpecialArenaEnemyList>(id, "arena/special/getenemylist", new ReqGetSpecialArenaEnemyList());
-        Check(await ArenaRemindersQuiet(id) && await ArenaRemindersQuiet(id), "handled reminders returned on refresh");
-        Check(arena.RookieCount == 0 && arena.SpecialCount == 2 && arena.ChipScaled == 5000 * 10000m,
-            "badge handling changed gameplay data");
+        Check(await ArenaEnteredAtOrNull(id) == null, "opening a mode recorded an overview visit");
         var present = clock.Now;
+        await Post<ResRecordContentEnter>(id, "badge/record/content", new ReqRecordContentEnter { ContentType = NetEnteredContentType.Arena });
+        var visited = await ArenaEnteredAt(id);
+        Check(visited >= present.UtcDateTime && visited == DateTime.SpecifyKind(arena.OverviewEnteredUtc!.Value, DateTimeKind.Utc),
+            "the overview visit was not reported as recorded");
         try
         {
             var reset = new DateTimeOffset(present.UtcDateTime.Date.AddHours(State().ResetHourUtcTime), TimeSpan.Zero);
             if (reset <= present) reset = reset.AddDays(1);
-            clock.Now = reset.AddTicks(-1);
-            Check(await ArenaRemindersQuiet(id), "reminders rearmed before game-day reset");
-            clock.Now = reset;
-            Check(!await ArenaRemindersQuiet(id), "reminders failed to rearm at the game-day reset");
+            clock.Now = reset.AddMinutes(1);
+            Check(await ArenaEnteredAt(id) == visited, "a new game day replaced the visit with a synthetic reminder");
         }
         finally { clock.Now = present; }
+        Check(arena.RookieCount == 0 && arena.SpecialCount == 2 && arena.ChipScaled == 5000 * 10000m &&
+            arena.RookieReminderSeenUtc == null && arena.SpecialReminderSeenUtc == null, "badge handling changed gameplay or reminder data");
     });
     await Test("quiet Arena badge reports the last overview visit across local midnight", async () =>
     {
@@ -898,11 +836,10 @@ async Task<DateTime> ArenaEnteredAt(ulong id)
     var entry = badges.ContentEnterTimes.SingleOrDefault(t => t.ContentType == NetEnteredContentType.Arena);
     return entry?.EnteredAt?.ToDateTime() ?? throw new Exception("the permanent badge response is missing the arena day marker");
 }
-async Task<bool> ArenaRemindersQuiet(ulong id)
+async Task<DateTime?> ArenaEnteredAtOrNull(ulong id)
 {
-    var reset = clock.Now.UtcDateTime.Date.AddHours(State().ResetHourUtcTime);
-    if (reset > clock.Now.UtcDateTime) reset = reset.AddDays(-1);
-    return await ArenaEnteredAt(id) >= reset;
+    var badges = await Post<ResPermanentContentBadgeData>(id, "badge/permanentcontent", new ReqPermanentContentBadgeData());
+    return badges.ContentEnterTimes.SingleOrDefault(t => t.ContentType == NetEnteredContentType.Arena)?.EnteredAt?.ToDateTime();
 }
 void Check(bool ok, string message) { if (!ok) throw new Exception(message); }
 async Task<HttpResponseMessage> Send(ulong id, string route, IMessage request, string? nonce = null)

@@ -133,7 +133,6 @@ internal sealed partial class ArenaService(User user, DateTime now, byte[]? nonc
     private IEnumerable<User> Rivals(bool special)
     {
         Require(special);
-        AcknowledgeReminder(special);
         return special ? SpecialRivals() : RookieRivals();
     }
 

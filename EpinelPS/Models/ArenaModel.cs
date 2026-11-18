@@ -20,6 +20,8 @@ public sealed class ArenaPlayer
     public int SpecialCount { get; set; }
     [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
     public DateTime? OverviewEnteredUtc { get; set; }
+    // Legacy daily-reminder acknowledgements; no longer read or written. Kept so existing
+    // saves round-trip unchanged when the server starts.
     [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
     public DateTime? RookieReminderSeenUtc { get; set; }
     [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
