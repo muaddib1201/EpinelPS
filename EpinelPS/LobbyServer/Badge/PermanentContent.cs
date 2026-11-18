@@ -12,7 +12,7 @@ public class PermanentContent : LobbyMessage
         User user = GetUser();
 
         ResPermanentContentBadgeData response = new();
-        response.ChampionArenaBadgeData = ChampionArenaAvailability.BadgeData();
+        response.ChampionArenaBadgeData = ArenaBadgeProbe.ApplyChampion(ChampionArenaAvailability.BadgeData());
         response.SoloRaidMuseumBadgeData = new();
         response.TodaySoloRaidNormalPlayCount = SoloRaidHelper.GetTodayNormalPlayCount(user);
         var clock = ctx!.RequestServices.GetService<TimeProvider>() ?? TimeProvider.System;

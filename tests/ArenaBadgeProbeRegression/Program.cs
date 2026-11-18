@@ -49,6 +49,22 @@ try
         Schedules().Length == 0 && (bool)Call("ApplyRankingNewReward", true)!, "edited file is re-read without restart; unspecified switches stay default");
     Write("""{ "EnterTime": "epoch" }""");
     Check(Badge().ContentEnterTimes.Single(t => t.ContentType == NetEnteredContentType.Arena).EnteredAt.Seconds == 0, "epoch entry");
+    NetChampionArenaBadgeData Closed() => new() { ChampionArenaContentsState = ChampionArenaContentsState.Closed };
+    var user = new NetUserData { ArenaCount = 1, SpecialArenaCount = 0 };
+    Call("ApplyUserData", user);
+    Check(Call("ApplyChampion", Closed()) is NetChampionArenaBadgeData { ChampionArenaContentsState: ChampionArenaContentsState.Closed } &&
+        user.ArenaCount == 1 && user.SpecialArenaCount == 0, "champion data and login counts stay unchanged unless selected");
+    Write("""{ "Champion": "omit", "RookieFree": "used" }""");
+    var omittedEntry = new ResGetChampionArena { ChampionArenaContentsState = ChampionArenaContentsState.Closed, BadgeData = Closed() };
+    Call("ApplyChampionEntry", omittedEntry);
+    Call("ApplyUserData", user);
+    Check(Call("ApplyChampion", Closed()) == null && omittedEntry.BadgeData == null && user.ArenaCount == 5 && user.SpecialArenaCount == 0,
+        "champion badge data can be left out and login rookie attempts reported as spent");
+    Write("""{ "Champion": "seasonclosed" }""");
+    var entry = new ResGetChampionArena { ChampionArenaContentsState = ChampionArenaContentsState.Closed, BadgeData = Closed() };
+    Call("ApplyChampionEntry", entry);
+    Check(entry.ChampionArenaContentsState == ChampionArenaContentsState.SeasonClosed &&
+        entry.BadgeData.ChampionArenaContentsState == ChampionArenaContentsState.SeasonClosed, "champion state variant applies to entry and badge data");
     Console.WriteLine("PASS: each switch changes only its reply field and edits apply without restart");
 
     Write("""{ "EnterTime": "sometimes" }""");

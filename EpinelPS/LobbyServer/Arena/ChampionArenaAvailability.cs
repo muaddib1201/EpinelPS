@@ -24,7 +24,7 @@ internal static class ChampionArenaAvailability
     internal static ResGetChampionArena Entry()
     {
         var badge = BadgeData();
-        return new()
+        var entry = new ResGetChampionArena
         {
             IsBan = true,
             BanInfo = BanInfo(),
@@ -32,5 +32,8 @@ internal static class ChampionArenaAvailability
             Schedule = badge.Schedule.Clone(),
             BadgeData = badge
         };
+        // Unchanged unless the arena badge probe file selects a champion variant.
+        ArenaBadgeProbe.ApplyChampionEntry(entry);
+        return entry;
     }
 }

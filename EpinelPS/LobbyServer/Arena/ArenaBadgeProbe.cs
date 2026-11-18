@@ -23,9 +23,8 @@ internal static class ArenaBadgeProbe
         public string SpecialReward { get; set; } = "default";
         // default | omit | alltime
         public string Schedule { get; set; } = "default";
-
-        internal bool IsDefault => EnterTime == "default" && RankingNewReward == "default" && SpecialFree == "default" &&
-            RookieFree == "default" && SpecialReward == "default" && Schedule == "default";
+        // default | omit | seasonclosed | success
+        public string Champion { get; set; } = "default";
     }
 
     private static readonly object Gate = new();
@@ -72,6 +71,7 @@ internal static class ArenaBadgeProbe
         Allow(nameof(s.RookieFree), s.RookieFree, "default", "used");
         Allow(nameof(s.SpecialReward), s.SpecialReward, "default", "zero");
         Allow(nameof(s.Schedule), s.Schedule, "default", "omit", "alltime");
+        Allow(nameof(s.Champion), s.Champion, "default", "omit", "seasonclosed", "success");
         return s;
     }
 
@@ -102,6 +102,34 @@ internal static class ArenaBadgeProbe
         if ((special ? Current.SpecialFree : Current.RookieFree) != "used") return used;
         Note($"{(special ? "special" : "rookie")} arena count reported as {Math.Max(used, free)} (actual {used})");
         return Math.Max(used, free);
+    }
+
+    // Login user data carries the same daily attempt counts as the arena replies.
+    internal static void ApplyUserData(NetUserData data)
+    {
+        data.ArenaCount = ApplyFreeCount(false, data.ArenaCount, 5);
+        if (Current.SpecialFree != "used") return;
+        int specialFree = Data.GameData.Instance.Arenas.Values.FirstOrDefault(r => r.ArenaType == Data.ArenaType.ArenaSpecial)?.FreePlayCount ?? 2;
+        data.SpecialArenaCount = ApplyFreeCount(true, data.SpecialArenaCount, specialFree);
+    }
+
+    // Returns null when the badge data should be left out of the reply.
+    internal static NetChampionArenaBadgeData? ApplyChampion(NetChampionArenaBadgeData badge)
+    {
+        string mode = Current.Champion;
+        if (mode == "default") return badge;
+        Note($"champion arena badge data: {mode}");
+        if (mode == "omit") return null;
+        badge.ChampionArenaContentsState = mode == "success" ? ChampionArenaContentsState.Success : ChampionArenaContentsState.SeasonClosed;
+        return badge;
+    }
+
+    internal static void ApplyChampionEntry(ResGetChampionArena entry)
+    {
+        string mode = Current.Champion;
+        if (mode == "default") return;
+        entry.BadgeData = ApplyChampion(entry.BadgeData);
+        if (mode != "omit") entry.ChampionArenaContentsState = entry.BadgeData!.ChampionArenaContentsState;
     }
 
     internal static long ApplySpecialReward(long amount)
