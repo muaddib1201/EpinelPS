@@ -169,7 +169,6 @@ public static class LobbyHandler
             }
         }
         ret.OutpostFastBattleCount = user.ResetableData.WipeoutCount;        
-        Arena.ArenaBadgeProbe.ApplyUserData(ret);
         return ret;
     }
     public static NetWholeUserData CreateWholeUserDataFromDbUser(User user)

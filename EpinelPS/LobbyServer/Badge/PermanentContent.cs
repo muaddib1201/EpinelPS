@@ -12,13 +12,12 @@ public class PermanentContent : LobbyMessage
         User user = GetUser();
 
         ResPermanentContentBadgeData response = new();
-        response.ChampionArenaBadgeData = ArenaBadgeProbe.ApplyChampion(ChampionArenaAvailability.BadgeData());
+        response.ChampionArenaBadgeData = ChampionArenaAvailability.BadgeData();
         response.SoloRaidMuseumBadgeData = new();
         response.TodaySoloRaidNormalPlayCount = SoloRaidHelper.GetTodayNormalPlayCount(user);
         var clock = ctx!.RequestServices.GetService<TimeProvider>() ?? TimeProvider.System;
         if (ArenaService.ArenaBadgeEntry(user, clock.GetUtcNow().UtcDateTime) is { } arena)
             response.ContentEnterTimes.Add(arena);
-        ArenaBadgeProbe.ApplyEnterTime(response, clock.GetUtcNow().UtcDateTime);
 
         await WriteDataAsync(response);
     }

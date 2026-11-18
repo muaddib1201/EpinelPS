@@ -6,8 +6,7 @@ internal static class ChampionArenaAvailability
 {
     // This is an availability window, not a scheduled tournament. Keep it stable
     // across entry and badge requests so the client does not keep reloading a season.
-    // The arena badge probe can lift the ban (null) to test whether the locked card keeps the Ark badge lit.
-    internal static NetArenaBanInfo? BanInfo() => ArenaBadgeProbe.ChampionUnbanned() ? null : new()
+    internal static NetArenaBanInfo BanInfo() => new()
     {
         Description = "冠军竞技场尚未开放",
         StartAt = Timestamp.FromDateTime(DateTime.UnixEpoch),
@@ -25,16 +24,13 @@ internal static class ChampionArenaAvailability
     internal static ResGetChampionArena Entry()
     {
         var badge = BadgeData();
-        var entry = new ResGetChampionArena
+        return new()
         {
-            IsBan = !ArenaBadgeProbe.ChampionUnbanned(),
+            IsBan = true,
             BanInfo = BanInfo(),
             ChampionArenaContentsState = ChampionArenaContentsState.Closed,
             Schedule = badge.Schedule.Clone(),
             BadgeData = badge
         };
-        // Unchanged unless the arena badge probe file selects a champion variant.
-        ArenaBadgeProbe.ApplyChampionEntry(entry);
-        return entry;
     }
 }
