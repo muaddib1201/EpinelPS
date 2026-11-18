@@ -25,6 +25,15 @@ internal static class ArenaBadgeProbe
         public string Schedule { get; set; } = "default";
         // default | omit | seasonclosed | success
         public string Champion { get; set; } = "default";
+        // default | off (lift the champion arena ban so the card can be opened)
+        public string ChampionBan { get; set; } = "default";
+    }
+
+    internal static bool ChampionUnbanned()
+    {
+        if (Current.ChampionBan != "off") return false;
+        Note("champion arena ban lifted");
+        return true;
     }
 
     private static readonly object Gate = new();
@@ -71,6 +80,7 @@ internal static class ArenaBadgeProbe
         Allow(nameof(s.RookieFree), s.RookieFree, "default", "used");
         Allow(nameof(s.SpecialReward), s.SpecialReward, "default", "zero");
         Allow(nameof(s.Schedule), s.Schedule, "default", "omit", "alltime");
+        Allow(nameof(s.ChampionBan), s.ChampionBan, "default", "off");
         Allow(nameof(s.Champion), s.Champion, "default", "omit", "seasonclosed", "success");
         return s;
     }

@@ -65,6 +65,13 @@ try
     Call("ApplyChampionEntry", entry);
     Check(entry.ChampionArenaContentsState == ChampionArenaContentsState.SeasonClosed &&
         entry.BadgeData.ChampionArenaContentsState == ChampionArenaContentsState.SeasonClosed, "champion state variant applies to entry and badge data");
+    var availability = probe.Assembly.GetType("EpinelPS.LobbyServer.Arena.ChampionArenaAvailability")!;
+    ResGetChampionArena Entry() => (ResGetChampionArena)availability.GetMethod("Entry", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, null)!;
+    object? Ban() => availability.GetMethod("BanInfo", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, null);
+    Check(Entry() is { IsBan: true, BanInfo: not null } && Ban() != null, "champion ban stays unless lifted");
+    Write("""{ "ChampionBan": "off", "Champion": "seasonclosed" }""");
+    Check(Entry() is { IsBan: false, BanInfo: null, ChampionArenaContentsState: ChampionArenaContentsState.SeasonClosed } && Ban() == null,
+        "champion ban can be lifted for the entry and the ban list");
     Console.WriteLine("PASS: each switch changes only its reply field and edits apply without restart");
 
     Write("""{ "EnterTime": "sometimes" }""");
