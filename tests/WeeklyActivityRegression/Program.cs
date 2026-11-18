@@ -7,6 +7,7 @@ using EpinelPS.LobbyServer.Simroom;
 using EpinelPS.LobbyServer.Team;
 using EpinelPS.Models;
 using EpinelPS.Services;
+using EpinelPS.Utils;
 using Google.Protobuf;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -110,12 +111,53 @@ await Test("insufficient weekly points cannot open the 100 point chest", async (
     Check(!Account(9305).WeeklyResetableData.CompletedWeeklyMissions.Contains(20015) && Inventory(Account(9305)) == before,
         "an account with zero points received the 100 point chest");
 });
-await Test("a mixed valid and unfinished claim is rejected without partial rewards", async () =>
+await Test("a batch claim pays the finished task and skips the unfinished one", async () =>
 {
     Account(9306).AddTrigger(Trigger.GachaCharacter, 20);
-    await IgnoreRejected(() => Claim(9306, 20001, 20002));
-    Check(Points(9306) == 0 && Account(9306).WeeklyResetableData.CompletedWeeklyMissions.Count == 0 && Count(9306, Trigger.PointRewardWeekly) == 0,
-        "the invalid batch partially awarded points");
+    await Claim(9306, 20001, 20002);
+    Reload();
+    Check(Points(9306) == 20 && Account(9306).WeeklyResetableData.CompletedWeeklyMissions.SequenceEqual(new[] { 20001 }) && Count(9306, Trigger.PointRewardWeekly) == 20,
+        "the batch did not pay exactly the finished task");
+    await Claim(9306, 20002, 20011, 20012);
+    Check(Points(9306) == 20 && Account(9306).WeeklyResetableData.CompletedWeeklyMissions.Order().SequenceEqual(new[] { 20001, 20011 }),
+        "an unfinished task or an unreached chest was paid in a later batch");
+});
+await Test("the week starts when the game's Tuesday begins (Monday 20:00 UTC)", () =>
+{
+    Check(WeeklyReset.Start(new DateTime(2026, 11, 18, 16, 17, 0, DateTimeKind.Utc), 20) == new DateTime(2026, 11, 16, 20, 0, 0) &&
+        WeeklyReset.Start(new DateTime(2026, 11, 16, 20, 0, 0, DateTimeKind.Utc), 20) == new DateTime(2026, 11, 16, 20, 0, 0) &&
+        WeeklyReset.Start(new DateTime(2026, 11, 16, 19, 59, 59, DateTimeKind.Utc), 20) == new DateTime(2026, 11, 9, 20, 0, 0) &&
+        WeeklyReset.Start(new DateTime(2026, 11, 23, 19, 0, 0, DateTimeKind.Utc), 20) == new DateTime(2026, 11, 16, 20, 0, 0),
+        "the weekly boundary is not Tuesday 04:00 UTC+8");
+    var start = WeeklyReset.Start(DateTime.UtcNow);
+    var before = Account(9315);
+    before.LastWeeklyReset = start.AddMinutes(-1);
+    before.WeeklyResetableData.CompletedWeeklyMissions.Add(20001);
+    before.ResetDataIfNeeded();
+    var after = Account(9316);
+    after.LastWeeklyReset = start.AddMinutes(1);
+    after.WeeklyResetableData.CompletedWeeklyMissions.Add(20001);
+    after.ResetDataIfNeeded();
+    Check(before.WeeklyResetableData.CompletedWeeklyMissions.Count == 0 && after.WeeklyResetableData.CompletedWeeklyMissions.Count == 1,
+        "weekly claims were not reset exactly at the client's weekly boundary");
+    return Task.CompletedTask;
+});
+await Test("progress made early in the game's Tuesday counts; progress before it does not", async () =>
+{
+    var start = WeeklyReset.Start(DateTime.UtcNow);
+    var inside = start.AddTicks(Math.Min(TimeSpan.FromMinutes(30).Ticks, (DateTime.UtcNow - start).Ticks / 2));
+    using (var db = GameContext.CreateNew())
+    {
+        db.Triggers.Add(new TriggerModelNew { UserId = 9308, Type = Trigger.CharacterCounsel, Value = 10, CreatedAt = inside.AddHours(9).Ticks });
+        db.Triggers.Add(new TriggerModelNew { UserId = 9309, Type = Trigger.CharacterCounsel, Value = 10, CreatedAt = start.AddMinutes(-1).AddHours(9).Ticks });
+        db.SaveChanges();
+    }
+    await Claim(9308, 20009);
+    await Claim(9309, 20009);
+    Check(Points(9308) == 10 && Account(9308).WeeklyResetableData.CompletedWeeklyMissions.Contains(20009),
+        "counsels made right after the weekly boundary were not counted");
+    Check(Points(9309) == 0 && Account(9309).WeeklyResetableData.CompletedWeeklyMissions.Count == 0,
+        "counsels from the previous week completed this week's task");
 });
 await Test("a failed JSON weekly claim leaves no points or mission event", async () =>
 {

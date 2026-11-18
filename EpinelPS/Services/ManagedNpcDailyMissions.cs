@@ -75,8 +75,7 @@ public static partial class ManagedNpcService
         }
         else if (record.HandlerType == HandlerType.MissionWeekly)
         {
-            var day = GuildActivity.DayStart(now);
-            from = day.AddDays(-((int)day.DayOfWeek - (int)DayOfWeek.Tuesday + 7) % 7);
+            from = WeeklyReset.Start(now);
             until = from.AddDays(7);
         }
         long start = from == DateTime.MinValue ? 0 : from.AddHours(9).Ticks;
