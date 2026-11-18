@@ -23,7 +23,7 @@ internal static class ArenaBadgeProbe
         public string SpecialReward { get; set; } = "default";
         // default | omit | alltime
         public string Schedule { get; set; } = "default";
-        // default | omit | seasonclosed | success
+        // default | omit | seasonclosed | success | nextseason (season closed, next season starts in 7 days)
         public string Champion { get; set; } = "default";
         // default | off (lift the champion arena ban so the card can be opened)
         public string ChampionBan { get; set; } = "default";
@@ -81,7 +81,7 @@ internal static class ArenaBadgeProbe
         Allow(nameof(s.SpecialReward), s.SpecialReward, "default", "zero");
         Allow(nameof(s.Schedule), s.Schedule, "default", "omit", "alltime");
         Allow(nameof(s.ChampionBan), s.ChampionBan, "default", "off");
-        Allow(nameof(s.Champion), s.Champion, "default", "omit", "seasonclosed", "success");
+        Allow(nameof(s.Champion), s.Champion, "default", "omit", "seasonclosed", "success", "nextseason");
         return s;
     }
 
@@ -131,6 +131,14 @@ internal static class ArenaBadgeProbe
         Note($"champion arena badge data: {mode}");
         if (mode == "omit") return null;
         badge.ChampionArenaContentsState = mode == "success" ? ChampionArenaContentsState.Success : ChampionArenaContentsState.SeasonClosed;
+        if (mode == "nextseason")
+        {
+            // An empty next schedule reads as "already started" and the client reloads it in a tight loop.
+            // Keep the start stable for the whole day so repeated requests agree.
+            var start = DateTime.SpecifyKind(DateTime.UtcNow.Date.AddDays(7), DateTimeKind.Utc);
+            badge.NextSchedule = new NetChampionArenaSchedule { ScheduleType = ChampionArenaScheduleType.Season,
+                Schedules = { new NetSchedule { OnlyOnce = new NetOnlyOnceSchedule { StartAt = start.Ticks, EndAt = start.AddDays(14).Ticks } } } };
+        }
         return badge;
     }
 

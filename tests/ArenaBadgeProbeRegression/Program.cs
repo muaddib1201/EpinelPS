@@ -72,6 +72,10 @@ try
     Write("""{ "ChampionBan": "off", "Champion": "seasonclosed" }""");
     Check(Entry() is { IsBan: false, BanInfo: null, ChampionArenaContentsState: ChampionArenaContentsState.SeasonClosed } && Ban() == null,
         "champion ban can be lifted for the entry and the ban list");
+    Write("""{ "ChampionBan": "off", "Champion": "nextseason" }""");
+    var next = Entry().BadgeData.NextSchedule.Schedules.Single().OnlyOnce;
+    Check(next.StartAt > DateTime.UtcNow.Ticks && next.EndAt > next.StartAt && next.StartAt == Entry().BadgeData.NextSchedule.Schedules[0].OnlyOnce.StartAt &&
+        Entry().ChampionArenaContentsState == ChampionArenaContentsState.SeasonClosed, "next champion season starts at a stable future time");
     Console.WriteLine("PASS: each switch changes only its reply field and edits apply without restart");
 
     Write("""{ "EnterTime": "sometimes" }""");
