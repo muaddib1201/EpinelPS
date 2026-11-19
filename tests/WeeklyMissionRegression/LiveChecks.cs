@@ -50,10 +50,7 @@ internal static class WeeklyMissionLiveChecks
                 if (next <= seq) throw new Exception("Mission history paging did not advance.");
                 seq = next;
             }
-            var now = DateTime.UtcNow;
-            var start = now.Date.AddDays(-((int)now.DayOfWeek - (int)DayOfWeek.Tuesday + 7) % 7)
-                .AddHours((int)live["ResetHourUtcTime"]!);
-            if (start > now) start = start.AddDays(-7);
+            var start = EpinelPS.Utils.WeeklyReset.Start(DateTime.UtcNow, (int)live["ResetHourUtcTime"]!);
             var types = new[] { 13, 71, 45 };
             var expected = types.ToDictionary(t => t, _ => 0L);
             using (var sql = new SqliteConnection(new SqliteConnectionStringBuilder {

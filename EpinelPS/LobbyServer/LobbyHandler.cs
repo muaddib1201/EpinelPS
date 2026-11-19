@@ -86,7 +86,16 @@ public static class LobbyHandler
         {
             // LobbyMessage stores the current HTTP context and user ID on the instance.
             var handler = (LobbyMessage)Activator.CreateInstance(registered.GetType())!;
-            await handler.HandleAsync(ctx);
+            try
+            {
+                await handler.HandleAsync(ctx);
+            }
+            catch (Exception error)
+            {
+                // Rejected requests otherwise leave no trace in the application log.
+                Logging.WriteLine($"[LobbyHandler] {path} failed for user {ctx.Items["UserID"]}: {error.GetType().Name}: {error.Message}", LogType.Error);
+                throw;
+            }
             // Observe after the action releases its player/save locks. This also
             // covers character grants from mail, shops and events, not just gacha.
             var current = progressionUser == null ? null : JsonDb.GetUser(progressionUser.ID);

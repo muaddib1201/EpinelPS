@@ -662,31 +662,8 @@ public class User
 
     private bool ShouldResetWeekly()
     {
-        var nowLocal = RewardMutationScope.UtcNow;
-
-        // Calculate the most recent Tuesday reset time
-        DayOfWeek currentDay = nowLocal.DayOfWeek;
-        int daysSinceTuesday = ((int)currentDay - (int)DayOfWeek.Tuesday + 7) % 7;
-
-        // Get the date of the most recent Tuesday
-        DateTime thisTuesday = nowLocal.Date.AddDays(-daysSinceTuesday);
-
-        // Compute the weekly reset time
-        DateTime weeklyResetTime = new(
-            thisTuesday.Year,
-            thisTuesday.Month,
-            thisTuesday.Day,
-            JsonDb.Instance.ResetHourUtcTime, 0, 0
-        );
-
-        // If nowLocal is before the weekly reset time, subtract a week
-        if (nowLocal < weeklyResetTime)
-        {
-            weeklyResetTime = weeklyResetTime.AddDays(-7);
-        }
-
-        // If user's last reset was before the last scheduled 2 PM, they need reset
-        return LastWeeklyReset < weeklyResetTime;
+        // Same boundary as the client's weekly missions (start of the game's Tuesday).
+        return LastWeeklyReset < WeeklyReset.Start(RewardMutationScope.UtcNow);
     }
 
     /*public void ResetDataIfNeeded()
