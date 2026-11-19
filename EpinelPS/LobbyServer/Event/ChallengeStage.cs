@@ -26,7 +26,7 @@ internal sealed class ChallengeStage
         packetKey = nonce == null ? null : Convert.ToHexString(nonce);
         if (!Data.eventManagers.TryGetValue(eventId, out var manager) ||
             manager.EventSystemType != EventSystemType.ChallengeModeEvent ||
-            !EventHelper.GetLobbyPrivateBannerData(user).Any(b => b.EventId == manager.ParentsEventId))
+            !EventHelper.GetLobbyPrivateBannerData(user, now).Any(b => b.EventId == manager.ParentsEventId))
             throw Reject("Challenge event is unavailable.");
 
         var story = Data.EventStoryTable.Values.FirstOrDefault(x => x.EventId == eventId);

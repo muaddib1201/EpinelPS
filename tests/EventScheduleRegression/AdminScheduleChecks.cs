@@ -65,6 +65,16 @@ internal static class AdminScheduleChecks
         string csrf = WebUtility.HtmlDecode(Regex.Match(html, "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"").Groups[1].Value);
         if (csrf.Length == 0) throw new InvalidOperationException("Admin page did not render an antiforgery token");
         int passed = 0, failed = 0;
+        await Test("the rendered editor loads its click handler and Chinese schedule strings over HTTP", async () =>
+        {
+            var scriptUrl = Regex.Match(html, "src=\"([^\"]*/event-schedules\\.js[^\"]*)\"").Groups[1].Value;
+            Check(scriptUrl.Length > 0, "event page did not reference the editor");
+            string script = await http.GetStringAsync(WebUtility.HtmlDecode(scriptUrl));
+            Check(script.Contains("dialog.showModal()"), "editor script missing from the served assets");
+            var zh = JObject.Parse(await http.GetStringAsync("/admin/assets/i18n/zh.json"));
+            foreach (Match key in Regex.Matches(html, "data-i18n=\"(events\\.schedule\\.[^\"]+)\""))
+                Check(!string.IsNullOrWhiteSpace((string?)zh.SelectToken(key.Groups[1].Value)), "missing translation " + key.Groups[1].Value);
+        });
         await Test("admin presets save fixed 14, 20, 21 and custom-day countdowns", async () =>
         {
             foreach (var (days, expected) in new[] { (14, "2026-11-30T06:00:00Z"), (20, "2026-12-06T06:00:00Z"), (21, "2026-12-07T06:00:00Z"), (5, "2026-11-21T06:00:00Z") })
@@ -136,6 +146,30 @@ internal static class AdminScheduleChecks
             var saved = JObject.Parse(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "db.json")));
             Check(JToken.DeepEquals(claims, saved["Users"]), "persisted claims/progress changed");
         });
+        await Test("expiry persists at the deadline, rejects stale forms and permits explicit reactivation after renewal", async () =>
+        {
+            DateTime initial = clock.GetUtcNow().UtcDateTime;
+            CheckEnd(await Save("duration", 1), "2026-11-17T06:00:00Z");
+            using var activate = await Post("/admin/Events", new() { new("activeBannerIds", "10124"), new("activeBannerIds", "999000") });
+            clock.Set(initial.AddDays(1).AddTicks(-1));
+            await http.GetStringAsync("/admin/Events");
+            Check(State().ActiveEventBannerIds.Contains(10124), "selection cleared early");
+            clock.Set(initial.AddDays(1));
+            string expiredPage = await http.GetStringAsync("/admin/Events");
+            var input = Regex.Match(expiredPage, "<input[^>]*name=\"activeBannerIds\"[^>]*value=\"10124\"[^>]*>").Value;
+            Check(input.Contains("disabled") && !input.Contains("checked"), "expired checkbox was active");
+            jsonDb.GetMethod("Reload")!.Invoke(null, null);
+            Check(State().ActiveEventBannerIds.SequenceEqual(new[] { 999000 }), "reload lost expiry or removed an ongoing event");
+            using var stale = await Post("/admin/Events", new() { new("activeBannerIds", "10124"), new("activeBannerIds", "999000") });
+            Check(stale.IsSuccessStatusCode && State().ActiveEventBannerIds.SequenceEqual(new[] { 999000 }), "stale form revived an event");
+            State().ActiveEventBannerIds = [10124, 999000]; // Renewal happens before the next background sweep.
+            await Save("extend", 2);
+            Check(State().ActiveEventBannerIds.SequenceEqual(new[] { 999000 }), "renewal reactivated the old selection");
+            using var reactivate = await Post("/admin/Events", new() { new("activeBannerIds", "10124"), new("activeBannerIds", "999000") });
+            Check(reactivate.IsSuccessStatusCode && State().ActiveEventBannerIds.Contains(10124), "renewed event could not be selected");
+            Check(JToken.DeepEquals(claims, JArray.FromObject(State().Users)), "expiry changed player progress");
+            clock.Set(initial);
+        });
         await Test("failed persistence rolls back activation and deadline changes on all write routes", async () =>
         {
             data.LobbyPrivateBannerTable[999200] = new() { Id = 999200, EventId = 999201 };
@@ -199,7 +233,7 @@ internal static class AdminScheduleChecks
         }
     }
     private static void Check(bool value, string reason) { if (!value) throw new InvalidOperationException(reason); }
-    private sealed class ScheduleClock(DateTime initial) : TimeProvider
+    internal sealed class ScheduleClock(DateTime initial) : TimeProvider
     {
         private long ticks = initial.Ticks;
         public override DateTimeOffset GetUtcNow() => new(Interlocked.Read(ref ticks), TimeSpan.Zero);

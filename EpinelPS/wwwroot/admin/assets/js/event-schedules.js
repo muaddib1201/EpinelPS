@@ -10,7 +10,7 @@
     const close = document.getElementById('scheduleClose');
     const cells = Array.from(document.querySelectorAll('.schedule-cell'));
     let currentCell = null;
-    let clockOffset = 0;
+    let clockOffset = Date.parse(document.getElementById('eventForm').dataset.serverUtc) - Date.now();
     const t = (key, args) => i18n.t('events.schedule.' + key, args);
     const now = () => Date.now() + clockOffset;
     // Explicit UTC+8 arithmetic: browser/server local timezones never interpret this input.
@@ -18,13 +18,22 @@
     const endLabel = value => value ? beijing(value).replace('T', ' ') : t('unset');
 
     function refreshCountdowns() {
+        const serverNow = now();
         cells.forEach(cell => {
             const value = cell.dataset.endUtc;
+            const remaining = Date.parse(value) - serverNow;
+            const expired = remaining <= 0;
+            const checkbox = cell.closest('.event-row').querySelector('.event-checkbox');
+            checkbox.disabled = expired;
+            if (expired && checkbox.checked) {
+                checkbox.checked = false;
+                checkbox.dispatchEvent(new Event('change'));
+            }
             cell.querySelector('.schedule-end').textContent = endLabel(value);
             let text = t('unsetHint');
             if (value) {
-                let seconds = Math.max(0, Math.floor((Date.parse(value) - now()) / 1000));
-                if (seconds === 0) text = t('expired');
+                let seconds = Math.max(0, Math.ceil(remaining / 1000));
+                if (expired) text = t('expired');
                 else {
                     const remainingDays = Math.floor(seconds / 86400);
                     seconds %= 86400;
@@ -86,6 +95,7 @@
                 throw new Error(message);
             }
             clockOffset = Date.parse(payload.serverUtc) - Date.now();
+            refreshCountdowns();
             cells.filter(cell => Number(cell.dataset.eventId) === payload.eventId).forEach(cell => { cell.dataset.endUtc = payload.endUtc; });
             refreshCountdowns();
             date.value = beijing(payload.endUtc);

@@ -9,7 +9,14 @@ namespace EpinelPS.Controllers.AdminPanel;
 
 public partial class AdminController
 {
-    private void SaveEventActivation(List<int> ids)
+    private IActionResult EventSelectionView()
+    {
+        var now = ScheduleNowUtc;
+        ViewData["ScheduleNowUtc"] = now;
+        return View("Events", EventScheduleService.GetActiveBannerIds(now));
+    }
+
+    private void SaveEventActivation(List<int> ids, bool keepSelectionIfExpired = false)
     {
         lock (JsonDb.SaveLock)
         {
@@ -18,8 +25,12 @@ public partial class AdminController
             var previousEnd = state.EventEndUtc;
             try
             {
+                var now = ScheduleNowUtc;
+                ids = EventScheduleService.WithoutExpiredBanners(state, ids, now);
+                if (keepSelectionIfExpired && ids.Count == 0)
+                    ids = EventScheduleService.WithoutExpiredBanners(state, previousActive, now);
                 foreach (int id in ids)
-                    EventScheduleService.EnsureDefaultEndUtc(state, GameData.Instance.LobbyPrivateBannerTable[id].EventId, ScheduleNowUtc);
+                    EventScheduleService.EnsureDefaultEndUtc(state, GameData.Instance.LobbyPrivateBannerTable[id].EventId, now);
                 state.ActiveEventBannerIds = ids;
                 JsonDb.Save();
             }
@@ -71,9 +82,20 @@ public partial class AdminController
             }
 
             var original = state.EventEndUtc;
-            EventScheduleService.SetEndUtc(state, banner.EventId, end);
-            try { JsonDb.Save(); }
-            catch { state.EventEndUtc = original; throw; }
+            var previousActive = state.ActiveEventBannerIds;
+            try
+            {
+                // Remove expired selections before renewal can make their old deadline disappear.
+                state.ActiveEventBannerIds = EventScheduleService.WithoutExpiredBanners(state, previousActive, now);
+                EventScheduleService.SetEndUtc(state, banner.EventId, end);
+                JsonDb.Save();
+            }
+            catch
+            {
+                state.ActiveEventBannerIds = previousActive;
+                state.EventEndUtc = original;
+                throw;
+            }
             return Json(new { eventId = banner.EventId, endUtc = end, serverUtc = now });
         }
     }

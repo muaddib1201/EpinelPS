@@ -104,6 +104,7 @@ internal class Program
             builder.Services.AddScoped<IUserService, UserService>();
             builder.Services.AddSingleton<MessengerAdminService>();
             builder.Services.AddHostedService<ManagedNpcWorker>();
+            builder.Services.AddHostedService<EventExpiryWorker>();
             builder.Services.AddSingleton(soloRaidCatalog);
             builder.Services.AddHostedService<SoloRaidSeasonSyncWorker>();
             builder.Services.AddDbContext<GameContext>(options =>

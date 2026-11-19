@@ -8,10 +8,11 @@
     var allBanners = GameData.Instance.LobbyPrivateBannerTable.Values.Reverse().ToList();
     var bannerNames = allBanners.ToDictionary(b => b.Id, EventBannerNameResolver.Resolve);
     var activeIds = Model;
+    var now = (DateTime)ViewData["ScheduleNowUtc"]!;
 }
 
 <div class="adminui-dashboard">
-    <form method="post" action="/admin/Events" id="eventForm">
+    <form method="post" action="/admin/Events" id="eventForm" data-server-utc="@now.ToString("O", CultureInfo.InvariantCulture)">
         @Html.AntiForgeryToken()
         @* Top bar *@
         <div class="d-flex justify-content-between align-items-center mb-4">
@@ -111,6 +112,7 @@
                                         <input type="checkbox" name="activeBannerIds" value="@item.Id"
                                                class="form-check-input event-checkbox"
                                                @(isChecked ? "checked" : "")
+                                               @(end <= now ? "disabled" : "")
                                                style="transform: scale(1.2); cursor: pointer;" />
                                     </td>
                                     <td class="event-name">@names.English</td>
@@ -347,7 +349,7 @@
             td.addEventListener('click', function () {
                 var row = this.closest('.event-row');
                 var cb = row.querySelector('.event-checkbox');
-                if (cb) {
+                if (cb && !cb.disabled) {
                     cb.checked = !cb.checked;
                     cb.dispatchEvent(new Event('change'));
                 }

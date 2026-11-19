@@ -1,4 +1,5 @@
 using EpinelPS.Data;
+using EpinelPS.Database;
 using EpinelPS.Models;
 
 namespace EpinelPS.Services;
@@ -72,6 +73,28 @@ public static class EventScheduleService
     }
 
     public static DateTime? GetConfiguredEndUtc(CoreInfo state, int rootEventId) => ConfiguredEnd(state.EventEndUtc, rootEventId);
+
+    internal static List<int> WithoutExpiredBanners(CoreInfo state, List<int> ids, DateTime nowUtc)
+    {
+        bool Expired(int id) => GameData.Instance.LobbyPrivateBannerTable.TryGetValue(id, out var banner)
+            && GetConfiguredEndUtc(state, banner.EventId) <= nowUtc;
+        return ids.Exists(Expired) ? ids.FindAll(id => !Expired(id)) : ids;
+    }
+
+    internal static List<int> GetActiveBannerIds(DateTime nowUtc)
+    {
+        lock (JsonDb.SaveLock)
+        {
+            var state = JsonDb.Instance;
+            var previous = state.ActiveEventBannerIds;
+            var active = WithoutExpiredBanners(state, previous, nowUtc);
+            if (active == previous) return active;
+            state.ActiveEventBannerIds = active;
+            try { JsonDb.Save(); }
+            catch { state.ActiveEventBannerIds = previous; throw; }
+            return active;
+        }
+    }
 
     private static DateTime? ConfiguredEnd(IReadOnlyDictionary<int, DateTime> deadlines, int rootEventId)
     {

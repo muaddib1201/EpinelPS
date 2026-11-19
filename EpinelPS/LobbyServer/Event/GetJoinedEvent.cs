@@ -11,7 +11,7 @@ public class GetJoinedEvent : LobbyMessage
         User user = GetUser();
 
         // add gacha events from active lobby banners
-        EventHelper.AddJoinedEvents(user, ref response);
+        EventHelper.AddJoinedEvents(user, ref response, RequestUtcNow);
 
         await WriteDataAsync(response);
     }

@@ -11,15 +11,9 @@ public class EventHelper
 {
     private static readonly ILog log = LogManager.GetLogger(typeof(EventHelper));
 
-    public static void AddEvents(User user, ref ResGetEventList response)
+    public static void AddEvents(User user, ref ResGetEventList response, DateTime nowUtc)
     {
-        List<LobbyPrivateBannerRecord> lobbyPrivateBanners = GetLobbyPrivateBannerData(user);
-        if (lobbyPrivateBanners.Count == 0)
-        {
-            // No active lobby private banners
-            Logging.WriteLine("No active lobby private banners found.", LogType.Warning);
-            return;
-        }
+        List<LobbyPrivateBannerRecord> lobbyPrivateBanners = GetLobbyPrivateBannerData(user, nowUtc);
 
         var eventManagers = GameData.Instance.eventManagers.Values.ToList();
         var schedule = EventScheduleService.CreateSnapshot(JsonDb.Instance);
@@ -28,24 +22,18 @@ public class EventHelper
             // Get all events (including child events) associated with this banner
             List<NetEventData> events = GetEventData(banner, eventManagers, schedule);
             log.Debug($"Banner EventId: {banner.EventId} has {events.Count} associated events: {JsonConvert.SerializeObject(events)}");
-            AddEvents(ref response, events, schedule);
+            AddEvents(ref response, events, schedule, nowUtc);
 
         }
         // add daily mission events
-        List<NetEventData> dailyMissionEvents = GetDailyMissionEventData(user, eventManagers, schedule);
+        List<NetEventData> dailyMissionEvents = GetDailyMissionEventData(user, eventManagers, schedule, nowUtc);
         log.Debug($"Found {dailyMissionEvents.Count} associated daily mission events: {JsonConvert.SerializeObject(dailyMissionEvents)}");
-        AddEvents(ref response, dailyMissionEvents, schedule);
+        AddEvents(ref response, dailyMissionEvents, schedule, nowUtc);
     }
 
-    public static void AddJoinedEvents(User user, ref ResGetJoinedEvent response)
+    public static void AddJoinedEvents(User user, ref ResGetJoinedEvent response, DateTime nowUtc)
     {
-        List<LobbyPrivateBannerRecord> lobbyPrivateBanners = GetLobbyPrivateBannerData(user);
-        if (lobbyPrivateBanners.Count == 0)
-        {
-            // No active lobby private banners
-            Logging.WriteLine("No active lobby private banners found.", LogType.Warning);
-            return;
-        }
+        List<LobbyPrivateBannerRecord> lobbyPrivateBanners = GetLobbyPrivateBannerData(user, nowUtc);
 
         var eventManagers = GameData.Instance.eventManagers.Values.ToList();
         var schedule = EventScheduleService.CreateSnapshot(JsonDb.Instance);
@@ -55,13 +43,13 @@ public class EventHelper
             // Get all events (including child events) associated with this banner
             var events = GetEventData(banner, eventManagers, schedule);
             log.Debug($"Banner EventId: {banner.EventId} has {events.Count} associated events: {JsonConvert.SerializeObject(events)}");
-            AddJoinedEvents(ref response, events, schedule);
+            AddJoinedEvents(ref response, events, schedule, nowUtc);
 
         }
         // add daily mission events
-        List<NetEventData> dailyMissionEvents = GetDailyMissionEventData(user, eventManagers, schedule);
+        List<NetEventData> dailyMissionEvents = GetDailyMissionEventData(user, eventManagers, schedule, nowUtc);
         log.Debug($"Found {dailyMissionEvents.Count} associated daily mission events: {JsonConvert.SerializeObject(dailyMissionEvents)}");
-        AddJoinedEvents(ref response, dailyMissionEvents, schedule);
+        AddJoinedEvents(ref response, dailyMissionEvents, schedule, nowUtc);
     }
 
     private static List<NetEventData> GetEventData(LobbyPrivateBannerRecord banner, List<EventManagerRecord> eventManagers, EventScheduleService.Snapshot schedule)
@@ -81,27 +69,18 @@ public class EventHelper
     /// Get active lobby private banner data
     /// </summary>
     /// <returns>List of active lobby private banners</returns>
-    public static List<LobbyPrivateBannerRecord> GetLobbyPrivateBannerData(User user)
+    public static List<LobbyPrivateBannerRecord> GetLobbyPrivateBannerData(User user, DateTime? asOfUtc = null)
     {
-        var lobbyPrivateBannerIds = user.LobbyPrivateBannerIds;
+        var now = asOfUtc ?? DateTime.UtcNow;
+        var ids = user.LobbyPrivateBannerIds is { Count: > 0 } personal
+            ? personal : EventScheduleService.GetActiveBannerIds(now);
         var lobbyPrivateBannerRecords = GameData.Instance.LobbyPrivateBannerTable.Values;
         List<LobbyPrivateBannerRecord> lobbyPrivateBanners = [];
 
-        // Priority 1: user-specific banner IDs
-        if (lobbyPrivateBannerIds is not null && lobbyPrivateBannerIds.Count > 0)
-        {
-            lobbyPrivateBanners = [.. lobbyPrivateBannerRecords.Where(b => lobbyPrivateBannerIds.Contains(b.Id))];
-        }
-        // Priority 2: server-wide active event banners (configured via admin panel)
-        else if (JsonDb.Instance.ActiveEventBannerIds.Count > 0)
-        {
-            lobbyPrivateBanners = [.. lobbyPrivateBannerRecords.Where(b => JsonDb.Instance.ActiveEventBannerIds.Contains(b.Id))];
-        }
-        // Priority 3: fallback to the latest event
-        if (lobbyPrivateBanners.Count == 0)
-        {
-            lobbyPrivateBanners.Add(lobbyPrivateBannerRecords.Last());
-        }
+        lobbyPrivateBanners.AddRange(lobbyPrivateBannerRecords.Where(b => ids.Contains(b.Id)));
+        if (lobbyPrivateBanners.Count == 0 && lobbyPrivateBannerRecords.LastOrDefault() is { } latest)
+            lobbyPrivateBanners.Add(latest);
+        lobbyPrivateBanners.RemoveAll(b => EventScheduleService.GetConfiguredEndUtc(JsonDb.Instance, b.EventId) <= now);
         Logging.WriteLine($"Found {lobbyPrivateBanners.Count} active lobby private banners.", LogType.Debug);
         log.Debug($"Active lobby private banners: {JsonConvert.SerializeObject(lobbyPrivateBanners)}");
         return lobbyPrivateBanners;
@@ -113,7 +92,7 @@ public class EventHelper
     private static DateTime GetEventEnd(int eventId, DateTime nowUtc) =>
         EventScheduleService.GetEndUtc(JsonDb.Instance, eventId, nowUtc);
 
-    private static void AddEvents(ref ResGetEventList response, List<NetEventData> eventDatas, EventScheduleService.Snapshot schedule)
+    private static void AddEvents(ref ResGetEventList response, List<NetEventData> eventDatas, EventScheduleService.Snapshot schedule, DateTime nowUtc)
     {
         foreach (var eventData in eventDatas)
         {
@@ -121,9 +100,9 @@ public class EventHelper
             // Avoid adding duplicate events
             if (!response.EventList.Any(e => e.Id == eventData.Id))
             {
-                long endDate = schedule.GetEndUtc(eventData.Id, DateTime.UtcNow).Ticks;
-                if (eventData.EventStartDate == 0) eventData.EventStartDate = GetEventStart(eventData.Id, DateTime.UtcNow).Ticks;
-                if (eventData.EventVisibleDate == 0) eventData.EventVisibleDate = DateTime.UtcNow.AddDays(-21).Ticks;
+                long endDate = schedule.GetEndUtc(eventData.Id, nowUtc).Ticks;
+                if (eventData.EventStartDate == 0) eventData.EventStartDate = GetEventStart(eventData.Id, nowUtc).Ticks;
+                if (eventData.EventVisibleDate == 0) eventData.EventVisibleDate = nowUtc.AddDays(-21).Ticks;
                 if (eventData.EventDisableDate == 0) eventData.EventDisableDate = endDate;
                 if (eventData.EventEndDate == 0) eventData.EventEndDate = endDate;
 
@@ -137,7 +116,7 @@ public class EventHelper
         }
     }
 
-    private static void AddJoinedEvents(ref ResGetJoinedEvent response, List<NetEventData> eventDatas, EventScheduleService.Snapshot schedule)
+    private static void AddJoinedEvents(ref ResGetJoinedEvent response, List<NetEventData> eventDatas, EventScheduleService.Snapshot schedule, DateTime nowUtc)
     {
         foreach (var eventData in eventDatas)
         {
@@ -145,9 +124,9 @@ public class EventHelper
             // Avoid adding duplicate events
             if (!response.EventWithJoinData.Any(e => e.EventData.Id == eventData.Id))
             {
-                long endDate = schedule.GetEndUtc(eventData.Id, DateTime.UtcNow).Ticks;
-                if (eventData.EventStartDate == 0) eventData.EventStartDate = GetEventStart(eventData.Id, DateTime.UtcNow).Ticks;
-                if (eventData.EventVisibleDate == 0) eventData.EventVisibleDate = DateTime.UtcNow.AddDays(-21).Ticks;
+                long endDate = schedule.GetEndUtc(eventData.Id, nowUtc).Ticks;
+                if (eventData.EventStartDate == 0) eventData.EventStartDate = GetEventStart(eventData.Id, nowUtc).Ticks;
+                if (eventData.EventVisibleDate == 0) eventData.EventVisibleDate = nowUtc.AddDays(-21).Ticks;
                 if (eventData.EventDisableDate == 0) eventData.EventDisableDate = endDate;
                 if (eventData.EventEndDate == 0) eventData.EventEndDate = endDate;
                 response.EventWithJoinData.Add(new NetEventWithJoinData()
@@ -164,7 +143,7 @@ public class EventHelper
         }
     }
 
-    private static List<NetEventData> GetDailyMissionEventData(User user, List<EventManagerRecord> eventManagers, EventScheduleService.Snapshot schedule)
+    private static List<NetEventData> GetDailyMissionEventData(User user, List<EventManagerRecord> eventManagers, EventScheduleService.Snapshot schedule, DateTime nowUtc)
     {
         List<NetEventData> events = [];
 
@@ -185,7 +164,8 @@ public class EventHelper
         // Add each daily event to the list
         foreach (var dailyEvent in dailyEvents)
         {
-            long endDate = schedule.GetEndUtc(dailyEvent.Id, DateTime.UtcNow).Ticks;
+            long endDate = schedule.GetEndUtc(dailyEvent.Id, nowUtc).Ticks;
+            if (endDate <= nowUtc.Ticks) continue;
             events.Add(new NetEventData()
             {
                 Id = dailyEvent.Id,

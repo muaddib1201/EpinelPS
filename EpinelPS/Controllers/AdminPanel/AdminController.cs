@@ -52,7 +52,7 @@ public partial class AdminController(ILogger<AdminController> logger, TimeProvid
     {
         if (!CheckAuth(HttpContext)) return Redirect("/admin/");
 
-        return View(JsonDb.Instance.ActiveEventBannerIds);
+        return EventSelectionView();
     }
 
     [Route("Events"), ActionName("Events")]
@@ -67,7 +67,7 @@ public partial class AdminController(ILogger<AdminController> logger, TimeProvid
         SaveEventActivation(ids);
 
         TempData["MessageKey"] = "events.config.saved";
-        return View(JsonDb.Instance.ActiveEventBannerIds);
+        return EventSelectionView();
     }
 
     [Route("Events/ActivateLatest")]
@@ -80,7 +80,7 @@ public partial class AdminController(ILogger<AdminController> logger, TimeProvid
         var latest = GameData.Instance.LobbyPrivateBannerTable.Values.LastOrDefault();
         if (latest != null)
         {
-            SaveEventActivation([latest.Id]);
+            SaveEventActivation([latest.Id], keepSelectionIfExpired: true);
         }
 
         return Redirect("/admin/Events");

@@ -12,7 +12,7 @@ public class ListEvents : LobbyMessage
         User user = GetUser();
 
         // add events from active lobby banners
-        EventHelper.AddEvents(user, ref response);
+        EventHelper.AddEvents(user, ref response, RequestUtcNow);
 
         await WriteDataAsync(response);
     }

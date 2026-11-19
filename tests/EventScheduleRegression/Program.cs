@@ -45,7 +45,8 @@ db.Database.EnsureDeleted();
 db.Database.EnsureCreated();
 db.SdkUsers.Add(new SdkUser { ID = user.ID, Email = "synthetic", PlayerName = "synthetic", PasswordHash = "unused", RegisterTime = 1788134400 });
 db.SaveChanges();
-using var services = new ServiceCollection().AddSingleton(db).BuildServiceProvider();
+var clock = new AdminScheduleChecks.ScheduleClock(new DateTime(expectedEnd - 1, DateTimeKind.Utc));
+using var services = new ServiceCollection().AddSingleton(db).AddSingleton<TimeProvider>(clock).BuildServiceProvider();
 int passed = 0, failed = 0;
 var banner = data.LobbyPrivateBannerTable[bannerId];
 Check(banner.EventId == rootEvent && banner.PrivateBannerResource == "btn_event_enter_marian", "MARIA-n fixture changed");
@@ -102,12 +103,11 @@ await Test("unrelated private events retain their original duration", async () =
     data.LobbyPrivateBannerTable[privateBanner] = new() { Id = privateBanner, EventId = privateEvent };
     data.eventManagers[privateEvent] = new() { Id = privateEvent, EventSystemType = EventSystemType.ShopEvent, EventBannerResourceTable = "" };
     user.LobbyPrivateBannerIds.Add(privateBanner);
-    var before = DateTime.UtcNow.AddDays(30).Ticks;
+    var expected = clock.GetUtcNow().AddDays(30).Ticks;
     var list = await List();
     var joined = await Joined();
-    var after = DateTime.UtcNow.AddDays(30).Ticks;
     foreach (var entry in new[] { list.EventList.Single(e => e.Id == privateEvent), joined.EventWithJoinData.Single(e => e.EventData.Id == privateEvent).EventData })
-        Check(entry.EventEndDate >= before && entry.EventEndDate <= after && entry.EventDisableDate >= before && entry.EventDisableDate <= after,
+        Check(entry.EventEndDate == expected && entry.EventDisableDate == expected,
             "MARIA-n deadline leaked into an unrelated private event");
     user.LobbyPrivateBannerIds.Remove(privateBanner);
 });
@@ -216,6 +216,27 @@ await Test("a configured countdown stays fixed across its deadline and a configu
             Check(ResolveEnd(rootEvent, now) == new DateTime(2030, 1, 2, 19, 59, 59, DateTimeKind.Utc), "refresh or expiry silently renewed the saved countdown");
         return Task.CompletedTask;
     });
+});
+
+await Test("expired personal and global banners stay out of game lists, including the latest fallback", async () =>
+{
+    clock.Set(new DateTime(expectedEnd, DateTimeKind.Utc));
+    foreach (bool personal in new[] { true, false })
+    {
+        if (!personal) user.LobbyPrivateBannerIds.Clear();
+        var list = await List();
+        var joined = await Joined();
+        Check(!list.EventList.Any(e => related.Contains(e.Id)) && !joined.EventWithJoinData.Any(e => related.Contains(e.EventData.Id)),
+            "expired main event or child appeared at the deadline");
+    }
+    var latest = data.LobbyPrivateBannerTable.Values.Last();
+    await WithDeadlines(new() { [latest.EventId] = clock.GetUtcNow().UtcDateTime }, async () =>
+    {
+        var list = await List();
+        Check(!list.EventList.Any(e => e.Id == latest.EventId), "latest fallback resurrected an expired banner");
+        Check(list.EventList.Count > 0, "expiry removed independent daily events");
+    });
+    Check(state.ActiveEventBannerIds.Count == 0, "expired global selection was not cleared");
 });
 
 var adminChecks = await AdminScheduleChecks.Run(data, user.ID, db, workspace);

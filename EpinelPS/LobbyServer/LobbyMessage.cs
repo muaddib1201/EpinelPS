@@ -12,6 +12,7 @@ namespace EpinelPS.LobbyServer;
 public abstract class LobbyMessage
 {
     protected HttpContext? ctx;
+    protected DateTime RequestUtcNow => (ctx!.RequestServices.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow().UtcDateTime;
     protected ulong UserId;
     public GameContext GameContext = null!;
 
