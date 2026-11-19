@@ -51,6 +51,32 @@ int passed = 0, failed = 0;
 var banner = data.LobbyPrivateBannerTable[bannerId];
 Check(banner.EventId == rootEvent && banner.PrivateBannerResource == "btn_event_enter_marian", "MARIA-n fixture changed");
 
+await Test("empty lobby skips the missing Sky sprite table while retaining both Snow pickups", async () =>
+{
+    var personal = user.LobbyPrivateBannerIds;
+    var global = state.ActiveEventBannerIds;
+    var periods = state.MiracleSnowRecruitment;
+    var now = clock.GetUtcNow();
+    try
+    {
+        user.LobbyPrivateBannerIds = [];
+        state.ActiveEventBannerIds = [];
+        state.MiracleSnowRecruitment = new() { [101] = new(now, now.AddDays(21)), [102] = new(now, now.AddDays(21)) };
+        Check(data.LobbyPrivateBannerTable.Values.Last().EventId == 40126, "expected current Sky fallback fixture");
+        var list = await List();
+        var joined = await Joined();
+        foreach (var records in new[] { list.EventList.AsEnumerable(), joined.EventWithJoinData.Select(x => x.EventData) })
+        {
+            Check(!records.Any(x => x.Id is 40126 or 60126), "missing lobby art was still advertised");
+            foreach (int id in new[] { 70005, 70006 })
+                Check(records.Single(x => x.Id == id).EventEndDate == now.AddDays(21).UtcTicks, "pickup schedule changed");
+        }
+        state.ActiveEventBannerIds = [10126];
+        Check(EventHelper.GetLobbyPrivateBannerData(user, now.UtcDateTime).Single().EventId == 40126, "explicit selection was suppressed");
+    }
+    finally { user.LobbyPrivateBannerIds = personal; state.ActiveEventBannerIds = global; state.MiracleSnowRecruitment = periods; }
+});
+
 await Test("event list sends the real UTC deadline for MARIA-n and all eight activity records", async () =>
 {
     var packet = await List();

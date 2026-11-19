@@ -82,7 +82,10 @@ public class EventHelper
         List<LobbyPrivateBannerRecord> lobbyPrivateBanners = [];
 
         lobbyPrivateBanners.AddRange(lobbyPrivateBannerRecords.Where(b => ids.Contains(b.Id)));
-        if (lobbyPrivateBanners.Count == 0 && lobbyPrivateBannerRecords.LastOrDefault() is { } latest)
+        // The current client's Home view cannot load Sky on the Rock's event_261119 sprite table.
+        // Skip only the automatic fallback while that banner references the missing table.
+        if (lobbyPrivateBanners.Count == 0 && lobbyPrivateBannerRecords.LastOrDefault() is { } latest &&
+            !(latest.EventId == 40126 && GameData.Instance.eventManagers.GetValueOrDefault(latest.EventId)?.EventBannerResourceTable == "event_261119"))
             lobbyPrivateBanners.Add(latest);
         lobbyPrivateBanners.RemoveAll(b => EventScheduleService.GetConfiguredEndUtc(JsonDb.Instance, b.EventId) <= now);
         Logging.WriteLine($"Found {lobbyPrivateBanners.Count} active lobby private banners.", LogType.Debug);
