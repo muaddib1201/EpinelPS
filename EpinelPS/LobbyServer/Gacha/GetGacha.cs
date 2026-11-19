@@ -1,5 +1,6 @@
 ﻿using EpinelPS.Data;
 using EpinelPS.Database;
+using EpinelPS.Services;
 namespace EpinelPS.LobbyServer.Gacha;
 
 [GameRequest("/Gacha/Get")]
@@ -11,6 +12,8 @@ public class GetGacha : LobbyMessage
         User user = GetUser();
 
         ResGetGachaData response = new();
+        foreach (var pool in MiracleSnowRecruitment.OpenPools(RequestUtcNow))
+            response.Gacha.Add(new NetUserGachaData { GachaType = pool.PoolId, PlayCount = user.GachaBannerMaxPulls.GetValueOrDefault(pool.PoolId) });
 
         // TODO: should not return anything when not completed chatper 2
 

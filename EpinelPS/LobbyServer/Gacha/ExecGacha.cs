@@ -17,6 +17,7 @@
 using EpinelPS.Data;
 using EpinelPS.Database;
 using EpinelPS.LobbyServer.Mission;
+using EpinelPS.Services;
 using EpinelPS.Utils;
 
 namespace EpinelPS.LobbyServer.Gacha;
@@ -41,11 +42,11 @@ public class ExecGacha : LobbyMessage
         ReqExecuteGacha req = await ReadData<ReqExecuteGacha>();
         var user = GetUser();
         ResExecuteGacha response;
-        response = MissionProgressDelivery.Apply(user, () => Execute(user, req));
+        response = MissionProgressDelivery.Apply(user, () => Execute(user, req, RequestUtcNow));
         await WriteDataAsync(response);
     }
 
-    internal static ResExecuteGacha Execute(User user, ReqExecuteGacha req)
+    internal static ResExecuteGacha Execute(User user, ReqExecuteGacha req, DateTime? nowUtc = null)
     {
         if (req.Count is not (1 or 10)) throw new BadHttpRequestException("Invalid recruit quantity.", 400);
         // Count determines whether we select 1 or 10 characters
@@ -55,6 +56,15 @@ public class ExecGacha : LobbyMessage
         int bannerID = req.Tid;
         Logging.WriteLine($"Banner ID: {bannerID}");
         GachaTypeRecord gachaType = GameData.Instance.gachaTypes[bannerID];
+        if (MiracleSnowRecruitment.IsScheduledPool(bannerID))
+        {
+            if (!MiracleSnowRecruitment.IsOpen(bannerID, nowUtc ?? DateTime.UtcNow))
+                throw new BadHttpRequestException("This recruit period is closed.", 400);
+            // Both legacy tables offer advanced recruit vouchers or gems, at the regular price.
+            if (req.IsDiscount || (CurrencyType)req.CurrencyType is not
+                (CurrencyType.CharCustomizeTicket or CurrencyType.FreeCash or CurrencyType.ChargeCash))
+                throw new BadHttpRequestException("Unsupported payment for this pickup.", 400);
+        }
         Logging.WriteLine($"Banner Type: {gachaType.Type}");
 
         CurrencyType ticketType = (CurrencyType)req.CurrencyType;

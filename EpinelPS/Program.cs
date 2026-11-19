@@ -62,6 +62,7 @@ internal class Program
             }
 
             Console.WriteLine("Initializing database");
+            MiracleSnowRecruitment.Initialize(JsonDb.Instance, DateTimeOffset.UtcNow);
             JsonDb.Save();
 
             Logging.WriteLine("Register handlers");

@@ -239,6 +239,49 @@ await Test("expired personal and global banners stay out of game lists, includin
     Check(state.ActiveEventBannerIds.Count == 0, "expired global selection was not cleared");
 });
 
+await Test("Miracle Snow sends only two pickup events with fixed, independently configurable periods", async () =>
+{
+    var originalClock = clock.GetUtcNow();
+    var start = originalClock.AddDays(2);
+    var initialize = typeof(User).Assembly.GetType("EpinelPS.Services.MiracleSnowRecruitment")!
+        .GetMethod("Initialize", BindingFlags.NonPublic | BindingFlags.Static)!;
+    initialize.Invoke(null, [state, start]);
+    var reloaded = JsonConvert.DeserializeObject<CoreInfo>(JsonConvert.SerializeObject(state))!;
+    initialize.Invoke(null, [reloaded, start.AddDays(30)]);
+    Check(reloaded.MiracleSnowRecruitment!.Count == 2 && new[] {101, 102}.All(id =>
+        reloaded.MiracleSnowRecruitment[id].Start == start && reloaded.MiracleSnowRecruitment[id].End == start.AddDays(21)),
+        "restart changed the 21-day schedule");
+    try
+    {
+        foreach (var instant in new[] { start.AddTicks(-1), start, start.AddDays(21).AddTicks(-1), start.AddDays(21) })
+        {
+            clock.Set(instant.UtcDateTime);
+            var list = await List();
+            var joined = await Joined();
+            var gacha = ResGetGachaData.Parser.ParseFrom(await Send(new GetGacha(), new ReqGetGachaData()));
+            bool active = instant >= start && instant < start.AddDays(21);
+            foreach (var (poolId, eventId) in new[] { (101, 70005), (102, 70006) })
+            {
+                Check(gacha.Gacha.Count(g => g.GachaType == poolId) == (active ? 1 : 0), "incorrect recruit page availability");
+                foreach (var records in new[] { list.EventList.AsEnumerable(), joined.EventWithJoinData.Select(e => e.EventData) })
+                {
+                    var entry = records.SingleOrDefault(e => e.Id == eventId);
+                    Check((entry != null) == active, "wrong activation boundary");
+                    if (entry != null) Check(entry.EventSystemType == (int)EventSystemType.PickupGachaEvent &&
+                        entry.EventVisibleDate == start.UtcTicks && entry.EventStartDate == start.UtcTicks &&
+                        entry.EventEndDate == start.AddDays(21).UtcTicks && entry.EventDisableDate == entry.EventEndDate, "wrong pickup dates");
+                }
+            }
+            Check(!list.EventList.Any(e => e.Id == 80100 || e.Id == 70007), "a story banner or unrelated legacy pool was enabled");
+        }
+        state.MiracleSnowRecruitment!.Remove(101);
+        clock.Set(start.UtcDateTime);
+        var separate = await List();
+        Check(!separate.EventList.Any(e => e.Id == 70005) && separate.EventList.Any(e => e.Id == 70006), "pools cannot be configured separately");
+    }
+    finally { state.MiracleSnowRecruitment = null; clock.Set(originalClock.UtcDateTime); }
+});
+
 var adminChecks = await AdminScheduleChecks.Run(data, user.ID, db, workspace);
 passed += adminChecks.Passed;
 failed += adminChecks.Failed;

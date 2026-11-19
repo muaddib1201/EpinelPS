@@ -130,6 +130,28 @@ try
             var user = await NewUser(10503, 0, 0, 100000, 10000);
             await Rejected(user, () => Pull(user, 1, currency, discount: true));
         });
+    foreach (int poolId in new[] { 101, 102 })
+    {
+        await Test($"Miracle Snow {poolId} settles one and ten pulls and refuses closed periods", async () =>
+        {
+            var now = DateTimeOffset.UtcNow;
+            state.MiracleSnowRecruitment = new() { [poolId] = new(now.AddDays(-1), now.AddDays(20)) };
+            var user = await NewUser(10503, 0, 1, 3000, 0);
+            var pool = data.gachaTypes[poolId];
+            Check(pool.EventId == (poolId == 101 ? 70005 : 70006), "wrong recruitment event");
+            var featured = data.GachaListProb.Values.Single(r => r.GroupId == pool.PickupCharGroupId);
+            Check(data.CharacterTable[featured.GachaId].NameLocalkey!.EndsWith(poolId == 101 ? "203_name" : "121_name"), "wrong featured character");
+            var single = await Pull(user, 1, 5200, poolId);
+            var ten = await Pull(user, 10, 99, poolId);
+            Check(single.Gacha.Count == 1 && ten.Gacha.Count == 10 && user.GachaBannerMaxPulls[poolId] == 11, "wrong pull settlement");
+            Check(user.GetCurrencyVal(CurrencyType.CharCustomizeTicket) == 0 && user.GetCurrencyVal(CurrencyType.FreeCash) == 0 &&
+                user.GetCurrencyVal(CurrencyType.GoldMileageTicket) == 11, "wrong cost or mileage");
+            CheckSaved(user);
+            await Rejected(user, () => Pull(user, 1, 99, poolId, discount: true));
+            state.MiracleSnowRecruitment[poolId] = new(now.AddDays(-21), now);
+            await Rejected(user, () => Pull(user, 1, 5200, poolId));
+        });
+    }
     await Test("two simultaneous ten-pulls cannot spend the same ten tickets", async () =>
     {
         var user = await NewUser(10503, 10, 0, 0, 0);

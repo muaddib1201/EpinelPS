@@ -34,6 +34,9 @@ public class CoreInfo
     /// </summary>
     public List<int> ActiveEventBannerIds { get; set; } = [];
 
+    // First server start seeds both pickup periods. An empty schedule keeps both closed.
+    public Dictionary<int, EpinelPS.Services.RecruitPeriod>? MiracleSnowRecruitment { get; set; }
+
     // Main event ID -> fixed UTC deadline shared by every linked child.
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public Dictionary<int, DateTime> EventEndUtc { get; set; } = [];

@@ -17,6 +17,7 @@ public class EventHelper
 
         var eventManagers = GameData.Instance.eventManagers.Values.ToList();
         var schedule = EventScheduleService.CreateSnapshot(JsonDb.Instance);
+        response.EventList.AddRange(MiracleSnowRecruitment.OpenPools(nowUtc).Select(pool => pool.Event));
         foreach (var banner in lobbyPrivateBanners)
         {
             // Get all events (including child events) associated with this banner
@@ -37,6 +38,8 @@ public class EventHelper
 
         var eventManagers = GameData.Instance.eventManagers.Values.ToList();
         var schedule = EventScheduleService.CreateSnapshot(JsonDb.Instance);
+        response.EventWithJoinData.AddRange(MiracleSnowRecruitment.OpenPools(nowUtc)
+            .Select(pool => new NetEventWithJoinData { EventData = pool.Event }));
         foreach (var banner in lobbyPrivateBanners)
         {
 
@@ -62,6 +65,7 @@ public class EventHelper
         }
         // Resolve the full group once per request, including nested and indirect recruitment children.
         return new[] { main }.Concat(eventManagers.Where(e => e.Id != main.Id && schedule.GetRootEventId(e.Id) == main.Id))
+            .Where(e => !MiracleSnowRecruitment.IsScheduledEvent(e.Id))
             .Select(e => new NetEventData { Id = e.Id, EventSystemType = (int)e.EventSystemType }).ToList();
     }
 
