@@ -28,9 +28,27 @@ internal sealed partial class ArenaService
             .OrderBy(u => u.Arena!.SpecialRank).Select(u => new[] { u }).ToArray();
     }
 
+    // A human ladder leader has no upward target, so daily free attempts could never be spent and the client
+    // keeps the arena badge lit. Leaders instead challenge the NPCs ranked directly below; ranks never swap
+    // downward (FinishSpecial only swaps when the attacker is lower). Managed NPC leaders keep the old rule.
+    private bool SpecialLeader => user.ManagedNpc == null && Own.SpecialRank > 0 &&
+        !Participants(true).Any(u => u.ID != user.ID && u.Arena!.SpecialRank > 0 && u.Arena.SpecialRank < Own.SpecialRank);
+
+    private bool SpecialLeaderTarget(User enemy) => enemy.ManagedNpc != null && enemy.ID != user.ID &&
+        enemy.Arena!.SpecialRank > Own.SpecialRank && SpecialLeader;
+
+    private User[][] SpecialLeaderGroups()
+    {
+        var below = Participants(true).Where(u => u.ID != user.ID && u.ManagedNpc != null && u.Arena!.SpecialRank > Own.SpecialRank)
+            .Take(9).ToArray();
+        if (below.Length <= 3) return below.Select(u => new[] { u }).ToArray();
+        // Three nearest bands below the leader; the refresh cursor rotates through each band.
+        return below.Chunk((below.Length + 2) / 3).ToArray();
+    }
+
     private IEnumerable<User> SpecialRivals()
     {
-        var groups = SpecialRivalGroups();
+        var groups = SpecialLeader ? SpecialLeaderGroups() : SpecialRivalGroups();
         if (groups.Length == 0) return [];
         long cursor = Math.Max(0, Own.SpecialRefresh);
         Own.SpecialRefresh = cursor == long.MaxValue ? 0 : cursor + 1;

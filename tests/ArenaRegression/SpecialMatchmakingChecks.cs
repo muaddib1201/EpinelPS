@@ -12,9 +12,13 @@ internal static class SpecialMatchmakingChecks
     {
         bool hasHigher = ranking.RankList.Any(r => r.Rank > 0 && r.Rank < special.User.Rank);
         var ranks = rivals.List2.Select(r => r.User.Rank).ToArray();
+        // With higher ranks present every rival must be above the viewer; a leader instead faces lower ranks.
+        bool directionOk = hasHigher
+            ? rivals.List2.Count > 0 && rivals.List2.All(r => r.User.Rank < special.User.Rank)
+            : rivals.List2.All(r => r.User.Rank > special.User.Rank);
         if (special.IsBan || special.BanInfo != null || special.User.Tier <= 0 || special.User.Rank <= 0 ||
-            rivals.List2.Count > 3 || (rivals.List2.Count == 0) == hasHigher ||
-            rivals.List2.Any(r => r.RoundCharacter.Count != 15 || r.User.Rank <= 0 || r.User.Rank >= special.User.Rank ||
+            rivals.List2.Count > 3 || !directionOk ||
+            rivals.List2.Any(r => r.RoundCharacter.Count != 15 || r.User.Rank <= 0 ||
                 r.User.User.Usn == special.User.User.Usn) ||
             rivals.List2.Select(r => r.User.User.Usn).Distinct().Count() != rivals.List2.Count || !ranks.SequenceEqual(ranks.Order()))
             throw new Exception("live special roster invalid");
@@ -75,7 +79,40 @@ internal static class SpecialMatchmakingChecks
             }
         }
 
-        await test("special top three offer only zero, one and two higher opponents", async () =>
+        await test("special leader faces the nearest lower NPC bands, keeps rank one and spends attempts", () => Fixture(1, 40, async (viewer, people) =>
+        {
+            // Fixture: odd ranks are humans, even ranks are NPCs.
+            var rivals = await Rivals(viewer);
+            var ranks = rivals.List2.Select(r => r.User.Rank).ToArray();
+            Check(ranks.Length == 3 && ranks[0] is 2 or 4 or 6 && ranks[1] is 8 or 10 or 12 && ranks[2] is 14 or 16 or 18,
+                "leader did not receive the three nearest lower NPC bands");
+            Check(Ids(rivals).All(id => people.Single(p => p.ID == (ulong)id).ManagedNpc != null), "leader was matched against a human");
+            var seen = new HashSet<long>();
+            for (int i = 0; i < 6; i++) seen.UnionWith(Ids(await Rivals(viewer)));
+            Check(people.Where(p => p.ManagedNpc != null && p.Arena!.SpecialRank <= 18).All(p => seen.Contains((long)p.ID)), "leader refresh left a nearby NPC unreachable");
+            Check(viewer.Arena!.SpecialCount == 0, "leader refresh consumed attempts");
+
+            string humanBefore = JsonConvert.SerializeObject(stateProperty.GetValue(null));
+            using (var human = await send(viewer.ID, "arena/special/start", new ReqSpecialArenaStart { EnemyUsn = (long)people[2].ID }, null))
+                Check((int)human.StatusCode == 409, "leader was allowed to attack a lower human");
+            Check(JsonConvert.SerializeObject(stateProperty.GetValue(null)) == humanBefore, "rejected human target changed state");
+
+            for (int battle = 1; battle <= 2; battle++)
+            {
+                ulong targetId = (ulong)Ids(await Rivals(viewer))[0];
+                var target = people.Single(p => p.ID == targetId);
+                long targetRank = target.Arena!.SpecialRank;
+                await Post<ResSpecialArenaStart>(viewer.ID, "arena/special/start", new ReqSpecialArenaStart { EnemyUsn = (long)target.ID });
+                var result = await Post<ResSpecialArenaResult>(viewer.ID, "arena/special/result", new ReqSpecialArenaResult { EnemyUsn = (long)target.ID,
+                    Result = { new NetSpecialArenaRoundResult { Round = 1, IsWin = battle == 1 }, new NetSpecialArenaRoundResult { Round = 2, IsWin = battle == 1 } } });
+                Check(result.SpecialArenaCount == battle && viewer.Arena.SpecialCount == battle, "leader battle did not spend a daily attempt");
+                Check(viewer.Arena.SpecialRank == 1 && target.Arena.SpecialRank == targetRank &&
+                    result.Battle.User.After.Rank == 1 && result.Battle.Enemy.After.Rank == targetRank, "leader battle changed a rank");
+            }
+            var entry = await Post<ResGetSpecialArena>(viewer.ID, "arena/special/get", new ReqGetSpecialArena());
+            Check(entry.SpecialArenaCount == 2 && entry.User.Rank == 1, "leader attempts were not reported as spent");
+        }));
+        await test("special top three offer the leader lower NPCs and others one and two higher opponents", async () =>
         {
             foreach (int rank in new[] { 1, 2, 3 })
                 await Fixture(rank, 40, async (viewer, people) =>
@@ -101,8 +138,13 @@ internal static class SpecialMatchmakingChecks
                             Reject(reversed);
                         }
                     }
-                    Check(response.List2.Count == rank - 1, "top rank offered lower opponents or incorrect target count");
-                    Check(response.List2.Select(r => r.User.Rank).SequenceEqual(Enumerable.Range(1, rank - 1).Select(i => (long)i)), "top-rank opponents are not the higher battle ranks");
+                    if (rank == 1)
+                        Check(response.List2.Count == 3 && response.List2.All(r => r.User.Rank > 1), "leader did not receive three lower opponents");
+                    else
+                    {
+                        Check(response.List2.Count == rank - 1, "top rank offered lower opponents or incorrect target count");
+                        Check(response.List2.Select(r => r.User.Rank).SequenceEqual(Enumerable.Range(1, rank - 1).Select(i => (long)i)), "top-rank opponents are not the higher battle ranks");
+                    }
                     Check(viewer.Arena!.SpecialCount == 0, "empty or refreshed list consumed attempts");
                 });
         });
