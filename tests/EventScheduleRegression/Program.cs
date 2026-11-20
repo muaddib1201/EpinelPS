@@ -26,6 +26,9 @@ foreach (var row in await data.LoadZip<LobbyPrivateBannerRecord>("LobbyPrivateBa
 foreach (var row in await data.LoadZip<DailyMissionEventSettingRecord_Raw>("DailyMissionEventSettingTable.json", progress)) data.DailyMissionEventSettingTable.Add(row.Id, row);
 foreach (var row in await data.LoadZip<GachaTypeRecord>("GachaTypeTable.json", progress)) data.gachaTypes.Add(row.Id, row);
 foreach (var row in await data.LoadZip<GachaPaybackRecord_Raw>("GachaPaybackTable.json", progress)) data.GachaPaybackRecords.Add(row.Id, row);
+var snowSuspended = typeof(User).Assembly.GetType("EpinelPS.Services.MiracleSnowRecruitment", true)!
+    .GetProperty("Suspended", BindingFlags.NonPublic | BindingFlags.Static)!;
+Check((bool)snowSuspended.GetValue(null)! == true, "Miracle Snow pickups must ship suspended until event_old is available");
 
 const int rootEvent = 83500, bannerId = 10124;
 int[] related = [83500, 40124, 40125, 60124, 100053, 83501, 83502, 83503];
@@ -59,6 +62,7 @@ await Test("empty lobby skips the missing Sky sprite table while retaining both 
     var now = clock.GetUtcNow();
     try
     {
+        snowSuspended.SetValue(null, false);
         user.LobbyPrivateBannerIds = [];
         state.ActiveEventBannerIds = [];
         state.MiracleSnowRecruitment = new() { [101] = new(now, now.AddDays(21)), [102] = new(now, now.AddDays(21)) };
@@ -74,7 +78,27 @@ await Test("empty lobby skips the missing Sky sprite table while retaining both 
         state.ActiveEventBannerIds = [10126];
         Check(EventHelper.GetLobbyPrivateBannerData(user, now.UtcDateTime).Single().EventId == 40126, "explicit selection was suppressed");
     }
-    finally { user.LobbyPrivateBannerIds = personal; state.ActiveEventBannerIds = global; state.MiracleSnowRecruitment = periods; }
+    finally { snowSuspended.SetValue(null, true); user.LobbyPrivateBannerIds = personal; state.ActiveEventBannerIds = global; state.MiracleSnowRecruitment = periods; }
+});
+
+await Test("suspended Miracle Snow pickups are hidden everywhere while their saved periods stay intact", async () =>
+{
+    var periods = state.MiracleSnowRecruitment;
+    var now = clock.GetUtcNow();
+    try
+    {
+        state.MiracleSnowRecruitment = new() { [101] = new(now.AddHours(-1), now.AddDays(20)), [102] = new(now.AddHours(-1), now.AddDays(20)) };
+        var saved = JsonConvert.SerializeObject(state.MiracleSnowRecruitment);
+        var list = await List();
+        var joined = await Joined();
+        var gacha = ResGetGachaData.Parser.ParseFrom(await Send(new GetGacha(), new ReqGetGachaData()));
+        Check(!list.EventList.Any(e => e.Id is 70005 or 70006), "suspended pickup still in event list");
+        Check(!joined.EventWithJoinData.Any(e => e.EventData.Id is 70005 or 70006), "suspended pickup still in joined events");
+        Check(!gacha.Gacha.Any(g => g.GachaType is 101 or 102), "suspended pickup still on recruit page");
+        Check(list.EventList.Count > 0, "suspension removed unrelated events");
+        Check(JsonConvert.SerializeObject(state.MiracleSnowRecruitment) == saved, "suspension changed the saved schedule");
+    }
+    finally { state.MiracleSnowRecruitment = periods; }
 });
 
 await Test("event list sends the real UTC deadline for MARIA-n and all eight activity records", async () =>
@@ -277,6 +301,7 @@ await Test("Miracle Snow sends only two pickup events with fixed, independently 
     Check(reloaded.MiracleSnowRecruitment!.Count == 2 && new[] {101, 102}.All(id =>
         reloaded.MiracleSnowRecruitment[id].Start == start && reloaded.MiracleSnowRecruitment[id].End == start.AddDays(21)),
         "restart changed the 21-day schedule");
+    snowSuspended.SetValue(null, false);
     try
     {
         foreach (var instant in new[] { start.AddTicks(-1), start, start.AddDays(21).AddTicks(-1), start.AddDays(21) })
@@ -305,7 +330,7 @@ await Test("Miracle Snow sends only two pickup events with fixed, independently 
         var separate = await List();
         Check(!separate.EventList.Any(e => e.Id == 70005) && separate.EventList.Any(e => e.Id == 70006), "pools cannot be configured separately");
     }
-    finally { state.MiracleSnowRecruitment = null; clock.Set(originalClock.UtcDateTime); }
+    finally { snowSuspended.SetValue(null, true); state.MiracleSnowRecruitment = null; clock.Set(originalClock.UtcDateTime); }
 });
 
 var adminChecks = await AdminScheduleChecks.Run(data, user.ID, db, workspace);

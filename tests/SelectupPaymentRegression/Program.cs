@@ -137,19 +137,30 @@ try
             var now = DateTimeOffset.UtcNow;
             state.MiracleSnowRecruitment = new() { [poolId] = new(now.AddDays(-1), now.AddDays(20)) };
             var user = await NewUser(10503, 0, 1, 3000, 0);
-            var pool = data.gachaTypes[poolId];
-            Check(pool.EventId == (poolId == 101 ? 70005 : 70006), "wrong recruitment event");
-            var featured = data.GachaListProb.Values.Single(r => r.GroupId == pool.PickupCharGroupId);
-            Check(data.CharacterTable[featured.GachaId].NameLocalkey!.EndsWith(poolId == 101 ? "203_name" : "121_name"), "wrong featured character");
-            var single = await Pull(user, 1, 5200, poolId);
-            var ten = await Pull(user, 10, 99, poolId);
-            Check(single.Gacha.Count == 1 && ten.Gacha.Count == 10 && user.GachaBannerMaxPulls[poolId] == 11, "wrong pull settlement");
-            Check(user.GetCurrencyVal(CurrencyType.CharCustomizeTicket) == 0 && user.GetCurrencyVal(CurrencyType.FreeCash) == 0 &&
-                user.GetCurrencyVal(CurrencyType.GoldMileageTicket) == 11, "wrong cost or mileage");
-            CheckSaved(user);
-            await Rejected(user, () => Pull(user, 1, 99, poolId, discount: true));
-            state.MiracleSnowRecruitment[poolId] = new(now.AddDays(-21), now);
+            var suspended = typeof(User).Assembly.GetType("EpinelPS.Services.MiracleSnowRecruitment", true)!
+                .GetProperty("Suspended", BindingFlags.NonPublic | BindingFlags.Static)!;
+            Check((bool)suspended.GetValue(null)! == true, "pickups must ship suspended");
             await Rejected(user, () => Pull(user, 1, 5200, poolId));
+            Check(user.GetCurrencyVal(CurrencyType.CharCustomizeTicket) == 1 && user.GetCurrencyVal(CurrencyType.FreeCash) == 3000 &&
+                user.GachaBannerMaxPulls.GetValueOrDefault(poolId) == 0, "a suspended pickup charged the player");
+            suspended.SetValue(null, false);
+            try
+            {
+                var pool = data.gachaTypes[poolId];
+                Check(pool.EventId == (poolId == 101 ? 70005 : 70006), "wrong recruitment event");
+                var featured = data.GachaListProb.Values.Single(r => r.GroupId == pool.PickupCharGroupId);
+                Check(data.CharacterTable[featured.GachaId].NameLocalkey!.EndsWith(poolId == 101 ? "203_name" : "121_name"), "wrong featured character");
+                var single = await Pull(user, 1, 5200, poolId);
+                var ten = await Pull(user, 10, 99, poolId);
+                Check(single.Gacha.Count == 1 && ten.Gacha.Count == 10 && user.GachaBannerMaxPulls[poolId] == 11, "wrong pull settlement");
+                Check(user.GetCurrencyVal(CurrencyType.CharCustomizeTicket) == 0 && user.GetCurrencyVal(CurrencyType.FreeCash) == 0 &&
+                    user.GetCurrencyVal(CurrencyType.GoldMileageTicket) == 11, "wrong cost or mileage");
+                CheckSaved(user);
+                await Rejected(user, () => Pull(user, 1, 99, poolId, discount: true));
+                state.MiracleSnowRecruitment[poolId] = new(now.AddDays(-21), now);
+                await Rejected(user, () => Pull(user, 1, 5200, poolId));
+            }
+            finally { suspended.SetValue(null, true); }
         });
     }
     await Test("two simultaneous ten-pulls cannot spend the same ten tickets", async () =>
