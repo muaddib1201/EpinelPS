@@ -333,6 +333,40 @@ await Test("Miracle Snow sends only two pickup events with fixed, independently 
     finally { snowSuspended.SetValue(null, true); state.MiracleSnowRecruitment = null; clock.Set(originalClock.UtcDateTime); }
 });
 
+await Test("static data pack info sends ClientUrl only when configured, with unchanged size and hash", () =>
+{
+    var config = EpinelPS.Utils.GameConfig.Root.StaticDataMpk;
+    var originalClientUrl = config.ClientUrl;
+    var controller = new EpinelPS.LobbyServer.Controllers.System.SystemController(null!);
+    try
+    {
+        config.ClientUrl = null;
+        var plain = controller.GetStaticData(new ReqStaticDataPackInfoMpk()).Value!;
+        Check(plain.Url == config.Url, "default URL changed without ClientUrl");
+        Check(plain.Size == data.MpkSize && plain.Sha256Sum.ToByteArray().SequenceEqual(data.MpkHash), "default size/hash changed");
+
+        Check(config.Url.StartsWith("https://cloud.nikke-kr.com/prdenv/"), "fixture URL layout changed");
+        string rawPath = config.Url["https://cloud.nikke-kr.com/".Length..];
+        config.ClientUrl = "https://global-lobby.nikke-kr.com/" + rawPath;
+        var redirected = controller.GetStaticData(new ReqStaticDataPackInfoMpk()).Value!;
+        Check(redirected.Url == config.ClientUrl, "ClientUrl was not sent");
+        Check(redirected.Size == plain.Size && redirected.Sha256Sum == plain.Sha256Sum &&
+            redirected.Version == plain.Version && redirected.Salt1 == plain.Salt1 && redirected.Salt2 == plain.Salt2, "ClientUrl altered other pack fields");
+
+        // The /prdenv route receives only the request path, so the redirected host maps to the server's own cached file.
+        string served = Path.GetFullPath(Program_CachePath(new Uri(config.ClientUrl).AbsolutePath));
+        string loaded = Path.GetFullPath(Program_CachePath(rawPath));
+        Check(string.Equals(served, loaded, StringComparison.OrdinalIgnoreCase), $"redirected path {served} differs from loaded {loaded}");
+
+        config.ClientUrl = "   ";
+        Check(controller.GetStaticData(new ReqStaticDataPackInfoMpk()).Value!.Url == config.Url, "blank ClientUrl was sent");
+    }
+    finally { config.ClientUrl = originalClientUrl; }
+    return Task.CompletedTask;
+});
+static string Program_CachePath(string path) =>
+    (string)typeof(User).Assembly.GetType("EpinelPS.Program", true)!.GetMethod("GetCachePathForPath")!.Invoke(null, [path])!;
+
 var adminChecks = await AdminScheduleChecks.Run(data, user.ID, db, workspace);
 passed += adminChecks.Passed;
 failed += adminChecks.Failed;

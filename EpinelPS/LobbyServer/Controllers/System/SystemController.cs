@@ -42,7 +42,7 @@ public class SystemController(IUserService db) : Controller
 
         return new ResStaticDataPackInfoMpk()
         {
-            Url = data.Url,
+            Url = string.IsNullOrWhiteSpace(data.ClientUrl) ? data.Url : data.ClientUrl,
             Version = data.Version,
             Size = GameData.Instance.MpkSize,
             Sha256Sum = ByteString.CopyFrom(GameData.Instance.MpkHash),

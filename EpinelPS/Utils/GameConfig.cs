@@ -31,6 +31,12 @@ public class GameConfigRoot
 public class StaticData
 {
     public string Url { get; set; } = "";
+    /// <summary>
+    /// Optional download URL sent to the client instead of <see cref="Url"/>. The server always loads
+    /// its own copy from <see cref="Url"/>. Use a host the client resolves to this server (for example a
+    /// redirected lobby host with the same /prdenv/... path) to serve the locally cached pack.
+    /// </summary>
+    public string? ClientUrl { get; set; }
     public string Version { get; set; } = "";
     public string Salt1 { get; set; } = "";
     public string Salt2 { get; set; } = "";
