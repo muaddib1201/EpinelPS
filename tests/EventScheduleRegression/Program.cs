@@ -26,6 +26,7 @@ foreach (var row in await data.LoadZip<LobbyPrivateBannerRecord>("LobbyPrivateBa
 foreach (var row in await data.LoadZip<DailyMissionEventSettingRecord_Raw>("DailyMissionEventSettingTable.json", progress)) data.DailyMissionEventSettingTable.Add(row.Id, row);
 foreach (var row in await data.LoadZip<GachaTypeRecord>("GachaTypeTable.json", progress)) data.gachaTypes.Add(row.Id, row);
 foreach (var row in await data.LoadZip<GachaPaybackRecord_Raw>("GachaPaybackTable.json", progress)) data.GachaPaybackRecords.Add(row.Id, row);
+foreach (var row in await data.LoadZip<GachaSelectupListRecord_Raw>("GachaSelectupListTable.json", progress)) data.GachaSelectupListTable.Add(row.Id, row);
 var snowSuspended = typeof(User).Assembly.GetType("EpinelPS.Services.MiracleSnowRecruitment", true)!
     .GetProperty("Suspended", BindingFlags.NonPublic | BindingFlags.Static)!;
 Check((bool)snowSuspended.GetValue(null)! == true, "Miracle Snow pickups must ship suspended until event_old is available");
@@ -289,7 +290,7 @@ await Test("expired personal and global banners stay out of game lists, includin
     Check(state.ActiveEventBannerIds.Count == 0, "expired global selection was not cleared");
 });
 
-await Test("Miracle Snow sends only two pickup events with fixed, independently configurable periods", async () =>
+await Test("scheduled pickups send only their own events with fixed, independently configurable periods", async () =>
 {
     var originalClock = clock.GetUtcNow();
     var start = originalClock.AddDays(2);
@@ -298,7 +299,7 @@ await Test("Miracle Snow sends only two pickup events with fixed, independently 
     initialize.Invoke(null, [state, start]);
     var reloaded = JsonConvert.DeserializeObject<CoreInfo>(JsonConvert.SerializeObject(state))!;
     initialize.Invoke(null, [reloaded, start.AddDays(30)]);
-    Check(reloaded.MiracleSnowRecruitment!.Count == 2 && new[] {101, 102}.All(id =>
+    Check(reloaded.MiracleSnowRecruitment!.Count == 3 && new[] {101, 102, 10090}.All(id =>
         reloaded.MiracleSnowRecruitment[id].Start == start && reloaded.MiracleSnowRecruitment[id].End == start.AddDays(21)),
         "restart changed the 21-day schedule");
     snowSuspended.SetValue(null, false);
@@ -311,7 +312,7 @@ await Test("Miracle Snow sends only two pickup events with fixed, independently 
             var joined = await Joined();
             var gacha = ResGetGachaData.Parser.ParseFrom(await Send(new GetGacha(), new ReqGetGachaData()));
             bool active = instant >= start && instant < start.AddDays(21);
-            foreach (var (poolId, eventId) in new[] { (101, 70005), (102, 70006) })
+            foreach (var (poolId, eventId) in new[] { (101, 70005), (102, 70006), (10090, 70150) })
             {
                 Check(gacha.Gacha.Count(g => g.GachaType == poolId) == (active ? 1 : 0), "incorrect recruit page availability");
                 foreach (var records in new[] { list.EventList.AsEnumerable(), joined.EventWithJoinData.Select(e => e.EventData) })
@@ -324,6 +325,8 @@ await Test("Miracle Snow sends only two pickup events with fixed, independently 
                 }
             }
             Check(!list.EventList.Any(e => e.Id == 80100 || e.Id == 70007), "a story banner or unrelated legacy pool was enabled");
+            // 10090 opens alone: none of its Coin Rush Showdown group (root 83400) comes with it.
+            Check(!list.EventList.Any(e => e.Id is 83400 or 40121 or 70148 or 70149 or 100051 or 160042), "10090 pulled in its lobby event group");
         }
         state.MiracleSnowRecruitment!.Remove(101);
         clock.Set(start.UtcDateTime);
@@ -331,6 +334,47 @@ await Test("Miracle Snow sends only two pickup events with fixed, independently 
         Check(!separate.EventList.Any(e => e.Id == 70005) && separate.EventList.Any(e => e.Id == 70006), "pools cannot be configured separately");
     }
     finally { snowSuspended.SetValue(null, true); state.MiracleSnowRecruitment = null; clock.Set(originalClock.UtcDateTime); }
+});
+
+await Test("live upgrade: 10090 gets its own 21 days while suspended 101/102 keep their saved periods and stay hidden", async () =>
+{
+    var originalClock = clock.GetUtcNow();
+    var periods = state.MiracleSnowRecruitment;
+    var legacyStart = originalClock.AddDays(-1);
+    var upgradeStart = originalClock;
+    try
+    {
+        // Existing save from the earlier deployment: only 101/102.
+        state.MiracleSnowRecruitment = new() { [101] = new(legacyStart, legacyStart.AddDays(21)), [102] = new(legacyStart, legacyStart.AddDays(21)) };
+        typeof(User).Assembly.GetType("EpinelPS.Services.MiracleSnowRecruitment")!
+            .GetMethod("Initialize", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [state, upgradeStart]);
+        var saved = state.MiracleSnowRecruitment!;
+        Check(saved.Count == 3, "10090 period was not added");
+        Check(saved[101] == new EpinelPS.Services.RecruitPeriod(legacyStart, legacyStart.AddDays(21)) &&
+              saved[102] == new EpinelPS.Services.RecruitPeriod(legacyStart, legacyStart.AddDays(21)), "existing 101/102 periods changed");
+        Check(saved[10090] == new EpinelPS.Services.RecruitPeriod(upgradeStart, upgradeStart.AddDays(21)), "10090 period is not 21 days from startup");
+        Check((bool)snowSuspended.GetValue(null)!, "suspension must stay on by default");
+
+        clock.Set(upgradeStart.UtcDateTime);
+        var list = await List();
+        var joined = await Joined();
+        var gacha = ResGetGachaData.Parser.ParseFrom(await Send(new GetGacha(), new ReqGetGachaData()));
+        foreach (var records in new[] { list.EventList.AsEnumerable(), joined.EventWithJoinData.Select(e => e.EventData) })
+        {
+            Check(!records.Any(e => e.Id is 70005 or 70006), "suspended legacy pickup advertised");
+            var entry = records.Single(e => e.Id == 70150);
+            Check(entry.EventSystemType == (int)EventSystemType.PickupGachaEvent && entry.EventStartDate == upgradeStart.UtcTicks &&
+                entry.EventEndDate == upgradeStart.AddDays(21).UtcTicks && entry.EventDisableDate == entry.EventEndDate, "wrong 10090 dates");
+        }
+        Check(gacha.Gacha.Count(g => g.GachaType == 10090) == 1 && !gacha.Gacha.Any(g => g.GachaType is 101 or 102), "wrong recruit page pools");
+        Check(gacha.GachaSelectupData.Any(s => s.GachaTypeId == 10090 &&
+            data.GachaSelectupListTable[s.GachaSelectupId].GachaTypeId == 10090), "10090 select-up choice missing");
+
+        clock.Set(upgradeStart.AddDays(21).UtcDateTime);
+        var after = await List();
+        Check(!after.EventList.Any(e => e.Id == 70150), "10090 still advertised after its 21 days");
+    }
+    finally { state.MiracleSnowRecruitment = periods; clock.Set(originalClock.UtcDateTime); }
 });
 
 await Test("static data pack info sends ClientUrl only when configured, with unchanged size and hash", () =>

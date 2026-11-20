@@ -60,7 +60,7 @@ public class ExecGacha : LobbyMessage
         {
             if (!MiracleSnowRecruitment.IsOpen(bannerID, nowUtc ?? DateTime.UtcNow))
                 throw new BadHttpRequestException("This recruit period is closed.", 400);
-            // Both legacy tables offer advanced recruit vouchers or gems, at the regular price.
+            // All scheduled pools (101, 102, 10090) price only advanced recruit vouchers or gems, at the regular price.
             if (req.IsDiscount || (CurrencyType)req.CurrencyType is not
                 (CurrencyType.CharCustomizeTicket or CurrencyType.FreeCash or CurrencyType.ChargeCash))
                 throw new BadHttpRequestException("Unsupported payment for this pickup.", 400);

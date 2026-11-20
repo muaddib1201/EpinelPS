@@ -163,6 +163,42 @@ try
             finally { suspended.SetValue(null, true); }
         });
     }
+    await Test("winter select-up 10090 opens alone while 101/102 stay suspended, delivers the chosen Rupee and charges vouchers then gems", async () =>
+    {
+        const int pool = 10090, rupeeChoice = 10405, rupee = 320301;
+        var now = DateTimeOffset.UtcNow;
+        var suspended = typeof(User).Assembly.GetType("EpinelPS.Services.MiracleSnowRecruitment", true)!
+            .GetProperty("Suspended", BindingFlags.NonPublic | BindingFlags.Static)!;
+        Check((bool)suspended.GetValue(null)! == true, "suspension must stay on");
+        var winter = data.gachaTypes[pool];
+        Check(winter.Type == GachaPremiumType.GachaSelectup && winter.EventId == 70150, "wrong 10090 fixture");
+        Check(data.GachaSelectupListTable[rupeeChoice].GachaTypeId == pool && data.GachaSelectupListTable[rupeeChoice].CharacterId == rupee, "wrong Rupee choice fixture");
+        var winterGrades = data.GachaGradeProb.Values.Where(g => g.GroupId == winter.GradeProbId).ToArray();
+        var winterOriginal = winterGrades.ToDictionary(g => g.Id, g => g.Prob);
+        var winterUp = winterGrades.Single(g => data.GachaListProb.Values.Any(r => r.GroupId == g.GachaListId && r.GachaType == GachaCategory.GachaSelectup));
+        state.MiracleSnowRecruitment = new() { [101] = new(now.AddDays(-1), now.AddDays(20)), [102] = new(now.AddDays(-1), now.AddDays(20)), [pool] = new(now.AddDays(-1), now.AddDays(20)) };
+        try
+        {
+            foreach (var g in winterGrades) g.Prob = g.Id == winterUp.Id ? 10000 : 0;
+            // 300 paid gems stay in reserve so the closed-period rejection below cannot be a balance failure.
+            var user = await NewUser(10503, 0, 1, 3000, 300);
+            await Send<ResSetGachaSelectup>(new SetGachaSelectSetup(), user.ID, new ReqSetGachaSelectup
+            { GachaSelectupData = new() { GachaTypeId = pool, GachaSelectupId = rupeeChoice } });
+            await Rejected(user, () => Pull(user, 1, 5200, 101));
+            await Rejected(user, () => Pull(user, 1, 5503, pool));
+            await Rejected(user, () => Pull(user, 1, 99, pool, discount: true));
+            var single = await Pull(user, 1, 5200, pool);
+            var ten = await Pull(user, 10, 99, pool);
+            Check(single.Gacha.Count == 1 && ten.Gacha.Count == 10 && single.Gacha.Concat(ten.Gacha).All(c => c.Tid == rupee), "chosen Rupee not delivered");
+            Check(user.HasCharacter(rupee) && user.GachaBannerMaxPulls[pool] == 11, "wrong inventory or pull count");
+            Check(user.GetCurrencyVal(CurrencyType.CharCustomizeTicket) == 0 && user.GetCurrencyVal(CurrencyType.FreeCash) == 0 &&
+                user.GetCurrencyVal(CurrencyType.ChargeCash) == 300 && user.GetCurrencyVal(CurrencyType.GoldMileageTicket) == 11, "wrong cost or mileage");
+            CheckSaved(user);
+            state.MiracleSnowRecruitment[pool] = new(now.AddDays(-21), now);
+            await Rejected(user, () => Pull(user, 1, 99, pool));
+        }
+        finally { foreach (var g in winterGrades) g.Prob = winterOriginal[g.Id]; }
+    });
     await Test("two simultaneous ten-pulls cannot spend the same ten tickets", async () =>
     {
         var user = await NewUser(10503, 10, 0, 0, 0);
