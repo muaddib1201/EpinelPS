@@ -20,7 +20,7 @@ using Newtonsoft.Json;
 // The test web server uses the actual MVC routes, protobuf binder and an isolated save directory.
 const int eventId = 60124, first = 212410101, second = first + 1, ticket = 7110124;
 var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../../../.."));
-var pack = Directory.GetFiles(Path.Combine(root, "Server and Server selector/cache/prdenv/153-cb882d4b30"), "StaticData.pack", SearchOption.AllDirectories).Single();
+var pack = Directory.GetFiles(Path.Combine(root, "Server and Server selector/cache"), "StaticData.pack", SearchOption.AllDirectories).Single();
 var data = new GameData(pack);
 typeof(GameData).GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, data);
 await Load("EventManagerTable", data.eventManagers, x => x.Id);

@@ -16,7 +16,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../.."));
-var pack = Path.GetFullPath(Path.Combine(root, "../../Server and Server selector/cache/prdenv/153-cb882d4b30/staticdata/data/qa-261029-10b/578481/mpk/StaticData.pack"));
+var pack = Directory.GetFiles(Path.GetFullPath(Path.Combine(root, "../../Server and Server selector/cache")), "StaticData.pack", SearchOption.AllDirectories).Single();
 var data = new GameData(pack);
 typeof(GameData).GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, data);
 var progress = new Progress<double>();
