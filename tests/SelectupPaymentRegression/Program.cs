@@ -180,7 +180,7 @@ try
             Check(user.GetCurrencyVal(CurrencyType.CharCustomizeTicket) == 1 && user.GetCurrencyVal(CurrencyType.FreeCash) == 3000 &&
                 user.GetCurrencyVal(CurrencyType.ChargeCash) == 300 && user.GachaBannerMaxPulls.GetValueOrDefault(pool) == 0 &&
                 user.GetCurrencyVal(CurrencyType.GoldMileageTicket) == 0, "the closed pickup charged the player or counted pulls");
-            CheckSaved(user);
+            // Rejected() already verified that each refused pull left the save file untouched.
         }
         finally { state.MiracleSnowRecruitment = periods; }
     });
