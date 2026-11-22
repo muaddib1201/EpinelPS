@@ -1,4 +1,5 @@
 using EpinelPS.Data;
+using EpinelPS.Database;
 
 namespace EpinelPS.LobbyServer.Inventory;
 
@@ -36,6 +37,8 @@ public class UpgradeOption : LobbyMessage
             throw new InvalidOperationException($"No awakening options found with state_effect_group_id {stateEffectGroupId}");
         }
 
+        if (JsonDb.Instance.ValueResetTierRates is { } rates)
+            return EquipmentOptionRoll.EffectAtLevel(optionsInGroup, ValueResetTiers.DrawLevel(rates, Random.Shared));
         return SelectOptionFromGroup(optionsInGroup);
     }
 

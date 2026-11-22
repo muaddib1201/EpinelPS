@@ -233,6 +233,7 @@ await Run("effect change uses the global tier bands and preserves a one-shot loc
 {
     PrepareRoll();
     var state = (CoreInfo)dbProperty.GetValue(null)!;
+    state.ValueResetTierRates = [100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     Check(state.EffectChangeBands == null, "a legacy save should use the static data");
     state.EffectChangeBands = new EffectChangeBands { LowEnd = 1, MiddleEnd = 14, LowPercent = 0, MiddlePercent = 0, HighPercent = 100 };
     save.Invoke(null, null);
@@ -255,6 +256,32 @@ await Run("all probability tickets follow custom boundaries including zero and f
         var expected = ticket == 0 ? (1, 2) : ticket < 5000 ? (3, 13) : (14, 15);
         Check((first, last) == expected, "wrong tier boundaries at ticket " + ticket);
     }
+    return Task.CompletedTask;
+});
+
+await Run("all 15 value-reset tiers preserve effect type, locked value and empty slot", async () =>
+{
+    for (int level = 1; level <= ValueResetTiers.Count; level++)
+    {
+        PrepareRoll();
+        var state = (CoreInfo)dbProperty.GetValue(null)!;
+        var rates = new decimal[ValueResetTiers.Count];
+        rates[level - 1] = 100;
+        state.ValueResetTierRates = rates;
+        state.EffectChangeBands = new EffectChangeBands { LowEnd = 1, MiddleEnd = 2, LowPercent = 100, MiddlePercent = 0, HighPercent = 0 };
+        var result = await RollSecond(true);
+        Check(result.Option.Option1Id == 7000900 + level && result.Option.Option2Id == critEffect && result.Option.Option3Id == 0,
+            "unexpected effect, tier, locked slot or empty slot at level " + level);
+        Check(Balance(module) == 8 && Balance(key) == 80, "custom tier changed the lock charge");
+    }
+});
+await Run("value-reset tier weights allocate exactly 10000 probability tickets", () =>
+{
+    decimal[] rates = [0, 0.01m, 0, 20, 0, 0, 0, 35.50m, 0, 0, 0, 0, 0, 0, 44.49m];
+    var counts = new int[15];
+    for (int ticket = 0; ticket < 10000; ticket++)
+        counts[ValueResetTiers.DrawLevel(rates, new BandTicket(ticket, false)) - 1]++;
+    Check(counts.Select(x => x / 100m).SequenceEqual(rates), "zero or fractional weights were sampled incorrectly");
     return Task.CompletedTask;
 });
 

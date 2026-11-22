@@ -7,6 +7,14 @@ namespace EpinelPS.LobbyServer.Inventory;
 
 internal static class EquipmentOptionRoll
 {
+    public static int EffectAtLevel(List<EquipmentOptionRecord> options, int level)
+    {
+        var matches = options.SelectMany(option => option.StateEffectList)
+            .Where(effect => effect.StateEffectLevel == level).ToArray();
+        if (matches.Length == 0) throw new InvalidDataException($"Missing equipment effect level {level}");
+        return matches[Random.Shared.Next(matches.Length)].StateEffectId;
+    }
+
     public static NetEquipmentAwakeningOption? Roll(User user, long isn, LockRequest[] requests,
         IList<NetUserItemData> items, Func<int, int, List<int>, int> rollUnlocked)
     {

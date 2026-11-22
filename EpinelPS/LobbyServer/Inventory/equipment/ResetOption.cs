@@ -201,10 +201,7 @@ public class ResetOption : LobbyMessage
         if (JsonDb.Instance.EffectChangeBands is { } bands)
         {
             int level = bands.DrawLevel(Random.Shared);
-            var matches = options.SelectMany(option => option.StateEffectList)
-                .Where(effect => effect.StateEffectLevel == level).ToArray();
-            if (matches.Length == 0) throw new InvalidDataException($"Missing equipment effect level {level}");
-            return matches[Random.Shared.Next(matches.Length)].StateEffectId;
+            return EquipmentOptionRoll.EffectAtLevel(options, level);
         }
 
         long totalRatio = options.Sum(x => (long)x.OptionRatio);

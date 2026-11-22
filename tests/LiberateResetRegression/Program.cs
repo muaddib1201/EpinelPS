@@ -129,6 +129,35 @@ Check(Settings().EffectChangeBands is { LowEnd: 2, MiddleEnd: 13, LowPercent: 0.
 foreach (var invalid in new[] { ("5","5","60","35","5"), ("2","14","60","35","6"), ("2","15","60","35","5"), ("2","14","0.001","49.999","50") })
     Check(await SaveBands(invalid.Item1, invalid.Item2, invalid.Item3, invalid.Item4, invalid.Item5) == HttpStatusCode.OK &&
         Settings().EffectChangeBands?.MiddleEnd == 13, "invalid bands changed the saved configuration");
+const string resetTiersUrl = "/admin/Configuration/ValueResetTiers";
+Check(form.Contains(resetTiersUrl) && Enumerable.Range(0,15).All(i => form.Contains($"name=\"ValueResetRates[{i}]\"")),
+    "all 15 tier fields must be accessible in the server configuration form");
+async Task<HttpStatusCode> SaveResetRates(string[] rates, bool restore = false)
+{
+    var fields = rates.Select((r, i) => new KeyValuePair<string,string>($"ValueResetRates[{i}]", r)).ToList();
+    fields.Add(new("__RequestVerificationToken", bandToken));
+    fields.Add(new("restoreDefaults", restore.ToString()));
+    using var response = await http.PostAsync(resetTiersUrl, new FormUrlEncodedContent(fields));
+    return response.StatusCode;
+}
+var resetRates = Enumerable.Repeat("0", 15).ToArray();
+resetRates[0] = "0.01";
+resetRates[14] = "99.99";
+Check(await SaveResetRates(resetRates) == HttpStatusCode.Redirect, "valid 15-tier table was rejected");
+Reload();
+Check(Settings().ValueResetTierRates is { Length: 15 } savedRates && savedRates[0] == 0.01m && savedRates[14] == 99.99m &&
+    Settings().EffectChangeBands?.MiddleEnd == 13, "global tables were not persisted independently");
+foreach (var bad in new[] { resetRates[..14], resetRates.Append("0").ToArray(),
+    resetRates.Select((v,i) => i == 0 ? "0.50" : v).ToArray(),
+    resetRates.Select((v,i) => i == 0 ? "-0.01" : v).ToArray(),
+    resetRates.Select((v,i) => i == 0 ? "0.001" : v).ToArray() })
+    Check(await SaveResetRates(bad) == HttpStatusCode.OK && Settings().ValueResetTierRates![14] == 99.99m,
+        "invalid tier table replaced saved rates");
+Check(await SaveResetRates([], true) == HttpStatusCode.Redirect, "failed to restore static tier weights");
+Reload();
+Check(Settings().ValueResetTierRates == null && Settings().EffectChangeBands?.MiddleEnd == 13, "restore affected another setting");
+Console.WriteLine("PASS: all 15 value-reset probabilities save, validate, survive reload and restore independently");
+
 Check(await SaveBands("x","x","x","x","x",restore:true) == HttpStatusCode.Redirect, "restore should ignore invalid edits");
 Reload();
 Check(Settings().EffectChangeBands == null, "restore did not return to the static game rates");

@@ -26,6 +26,8 @@ public class CoreInfo
     public byte[] EncryptionTokenKey { get; set; } = [];
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public EffectChangeBands? EffectChangeBands { get; set; }
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public decimal[]? ValueResetTierRates { get; set; }
     public LogType LogLevel { get; set; } = LogType.Debug;
 
     public int MaxInterceptionCount { get; set; } = 3;

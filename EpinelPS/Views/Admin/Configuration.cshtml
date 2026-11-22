@@ -54,4 +54,25 @@
             @if (TempData["EffectBandsSaved"] is string message) { <span role="status">@message</span> }
         </fieldset>
     </form>
+
+    <form asp-action="SaveValueResetTiers" method="post" class="mt-4 text-start">
+        <fieldset>
+            <legend>数值重设 · 15 档概率</legend>
+            <p>每条未锁定的已有词条独立抽取一档。各档可填 0～100%，最多两位小数，合计须为 100%。</p>
+            <span asp-validation-for="ValueResetRates" class="text-danger"></span>
+            <div class="row g-3 mb-3">
+                @for (int i = 0; i < ValueResetTiers.Count; i++)
+                {
+                    <div class="col-6 col-sm-4 col-lg-2">
+                        <label asp-for="ValueResetRates[i]">第 @(i + 1) 档（%）</label>
+                        <input asp-for="ValueResetRates[i]" asp-format="{0:0.##}" type="number" min="0" max="100" step="0.01" required class="form-control" />
+                        <span asp-validation-for="ValueResetRates[i]" class="text-danger"></span>
+                    </div>
+                }
+            </div>
+            <button type="submit" class="btn btn-primary">保存数值重设概率</button>
+            <button type="submit" name="restoreDefaults" value="true" formnovalidate class="btn btn-outline-secondary">恢复数值重设默认概率</button>
+            @if (TempData["ValueResetSaved"] is string resetMessage) { <span role="status">@resetMessage</span> }
+        </fieldset>
+    </form>
 </div>

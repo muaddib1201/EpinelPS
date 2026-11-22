@@ -91,14 +91,15 @@ public partial class AdminController(ILogger<AdminController> logger, TimeProvid
     {
         if (!CheckAuth(HttpContext)) return Redirect("/admin/");
 
-        ServerConfiguration model = new()
-        {
-            LogType = JsonDb.Instance.LogLevel,
-            EffectBands = JsonDb.Instance.EffectChangeBands ?? new()
-        };
-
-        return View(model);
+        return View(CurrentConfiguration());
     }
+
+    private static ServerConfiguration CurrentConfiguration() => new()
+    {
+        LogType = JsonDb.Instance.LogLevel,
+        EffectBands = JsonDb.Instance.EffectChangeBands ?? new(),
+        ValueResetRates = JsonDb.Instance.ValueResetTierRates ?? ValueResetTiers.DefaultRates()
+    };
 
     [Route("Configuration"), ActionName("Configuration")]
     [HttpPost]
@@ -107,7 +108,7 @@ public partial class AdminController(ILogger<AdminController> logger, TimeProvid
         if (!CheckAuth(HttpContext)) return Redirect("/admin/");
 
         if (!ModelState.IsValid)
-            return View(new ServerConfiguration { LogType = cfg.LogType, EffectBands = JsonDb.Instance.EffectChangeBands ?? new() });
+            return View(CurrentConfiguration());
 
         JsonDb.Instance.LogLevel = cfg.LogType;
         JsonDb.Save();
@@ -121,7 +122,11 @@ public partial class AdminController(ILogger<AdminController> logger, TimeProvid
     {
         if (!CheckAuth(HttpContext)) return Redirect("/admin/");
         if (!restoreDefaults && !ModelState.IsValid)
-            return View("Configuration", new ServerConfiguration { LogType = JsonDb.Instance.LogLevel, EffectBands = bands });
+        {
+            var model = CurrentConfiguration();
+            model.EffectBands = bands;
+            return View("Configuration", model);
+        }
 
         lock (JsonDb.SaveLock)
         {
@@ -132,6 +137,29 @@ public partial class AdminController(ILogger<AdminController> logger, TimeProvid
             catch { db.EffectChangeBands = previous; throw; }
         }
         TempData["EffectBandsSaved"] = restoreDefaults ? "已恢复默认档位。" : "已保存，下次效果变更时生效。";
+        return RedirectToAction(nameof(Configuration));
+    }
+
+    [HttpPost("Configuration/ValueResetTiers")]
+    [ValidateAntiForgeryToken]
+    public IActionResult SaveValueResetTiers([FromForm] decimal[] valueResetRates, bool restoreDefaults = false)
+    {
+        if (!CheckAuth(HttpContext)) return Redirect("/admin/");
+        if (!restoreDefaults && (!ModelState.IsValid || !ValueResetTiers.IsValid(valueResetRates)))
+        {
+            ModelState.AddModelError(nameof(ServerConfiguration.ValueResetRates), "请填写全部 15 档，概率均为 0～100%，最多两位小数，合计必须为 100%。");
+            return View("Configuration", CurrentConfiguration());
+        }
+
+        lock (JsonDb.SaveLock)
+        {
+            var db = JsonDb.Instance;
+            var previous = db.ValueResetTierRates;
+            db.ValueResetTierRates = restoreDefaults ? null : valueResetRates;
+            try { JsonDb.Save(); }
+            catch { db.ValueResetTierRates = previous; throw; }
+        }
+        TempData["ValueResetSaved"] = restoreDefaults ? "已恢复数值重设默认概率。" : "已保存，下次数值重设时生效。";
         return RedirectToAction(nameof(Configuration));
     }
 
