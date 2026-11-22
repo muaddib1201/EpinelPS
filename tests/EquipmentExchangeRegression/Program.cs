@@ -1,3 +1,4 @@
+using LockRequest = EpinelPS.AwakeningOptionLockReserveRequest;
 using System.Reflection;
 using EpinelPS;
 using EpinelPS.Data;
@@ -135,8 +136,101 @@ foreach (var (isn, csn, count, name) in new[]
         Check(rejected, "invalid exchange returned a successful response");
     });
 
+const int chargeEffect = 7000904, critEffect = 7001204; // Screenshot: 6.88% and 9.58%.
+const int module = 7080001, key = 7080002;
+foreach (bool valuesOnly in new[] { false, true })
+foreach (bool accept in new[] { false, true })
+    await Run($"one-shot slot 2: valuesOnly={valuesOnly}, accept={accept}, reconnect and retry", async () =>
+    {
+        PrepareRoll();
+        var result = await RollSecond(valuesOnly);
+        Check(result.Option.Option2Id == critEffect, "one-shot lock lost the exact 9.58% effect ID");
+        Check(!result.Option.Option2Lock && !result.Option.IsOption2DisposableLock, "one-shot lock survived its roll");
+        var critGroup = data.EquipmentOptionTable.Values.Where(r => r.StateEffectList.Any(s => s.StateEffectId == critEffect))
+            .Select(r => r.StateEffectGroupId).First();
+        var critIds = data.EquipmentOptionTable.Values.Where(r => r.StateEffectGroupId == critGroup)
+            .SelectMany(r => r.StateEffectList).Select(s => s.StateEffectId).ToHashSet();
+        Check(!critIds.Contains(result.Option.Option1Id) && !critIds.Contains(result.Option.Option3Id),
+            "an unlocked slot duplicated the locked effect group");
+        Check(Balance(module) == 8 && Balance(key) == 80 && result.Items.Count == 2, "wrong material charge or missing client deltas");
+        Persisted();
+        var detail = await Send("equipment/getawakeningdetail", new ReqGetAwakeningDetail { Isn = 202 }, ResGetAwakeningDetail.Parser);
+        Check(detail.NewOption.Equals(result.Option) && detail.CurrentOption.Option2Id == critEffect, "reconnect lost the pending comparison");
+        var retry = await RollSecond(valuesOnly);
+        Check(result.Option.Equals(retry.Option) && Balance(module) == 8 && Balance(key) == 80, "retry rerolled or charged twice");
+        var chosen = await Choose(accept);
+        Check(chosen.Awakening.Option.Equals(accept ? result.Option : detail.CurrentOption), "keep/apply chose the wrong options");
+        Persisted();
+        Check(Current().EquipmentAwakenings.Count == 1 && Current().EquipmentAwakenings[0].Option.Option2Id == critEffect,
+            "saved equipment lost the selected effect");
+        await Send("equipment/upgradeoption", new ReqAwakeningUpgradeOption { Isn = 202 }, ResAwakeningUpgradeOption.Parser);
+        Check(Balance(module) == 7 && Balance(key) == 80, "one-shot lock incorrectly charged on the next roll");
+    });
+
+await Run("permanent and disposable reservations protect two slots at their configured rates", async () =>
+{
+    PrepareRoll();
+    var r = await Send("equipment/resetoption", new ReqAwakeningResetOption
+    {
+        Isn = 202, Slot1 = LockRequest.ReservePermanentLock, Slot2 = LockRequest.ReserveDisposableLock
+    }, ResAwakeningResetOption.Parser);
+    Check(r.ResetOption.Option1Id == chargeEffect && r.ResetOption.Option1Lock &&
+        r.ResetOption.Option2Id == critEffect && !r.ResetOption.Option2Lock, "mixed lock types did not preserve the chosen slots");
+    Check(Balance(module) == 5 && Balance(key) == 70, "mixed lock pricing should be 2+3 modules and 30 keys");
+    await Choose(false);
+    var next = await Send("equipment/resetoption", new ReqAwakeningResetOption { Isn = 202 }, ResAwakeningResetOption.Parser);
+    Check(next.ResetOption.Option1Lock && next.ResetOption.Option1Id == chargeEffect &&
+        Balance(module) == 3 && Balance(key) == 70, "existing permanent lock was lost or charged a second setup fee");
+});
+
+await Run("two disposable locks use successive key prices and aggregate split stacks", async () =>
+{
+    PrepareRoll();
+    Current().Items.Single(x => x.ItemType == key).Count = 10;
+    Current().Items.Add(new DbItemData { Isn = 606, ItemType = key, Count = 40 });
+    var r = await Send("equipment/resetoption", new ReqAwakeningResetOption
+    {
+        Isn = 202, Slot1 = LockRequest.ReserveDisposableLock, Slot2 = LockRequest.ReserveDisposableLock
+    }, ResAwakeningResetOption.Parser);
+    Check(r.ResetOption.Option1Id == chargeEffect && r.ResetOption.Option2Id == critEffect, "multiple protected slots changed");
+    Check(Balance(key) == 0 && Balance(module) == 7 && r.Items.Count(x => x.Count == 0 && x.Tid == key) == 2,
+        "20+30 keys or split stack deltas were wrong");
+});
+
+foreach (bool shortOfKeys in new[] { true, false })
+    await Run($"insufficient {(shortOfKeys ? "keys" : "modules")} leaves options and both materials intact", async () =>
+    {
+        PrepareRoll();
+        Current().Items.Single(x => x.ItemType == (shortOfKeys ? key : module)).Count = shortOfKeys ? 19 : 1;
+        string before = Snapshot();
+        var result = await RollSecond(false);
+        Check(result.Option == null && result.Items.Count == 0 && Snapshot() == before, "partial charge or pending candidate on refusal");
+    });
+
+await Run("old one-shot flags on slot 3 protect the first roll and then clear", async () =>
+{
+    PrepareRoll();
+    var option = Current().EquipmentAwakenings.Single().Option;
+    option.Option3Id = critEffect;
+    option.Option2Id = 0;
+    option.IsOption3DisposableLock = true;
+    var result = await Send("equipment/resetoption", new ReqAwakeningResetOption { Isn = 202 }, ResAwakeningResetOption.Parser);
+    Check(result.ResetOption.Option3Id == critEffect && !result.ResetOption.IsOption3DisposableLock, "legacy lock rerolled");
+    await Choose(false);
+    Check(!Current().EquipmentAwakenings.Single().Option.IsOption3DisposableLock, "keep retained a spent legacy lock");
+});
+
+await Run("reserve on an empty slot cannot consume currency or roll the equipment", async () =>
+{
+    PrepareRoll();
+    string before = Snapshot();
+    var r = await Send("equipment/upgradeoption", new ReqAwakeningUpgradeOption { Isn = 202, Slot3 = LockRequest.ReserveDisposableLock },
+        ResAwakeningUpgradeOption.Parser);
+    Check(r.ResetOption == null && Snapshot() == before, "empty lock request mutated state");
+});
+
 if (failures.Count > 0) throw new Exception($"FAIL: {string.Join("; ", failures)}");
-Console.WriteLine($"PASS: {passed} equipment exchange scenarios");
+Console.WriteLine($"PASS: {passed} equipment scenarios");
 
 void Reset(int tid, int position, int count = 1)
 {
@@ -166,15 +260,44 @@ void Persisted()
     reload.Invoke(null, null);
     Check(Snapshot() == expected, "server equipment did not survive save/reload");
 }
-async Task<ResWearEquipment> Wear(long isn, long csn = 1001)
+void PrepareRoll()
+{
+    Reset(3111001, 0);
+    var user = Current();
+    user.EquipmentAwakenings.Add(new EquipmentAwakeningData
+    {
+        Isn = 202, Option = new NetEquipmentAwakeningOption { Option1Id = chargeEffect, Option2Id = critEffect }
+    });
+    user.Items.Add(new DbItemData { Isn = 404, ItemType = module, Count = 10 });
+    user.Items.Add(new DbItemData { Isn = 505, ItemType = key, Count = 100 });
+}
+int Balance(int tid) => Current().Items.Where(x => x.ItemType == tid).Sum(x => x.Count);
+Task<ResAwakeningChangeOption> Choose(bool accept) => Send("equipment/changeoption",
+    new ReqAwakeningChangeOption { Isn = 202, IsChanged = accept }, ResAwakeningChangeOption.Parser);
+async Task<(NetEquipmentAwakeningOption Option, IList<NetUserItemData> Items)> RollSecond(bool valuesOnly)
+{
+    if (valuesOnly)
+    {
+        var r = await Send("equipment/upgradeoption", new ReqAwakeningUpgradeOption { Isn = 202, Slot2 = LockRequest.ReserveDisposableLock },
+            ResAwakeningUpgradeOption.Parser);
+        return (r.ResetOption, r.Items);
+    }
+    var reset = await Send("equipment/resetoption", new ReqAwakeningResetOption { Isn = 202, Slot2 = LockRequest.ReserveDisposableLock },
+        ResAwakeningResetOption.Parser);
+    return (reset.ResetOption, reset.Items);
+}
+
+Task<ResWearEquipment> Wear(long isn, long csn = 1001) => Send("wearequipment",
+    new ReqWearEquipment { Isn = isn, Csn = csn }, ResWearEquipment.Parser);
+async Task<T> Send<T>(string operation, IMessage request, MessageParser<T> parser) where T : IMessage<T>
 {
     var context = new DefaultHttpContext { RequestServices = services };
     context.Items["UserID"] = 990001UL;
-    context.Request.Path = "/v1/inventory/wearequipment";
-    context.Request.Body = new MemoryStream(new ReqWearEquipment { Isn = isn, Csn = csn }.ToByteArray());
+    context.Request.Path = "/v1/inventory/" + operation;
+    context.Request.Body = new MemoryStream(request.ToByteArray());
     context.Response.Body = new MemoryStream();
     await LobbyHandler.DispatchSingle(context);
-    return ResWearEquipment.Parser.ParseFrom(((MemoryStream)context.Response.Body).ToArray());
+    return parser.ParseFrom(((MemoryStream)context.Response.Body).ToArray());
 }
 void Check(bool condition, string message)
 {

@@ -1,7 +1,5 @@
 using EpinelPS.Data;
-using EpinelPS.Database;
 using EpinelPS.Utils;
-
 
 namespace EpinelPS.LobbyServer.Inventory;
 
@@ -11,249 +9,18 @@ public class ResetOption : LobbyMessage
     protected override async Task HandleAsync()
     {
         ReqAwakeningResetOption req = await ReadData<ReqAwakeningResetOption>();
-        User user = GetUser();
-
-        ResAwakeningResetOption response = new();
-
-        EquipmentAwakeningData? awakening = user.EquipmentAwakenings.FirstOrDefault(x => x.Isn == req.Isn);
-        if (awakening == null)
-        {
-            await WriteDataAsync(response);
-            return;
-        }
-
-        NetEquipmentAwakeningOption resetOption = new();
-        Random random = new();
-
-        (int optionId, bool isLocked, bool isDisposableLocked)[] slotLockInfo = new (int optionId, bool isLocked, bool isDisposableLocked)[3];
-        List<int> lockedOptionStateEffectIds = new();
-
-        int lockedOptionCount = 0;
-        for (int i = 1; i <= 3; i++)
-        {
-            int currentOptionId = GetOptionIdForSlot(awakening.Option, i);
-            bool isLocked = IsOptionLocked(awakening.Option, i);
-            bool isDisposableLocked = IsOptionDisposableLocked(awakening.Option, i);
-
-            slotLockInfo[i - 1] = (currentOptionId, isLocked, isDisposableLocked);
-
-            // Count locked options for material cost calculation
-            if (isLocked || isDisposableLocked)
-                lockedOptionCount++;
-
-            // Collect locked options for exclusion list
-            if (isLocked && currentOptionId != 0)
-            {
-                AddOptionToExclusionList(currentOptionId, lockedOptionStateEffectIds);
-            }
-        }
-
-        int costId = GetCostIdByLockedOptionCount(lockedOptionCount);
-
-        (int materialId, int materialCost) = GetMaterialInfo(costId);
-
-        // Check if user has enough materials
-        DbItemData? material = user.Items.FirstOrDefault(x => x.ItemType == materialId);
-        if (material == null || material.Count < materialCost)
-        {
-            Logging.WriteLine($"Insufficient materials for reset operation. Need {materialCost} of item {materialId}, but have {material?.Count ?? 0}", LogType.Warning);
-            await WriteDataAsync(response);
-            return;
-        }
-
-        // Deduct materials for reset
-        if (!EquipmentUtils.DeductMaterials(material, materialCost, user, response.Items))
-        {
-            Logging.WriteLine($"Insufficient materials for reset operation. Need {materialCost} of item {materialId}, but have {material?.Count ?? 0}", LogType.Warning);
-            await WriteDataAsync(response);
-            return;
-        }
-
-        // Process each option slot (1, 2, 3)
-        ProcessOptionSlots(awakening, resetOption, slotLockInfo, lockedOptionStateEffectIds);
-
-        // Create a new awakening entry with the same ISN to preserve the old data
-        EquipmentAwakeningData newAwakening = new()
-        {
-            Isn = awakening.Isn,
-            Option = new NetEquipmentAwakeningOption()
-            {
-                Option1Id = resetOption.Option1Id,
-                Option1Lock = resetOption.Option1Lock,
-                IsOption1DisposableLock = resetOption.IsOption1DisposableLock,
-                Option2Id = resetOption.Option2Id,
-                Option2Lock = resetOption.Option2Lock,
-                IsOption2DisposableLock = resetOption.IsOption2DisposableLock,
-                Option3Id = resetOption.Option3Id,
-                Option3Lock = resetOption.Option3Lock,
-                IsOption3DisposableLock = resetOption.IsOption3DisposableLock
-            },
-            IsNewData = true
-        };
-
-        user.EquipmentAwakenings.Add(newAwakening);
-
-        // Add the reset options to the response
-        response.ResetOption = new NetEquipmentAwakeningOption()
-        {
-            Option1Id = resetOption.Option1Id,
-            Option1Lock = resetOption.Option1Lock,
-            IsOption1DisposableLock = resetOption.IsOption1DisposableLock,
-            Option2Id = resetOption.Option2Id,
-            Option2Lock = resetOption.Option2Lock,
-            IsOption2DisposableLock = resetOption.IsOption2DisposableLock,
-            Option3Id = resetOption.Option3Id,
-            Option3Lock = resetOption.Option3Lock,
-            IsOption3DisposableLock = resetOption.IsOption3DisposableLock
-        };
-
-        JsonDb.Save();
-
+        var response = new ResAwakeningResetOption();
+        response.ResetOption = EquipmentOptionRoll.Roll(GetUser(), req.Isn,
+            [req.Slot1, req.Slot2, req.Slot3], response.Items, RollEffect);
         await WriteDataAsync(response);
     }
 
-
-    private void ProcessOptionSlots(EquipmentAwakeningData awakening, NetEquipmentAwakeningOption resetOption, (int optionId, bool isLocked, bool isDisposableLocked)[] slotLockInfo, List<int> lockedOptionStateEffectIds)
+    private int RollEffect(int slot, int currentId, List<int> excluded)
     {
-        Random random = new();
-        // 1.0 = 100% chance for slot 1, 0.5 = 50% chance for slot 2, 0.3 = 30% chance for slot 3
-        double[] slotActivationProbabilities = { 1.0, 0.5, 0.3 };
-
-        for (int i = 1; i <= 3; i++)
-        {
-            (int currentOptionId, bool isLocked, bool isDisposableLocked) = slotLockInfo[i - 1];
-
-            if (isLocked && !isDisposableLocked)
-            {
-                SetOptionForSlot(resetOption, i, currentOptionId, true, false);
-            }
-            else if (isLocked && isDisposableLocked)
-            {
-                SetOptionForSlot(resetOption, i, currentOptionId, false, false);
-
-                UnlockDisposableOption(awakening.Option, i);
-            }
-            else
-            {
-                bool shouldActivateSlot = random.NextDouble() < slotActivationProbabilities[i - 1];
-
-                if (shouldActivateSlot)
-                {
-                    // Generate new option using non-repeating system with dynamic probability
-                    int newOptionId = GenerateNewOptionIdWithDynamicProbability(lockedOptionStateEffectIds);
-                    SetOptionForSlot(resetOption, i, newOptionId, false, false);
-
-                    // Add the new option to locked list to prevent duplicates in subsequent slots
-                    if (newOptionId != 0)
-                    {
-                        AddOptionToExclusionList(newOptionId, lockedOptionStateEffectIds);
-                    }
-                }
-                else
-                {
-                    SetOptionForSlot(resetOption, i, 0, false, false);
-                }
-            }
-        }
+        double chance = slot switch { 0 => 1.0, 1 => 0.5, _ => 0.3 };
+        return Random.Shared.NextDouble() < chance ? GenerateNewOptionIdWithDynamicProbability(excluded) : 0;
     }
 
-    private void UnlockDisposableOption(NetEquipmentAwakeningOption option, int slot)
-    {
-        SetOptionForSlot(option, slot, GetOptionIdForSlot(option, slot), false, false);
-    }
-
-    private int GetCostIdByLockedOptionCount(int lockedOptionCount)
-    {
-        if (lockedOptionCount == 0)
-        {
-            return 100001;
-        }
-
-        EquipmentOptionCostRecord? costRecord = GameData.Instance.EquipmentOptionCostTable.Values
-            .FirstOrDefault(x => x.CostGroupId == 200 && x.CostLevel == lockedOptionCount);
-
-        return costRecord?.CostId ?? 100001;
-    }
-
-
-    private int GetOptionIdForSlot(NetEquipmentAwakeningOption option, int slot)
-    {
-        return slot switch
-        {
-            1 => option.Option1Id,
-            2 => option.Option2Id,
-            3 => option.Option3Id,
-            _ => 0
-        };
-    }
-
-
-    private bool IsOptionLocked(NetEquipmentAwakeningOption option, int slot)
-    {
-        return slot switch
-        {
-            1 => option.Option1Lock,
-            2 => option.Option2Lock,
-            3 => option.Option3Lock,
-            _ => false
-        };
-    }
-
-    private bool IsOptionDisposableLocked(NetEquipmentAwakeningOption option, int slot)
-    {
-        return slot switch
-        {
-            1 => option.IsOption1DisposableLock,
-            2 => option.IsOption2DisposableLock,
-            3 => option.IsOption3DisposableLock,
-            _ => false
-        };
-    }
-
-    private void SetOptionForSlot(NetEquipmentAwakeningOption option, int slot, int optionId, bool locked, bool disposableLocked)
-    {
-        switch (slot)
-        {
-            case 1:
-                option.Option1Id = optionId;
-                option.Option1Lock = locked;
-                option.IsOption1DisposableLock = disposableLocked;
-                break;
-            case 2:
-                option.Option2Id = optionId;
-                option.Option2Lock = locked;
-                option.IsOption2DisposableLock = disposableLocked;
-                break;
-            case 3:
-                option.Option3Id = optionId;
-                option.Option3Lock = locked;
-                option.IsOption3DisposableLock = disposableLocked;
-                break;
-        }
-    }
-
-
-    private void AddOptionToExclusionList(int optionId, List<int> lockedOptionStateEffectIds)
-    {
-        // Since optionId is already a state_effect_id, we can directly add it to the exclusion list
-        if (!lockedOptionStateEffectIds.Contains(optionId))
-        {
-            lockedOptionStateEffectIds.Add(optionId);
-
-            // Also get the effect group ID for this state_effect_id to exclude the effect group
-            EquipmentOptionRecord? optionRecord = GameData.Instance.EquipmentOptionTable.Values
-                .FirstOrDefault(opt => opt.StateEffectList != null && opt.StateEffectList.Any(se => se.StateEffectId == optionId));
-        }
-    }
-
-
-
-
-    /// <summary>
-    /// Generates a new option ID using the Overload system's non-repeating effect types and dynamic probability formula
-    /// </summary>
-    /// <param name="excludedStateEffectIds">List of state_effect_ids that are already taken and should be excluded</param>
-    /// <returns>A new state_effect_id or 0 if none available</returns>
     private int GenerateNewOptionIdWithDynamicProbability(List<int> excludedStateEffectIds)
     {
         // Get all awakening options (equipment_option_group_id == 100000)
@@ -458,16 +225,5 @@ public class ResetOption : LobbyMessage
         }
         int fallbackIndex = _random.Next(lastOption.StateEffectList.Count);
         return lastOption.StateEffectList[fallbackIndex].StateEffectId;
-    }
-
-    private static (int materialId, int materialCost) GetMaterialInfo(int costId)
-    {
-        if (GameData.Instance.costTable.TryGetValue(costId, out CostRecord? costRecord) &&
-            costRecord?.Costs != null &&
-            costRecord.Costs.Count > 0)
-        {
-            return (costRecord.Costs[0].ItemId, costRecord.Costs[0].ItemValue);
-        }
-        return (7080001, 1); // Default material ID and cost
     }
 }
