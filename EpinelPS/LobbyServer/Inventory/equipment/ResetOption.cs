@@ -1,4 +1,5 @@
 using EpinelPS.Data;
+using EpinelPS.Database;
 using EpinelPS.Utils;
 
 namespace EpinelPS.LobbyServer.Inventory;
@@ -196,6 +197,15 @@ public class ResetOption : LobbyMessage
         // Safety check to prevent data corruption
         if (options == null || options.Count == 0)
             throw new InvalidOperationException("No options available in group - this indicates a data consistency issue");
+
+        if (JsonDb.Instance.EffectChangeBands is { } bands)
+        {
+            int level = bands.DrawLevel(Random.Shared);
+            var matches = options.SelectMany(option => option.StateEffectList)
+                .Where(effect => effect.StateEffectLevel == level).ToArray();
+            if (matches.Length == 0) throw new InvalidDataException($"Missing equipment effect level {level}");
+            return matches[Random.Shared.Next(matches.Length)].StateEffectId;
+        }
 
         long totalRatio = options.Sum(x => (long)x.OptionRatio);
 

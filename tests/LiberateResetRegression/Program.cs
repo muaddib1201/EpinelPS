@@ -106,6 +106,34 @@ var cookies = new CookieContainer();
 using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, CookieContainer = cookies }) { BaseAddress = new Uri(app.Urls.Single()) };
 Check((await (await http.PostAsJsonAsync("/adminapi/login", new { username = "tester", password = "local-test" }))
     .Content.ReadFromJsonAsync<EpinelPS.Models.Admin.LoginApiResponse>())?.OK == true, "fixture login failed");
+// Exercise the equipment probability form through MVC binding, persistence and reset.
+const string bandsPage = "/admin/Configuration";
+const string bandsUrl = "/admin/Configuration/EffectChangeBands";
+var form = await http.GetStringAsync(bandsPage);
+Check(form.Contains(bandsUrl) && form.Contains("EffectBands.MiddleEnd"), "equipment band editor is missing");
+var bandToken = Regex.Match(form, "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"").Groups[1].Value;
+CoreInfo Settings() => (CoreInfo)jsonDb.GetProperty("Instance")!.GetValue(null)!;
+async Task<HttpStatusCode> SaveBands(string lowEnd, string middleEnd, string lowRate, string midRate, string highRate, bool restore = false)
+{
+    using var response = await http.PostAsync(bandsUrl, new FormUrlEncodedContent([
+        new("__RequestVerificationToken", bandToken), new("restoreDefaults", restore.ToString()),
+        new("EffectBands.LowEnd", lowEnd), new("EffectBands.MiddleEnd", middleEnd),
+        new("EffectBands.LowPercent", lowRate), new("EffectBands.MiddlePercent", midRate), new("EffectBands.HighPercent", highRate)
+    ]));
+    return response.StatusCode;
+}
+Check(await SaveBands("2","13","0.01","49.99","50") == HttpStatusCode.Redirect, "valid percent and cutoff update rejected");
+Reload();
+Check(Settings().EffectChangeBands is { LowEnd: 2, MiddleEnd: 13, LowPercent: 0.01m, MiddlePercent: 49.99m, HighPercent: 50m },
+    "wrong band values after save and reload");
+foreach (var invalid in new[] { ("5","5","60","35","5"), ("2","14","60","35","6"), ("2","15","60","35","5"), ("2","14","0.001","49.999","50") })
+    Check(await SaveBands(invalid.Item1, invalid.Item2, invalid.Item3, invalid.Item4, invalid.Item5) == HttpStatusCode.OK &&
+        Settings().EffectChangeBands?.MiddleEnd == 13, "invalid bands changed the saved configuration");
+Check(await SaveBands("x","x","x","x","x",restore:true) == HttpStatusCode.Redirect, "restore should ignore invalid edits");
+Reload();
+Check(Settings().EffectChangeBands == null, "restore did not return to the static game rates");
+Console.WriteLine("PASS: web admin equipment bands validate, persist decimals, and restore defaults");
+
 var html = await http.GetStringAsync($"/admin/Users/Modify/{target}");
 var token = Regex.Match(html, "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"").Groups[1].Value;
 var path = $"/admin/Users/ResetLiberate/{target}";

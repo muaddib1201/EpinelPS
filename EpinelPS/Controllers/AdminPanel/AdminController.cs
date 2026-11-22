@@ -1,4 +1,4 @@
-﻿using EpinelPS.Database;
+using EpinelPS.Database;
 using EpinelPS.Data;
 using EpinelPS.Models.Admin;
 using EpinelPS.Utils;
@@ -93,7 +93,8 @@ public partial class AdminController(ILogger<AdminController> logger, TimeProvid
 
         ServerConfiguration model = new()
         {
-            LogType = JsonDb.Instance.LogLevel
+            LogType = JsonDb.Instance.LogLevel,
+            EffectBands = JsonDb.Instance.EffectChangeBands ?? new()
         };
 
         return View(model);
@@ -106,11 +107,32 @@ public partial class AdminController(ILogger<AdminController> logger, TimeProvid
         if (!CheckAuth(HttpContext)) return Redirect("/admin/");
 
         if (!ModelState.IsValid)
-            return View();
+            return View(new ServerConfiguration { LogType = cfg.LogType, EffectBands = JsonDb.Instance.EffectChangeBands ?? new() });
 
         JsonDb.Instance.LogLevel = cfg.LogType;
         JsonDb.Save();
-        return View(new ServerConfiguration() { LogType = cfg.LogType });
+        return RedirectToAction(nameof(Configuration));
+    }
+
+
+    [HttpPost("Configuration/EffectChangeBands")]
+    [ValidateAntiForgeryToken]
+    public IActionResult SaveEffectChangeBands([Bind(Prefix = "EffectBands")] EffectChangeBands bands, bool restoreDefaults = false)
+    {
+        if (!CheckAuth(HttpContext)) return Redirect("/admin/");
+        if (!restoreDefaults && !ModelState.IsValid)
+            return View("Configuration", new ServerConfiguration { LogType = JsonDb.Instance.LogLevel, EffectBands = bands });
+
+        lock (JsonDb.SaveLock)
+        {
+            var db = JsonDb.Instance;
+            var previous = db.EffectChangeBands;
+            db.EffectChangeBands = restoreDefaults ? null : bands;
+            try { JsonDb.Save(); }
+            catch { db.EffectChangeBands = previous; throw; }
+        }
+        TempData["EffectBandsSaved"] = restoreDefaults ? "已恢复默认档位。" : "已保存，下次效果变更时生效。";
+        return RedirectToAction(nameof(Configuration));
     }
 
     [Route("Mail")]

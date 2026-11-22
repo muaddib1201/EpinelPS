@@ -229,6 +229,35 @@ await Run("reserve on an empty slot cannot consume currency or roll the equipmen
     Check(r.ResetOption == null && Snapshot() == before, "empty lock request mutated state");
 });
 
+await Run("effect change uses the global tier bands and preserves a one-shot lock", async () =>
+{
+    PrepareRoll();
+    var state = (CoreInfo)dbProperty.GetValue(null)!;
+    Check(state.EffectChangeBands == null, "a legacy save should use the static data");
+    state.EffectChangeBands = new EffectChangeBands { LowEnd = 1, MiddleEnd = 14, LowPercent = 0, MiddlePercent = 0, HighPercent = 100 };
+    save.Invoke(null, null);
+    reload.Invoke(null, null);
+    var response = await RollSecond(false);
+    var maximumIds = data.EquipmentOptionTable.Values.Where(x => x.EquipmentOptionGroupId == 100000)
+        .SelectMany(x => x.StateEffectList).Where(x => x.StateEffectLevel == 15).Select(x => x.StateEffectId).ToHashSet();
+    Check(maximumIds.Contains(response.Option.Option1Id) && response.Option.Option2Id == critEffect &&
+        (response.Option.Option3Id == 0 || maximumIds.Contains(response.Option.Option3Id)), "custom bands or the protected slot were ignored");
+    await Choose(false);
+});
+
+await Run("all probability tickets follow custom boundaries including zero and fractional rates", () =>
+{
+    var bands = new EffectChangeBands { LowEnd = 2, MiddleEnd = 13, LowPercent = 0.01m, MiddlePercent = 49.99m, HighPercent = 50m };
+    for (int ticket = 0; ticket < 10000; ticket++)
+    {
+        int first = bands.DrawLevel(new BandTicket(ticket, false));
+        int last = bands.DrawLevel(new BandTicket(ticket, true));
+        var expected = ticket == 0 ? (1, 2) : ticket < 5000 ? (3, 13) : (14, 15);
+        Check((first, last) == expected, "wrong tier boundaries at ticket " + ticket);
+    }
+    return Task.CompletedTask;
+});
+
 if (failures.Count > 0) throw new Exception($"FAIL: {string.Join("; ", failures)}");
 Console.WriteLine($"PASS: {passed} equipment scenarios");
 
@@ -307,4 +336,10 @@ async Task Run(string name, Func<Task> check)
 {
     try { await check(); passed++; Console.WriteLine($"PASS: {name}"); }
     catch (Exception e) { failures.Add($"{name}: {e.Message}"); Console.WriteLine($"FAIL: {name}: {e.Message}"); }
+}
+
+sealed class BandTicket(int ticket, bool upper) : Random
+{
+    public override int Next(int maxValue) => ticket;
+    public override int Next(int minValue, int maxValue) => upper ? maxValue - 1 : minValue;
 }

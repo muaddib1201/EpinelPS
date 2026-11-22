@@ -24,6 +24,8 @@ public class CoreInfo
     public int DbVersion { get; set; } = 5;
     public bool BondRewardLevelsMigrated { get; set; }
     public byte[] EncryptionTokenKey { get; set; } = [];
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public EffectChangeBands? EffectChangeBands { get; set; }
     public LogType LogLevel { get; set; } = LogType.Debug;
 
     public int MaxInterceptionCount { get; set; } = 3;

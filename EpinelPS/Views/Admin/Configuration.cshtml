@@ -19,4 +19,39 @@
             <button type="submit" class="btn btn-primary" data-i18n="common.save"></button>
         </div>
     </form>
+
+    <form asp-action="SaveEffectChangeBands" method="post" class="mt-4 text-start">
+        <fieldset>
+            <legend>效果变更 · 词条数值档位</legend>
+            <p>全服共用。每条重新抽取的词条先按概率选区间，再在区间内等概率选一档。三个区间连续覆盖第 1～15 档，概率合计须为 100%。</p>
+            <div asp-validation-summary="All" class="text-danger"></div>
+            <div class="row g-3 mb-3">
+                <div class="col-sm-6">
+                    <label asp-for="EffectBands.LowEnd">低档上限</label>
+                    <input asp-for="EffectBands.LowEnd" class="form-control" type="number" min="1" max="13" required />
+                </div>
+                <div class="col-sm-6">
+                    <label asp-for="EffectBands.MiddleEnd">中档上限</label>
+                    <input asp-for="EffectBands.MiddleEnd" class="form-control" type="number" min="2" max="14" required />
+                </div>
+            </div>
+            <div class="row g-3 mb-3">
+                <div class="col-sm-4">
+                    <label asp-for="EffectBands.LowPercent">低档概率（%）</label>
+                    <input asp-for="EffectBands.LowPercent" class="form-control" type="number" min="0" max="100" step="0.01" required />
+                </div>
+                <div class="col-sm-4">
+                    <label asp-for="EffectBands.MiddlePercent">中档概率（%）</label>
+                    <input asp-for="EffectBands.MiddlePercent" class="form-control" type="number" min="0" max="100" step="0.01" required />
+                </div>
+                <div class="col-sm-4">
+                    <label asp-for="EffectBands.HighPercent">高档概率（%）</label>
+                    <input asp-for="EffectBands.HighPercent" class="form-control" type="number" min="0" max="100" step="0.01" required />
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">保存档位设置</button>
+            <button type="submit" name="restoreDefaults" value="true" formnovalidate class="btn btn-outline-secondary">恢复默认概率与分界</button>
+            @if (TempData["EffectBandsSaved"] is string message) { <span role="status">@message</span> }
+        </fieldset>
+    </form>
 </div>
