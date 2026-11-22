@@ -24,6 +24,11 @@ internal static class MiracleSnowRecruitment
     // Pools whose banner/page assets are missing from the current client.
     private static readonly HashSet<int> MissingClientArt = [101, 102];
 
+    // Pools the operator has ended early. They stay registered so pull requests are still rejected,
+    // and their saved periods are kept, but they are never advertised or opened again.
+    //  10090: winter select-up closed on 2026-11-22 at the operator's request.
+    private static readonly HashSet<int> Closed = [10090];
+
     // The current client has no "event_old" sprite table, so advertising 101/102 leaves the Home view
     // stuck while it builds lobby banners. Keep those two offline (saved periods untouched) until matching
     // client resources are available. Pools with complete client assets are not affected.
@@ -41,7 +46,7 @@ internal static class MiracleSnowRecruitment
 
     internal static bool IsScheduledPool(int poolId) => Events.ContainsKey(poolId);
     internal static bool IsScheduledEvent(int eventId) => Events.ContainsValue(eventId);
-    private static bool IsBlocked(int poolId) => Suspended && MissingClientArt.Contains(poolId);
+    private static bool IsBlocked(int poolId) => Closed.Contains(poolId) || (Suspended && MissingClientArt.Contains(poolId));
 
     internal static bool IsOpen(int poolId, DateTime nowUtc) =>
         !IsBlocked(poolId) && JsonDb.Instance.MiracleSnowRecruitment?.GetValueOrDefault(poolId)?.IsOpen(nowUtc) == true;

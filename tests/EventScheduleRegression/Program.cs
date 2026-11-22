@@ -312,21 +312,22 @@ await Test("scheduled pickups send only their own events with fixed, independent
             var joined = await Joined();
             var gacha = ResGetGachaData.Parser.ParseFrom(await Send(new GetGacha(), new ReqGetGachaData()));
             bool active = instant >= start && instant < start.AddDays(21);
-            foreach (var (poolId, eventId) in new[] { (101, 70005), (102, 70006), (10090, 70150) })
+            // 10090 was closed early by the operator: it stays hidden even inside its saved period.
+            foreach (var (poolId, eventId, open) in new[] { (101, 70005, active), (102, 70006, active), (10090, 70150, false) })
             {
-                Check(gacha.Gacha.Count(g => g.GachaType == poolId) == (active ? 1 : 0), "incorrect recruit page availability");
+                Check(gacha.Gacha.Count(g => g.GachaType == poolId) == (open ? 1 : 0), "incorrect recruit page availability");
                 foreach (var records in new[] { list.EventList.AsEnumerable(), joined.EventWithJoinData.Select(e => e.EventData) })
                 {
                     var entry = records.SingleOrDefault(e => e.Id == eventId);
-                    Check((entry != null) == active, "wrong activation boundary");
+                    Check((entry != null) == open, "wrong activation boundary");
                     if (entry != null) Check(entry.EventSystemType == (int)EventSystemType.PickupGachaEvent &&
                         entry.EventVisibleDate == start.UtcTicks && entry.EventStartDate == start.UtcTicks &&
                         entry.EventEndDate == start.AddDays(21).UtcTicks && entry.EventDisableDate == entry.EventEndDate, "wrong pickup dates");
                 }
             }
             Check(!list.EventList.Any(e => e.Id == 80100 || e.Id == 70007), "a story banner or unrelated legacy pool was enabled");
-            // 10090 opens alone: none of its Coin Rush Showdown group (root 83400) comes with it.
-            Check(!list.EventList.Any(e => e.Id is 83400 or 40121 or 70148 or 70149 or 100051 or 160042), "10090 pulled in its lobby event group");
+            // Closing 10090 must not bring its Coin Rush Showdown group (root 83400) back either.
+            Check(!list.EventList.Any(e => e.Id is 83400 or 40121 or 70148 or 70149 or 100051 or 160042), "10090's lobby event group was enabled");
         }
         state.MiracleSnowRecruitment!.Remove(101);
         clock.Set(start.UtcDateTime);
@@ -336,7 +337,7 @@ await Test("scheduled pickups send only their own events with fixed, independent
     finally { snowSuspended.SetValue(null, true); state.MiracleSnowRecruitment = null; clock.Set(originalClock.UtcDateTime); }
 });
 
-await Test("live upgrade: 10090 gets its own 21 days while suspended 101/102 keep their saved periods and stay hidden", async () =>
+await Test("live upgrade: closed 10090 keeps its saved 21 days but is never advertised; suspended 101/102 keep their periods and stay hidden", async () =>
 {
     var originalClock = clock.GetUtcNow();
     var periods = state.MiracleSnowRecruitment;
@@ -362,13 +363,9 @@ await Test("live upgrade: 10090 gets its own 21 days while suspended 101/102 kee
         foreach (var records in new[] { list.EventList.AsEnumerable(), joined.EventWithJoinData.Select(e => e.EventData) })
         {
             Check(!records.Any(e => e.Id is 70005 or 70006), "suspended legacy pickup advertised");
-            var entry = records.Single(e => e.Id == 70150);
-            Check(entry.EventSystemType == (int)EventSystemType.PickupGachaEvent && entry.EventStartDate == upgradeStart.UtcTicks &&
-                entry.EventEndDate == upgradeStart.AddDays(21).UtcTicks && entry.EventDisableDate == entry.EventEndDate, "wrong 10090 dates");
+            Check(!records.Any(e => e.Id == 70150), "closed 10090 advertised inside its saved period");
         }
-        Check(gacha.Gacha.Count(g => g.GachaType == 10090) == 1 && !gacha.Gacha.Any(g => g.GachaType is 101 or 102), "wrong recruit page pools");
-        Check(gacha.GachaSelectupData.Any(s => s.GachaTypeId == 10090 &&
-            data.GachaSelectupListTable[s.GachaSelectupId].GachaTypeId == 10090), "10090 select-up choice missing");
+        Check(!gacha.Gacha.Any(g => g.GachaType is 10090 or 101 or 102), "a closed or suspended pool is on the recruit page");
 
         clock.Set(upgradeStart.AddDays(21).UtcDateTime);
         var after = await List();
