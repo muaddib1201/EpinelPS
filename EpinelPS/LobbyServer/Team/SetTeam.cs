@@ -32,22 +32,20 @@ public class SetTeam : LobbyMessage
         // sends MuseumStageTable.Id as ContentsId.
         if (req.Type == (int)TeamType.SoloRaidMuseum && req.ContentsId > 0)
         {
-            if (!user.SoloRaidMuseumData.TryGetValue(req.ContentsId, out var museumStage))
+            lock (JsonDb.SaveLock)
             {
-                museumStage = new SoloRaidMuseumStageData { StageId = req.ContentsId };
-                user.SoloRaidMuseumData[req.ContentsId] = museumStage;
-            }
+                var museumStage = SoloraidMuseum.SoloRaidMuseumHelper.GetStage(user, req.ContentsId);
+                foreach (var newTeam in req.Teams)
+                {
+                    var index = museumStage.Teams.FindIndex(x => x.TeamNumber == newTeam.TeamNumber);
+                    if (index >= 0)
+                        museumStage.Teams[index] = newTeam.Clone();
+                    else
+                        museumStage.Teams.Add(newTeam.Clone());
+                }
 
-            foreach (var newTeam in req.Teams)
-            {
-                var index = museumStage.Teams.FindIndex(x => x.TeamNumber == newTeam.TeamNumber);
-                if (index >= 0)
-                    museumStage.Teams[index] = newTeam.Clone();
-                else
-                    museumStage.Teams.Add(newTeam.Clone());
+                JsonDb.Save();
             }
-
-            JsonDb.Save();
             await WriteDataAsync(response);
             return;
         }

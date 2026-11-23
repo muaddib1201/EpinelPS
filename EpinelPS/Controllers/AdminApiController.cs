@@ -214,21 +214,24 @@ public class AdminApiController(GameContext DbContext) : ControllerBase
         if (!GameData.Instance.MuseumStageTable.ContainsKey(request.StageId))
             return BadRequest(new { error = "unknown museum stage" });
 
-        var stage = SoloRaidMuseumHelper.GetStage(user, request.StageId);
-        var mode = request.NoLimit ? stage.NoLimit : stage.Challenge;
-        mode.StageJoinCount = request.StageJoinCount;
-        mode.TotalDamage = request.TotalDamage;
-        mode.TotalStep = request.TotalStep;
-        mode.BestDamage = request.BestDamage;
-        mode.BestStep = request.BestStep;
-        mode.IsInProgress = request.IsInProgress;
-        stage.DebugDamageMultiplier = request.DebugDamageMultiplier;
-        mode.Logs = ToMuseumLogs(request.Logs, mode.Logs);
-        mode.CurrentLogs = ToMuseumLogs(request.CurrentLogs, mode.CurrentLogs);
-        mode.OpenTeams = mode.CurrentLogs.Select(x => x.TeamNumber).Distinct().ToList();
-        var noLimitUnlocked = SoloRaidMuseumHelper.RefreshNoLimitUnlock(stage);
-        JsonDb.Save();
-        Logging.WriteLine($"[Admin] solo raid museum updated user={request.UserId}, stage={request.StageId}, noLimit={request.NoLimit}, logs={mode.Logs.Count}, currentLogs={mode.CurrentLogs.Count}, noLimitUnlocked={noLimitUnlocked}", LogType.Info);
+        lock (JsonDb.SaveLock)
+        {
+            var stage = SoloRaidMuseumHelper.GetStage(user, request.StageId);
+            var mode = request.NoLimit ? stage.NoLimit : stage.Challenge;
+            mode.StageJoinCount = request.StageJoinCount;
+            mode.TotalDamage = request.TotalDamage;
+            mode.TotalStep = request.TotalStep;
+            mode.BestDamage = request.BestDamage;
+            mode.BestStep = request.BestStep;
+            mode.IsInProgress = request.IsInProgress;
+            stage.DebugDamageMultiplier = request.DebugDamageMultiplier;
+            mode.Logs = ToMuseumLogs(request.Logs, mode.Logs);
+            mode.CurrentLogs = ToMuseumLogs(request.CurrentLogs, mode.CurrentLogs);
+            mode.OpenTeams = mode.CurrentLogs.Select(x => x.TeamNumber).Distinct().ToList();
+            var noLimitUnlocked = SoloRaidMuseumHelper.RefreshNoLimitUnlock(stage);
+            JsonDb.Save();
+            Logging.WriteLine($"[Admin] solo raid museum updated user={request.UserId}, stage={request.StageId}, noLimit={request.NoLimit}, logs={mode.Logs.Count}, currentLogs={mode.CurrentLogs.Count}, noLimitUnlocked={noLimitUnlocked}", LogType.Info);
+        }
         return RunCmdResponse.OK;
     }
 
@@ -241,19 +244,22 @@ public class AdminApiController(GameContext DbContext) : ControllerBase
         if (!GameData.Instance.MuseumStageTable.ContainsKey(request.StageId))
             return BadRequest(new { error = "unknown museum stage" });
 
-        var stage = SoloRaidMuseumHelper.GetStage(user, request.StageId);
-        var multiplier = stage.DebugDamageMultiplier;
-        var teams = stage.Teams;
-        stage.Challenge = new();
-        stage.NoLimit = new();
-        stage.ReceivedChallengeMissions.Clear();
-        stage.ReceivedNoLimitMissions.Clear();
-        stage.IsNoLimitUnlocked = false;
-        stage.StageMode = SoloRaidMuseumStageMode.Challenge;
-        stage.DebugDamageMultiplier = multiplier;
-        stage.Teams = teams;
-        JsonDb.Save();
-        Logging.WriteLine($"[Admin] solo raid museum season reset user={request.UserId}, stage={request.StageId}", LogType.Info);
+        lock (JsonDb.SaveLock)
+        {
+            var stage = SoloRaidMuseumHelper.GetStage(user, request.StageId);
+            var multiplier = stage.DebugDamageMultiplier;
+            var teams = stage.Teams;
+            stage.Challenge = new();
+            stage.NoLimit = new();
+            stage.ReceivedChallengeMissions.Clear();
+            stage.ReceivedNoLimitMissions.Clear();
+            stage.IsNoLimitUnlocked = false;
+            stage.StageMode = SoloRaidMuseumStageMode.Challenge;
+            stage.DebugDamageMultiplier = multiplier;
+            stage.Teams = teams;
+            JsonDb.Save();
+            Logging.WriteLine($"[Admin] solo raid museum season reset user={request.UserId}, stage={request.StageId}", LogType.Info);
+        }
         return RunCmdResponse.OK;
     }
 

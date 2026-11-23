@@ -11,13 +11,15 @@ internal static class SoloRaidMuseumHelper
 
     public static SoloRaidMuseumStageData GetStage(User user, int stageId)
     {
-        if (!user.SoloRaidMuseumData.TryGetValue(stageId, out var data))
+        lock (JsonDb.SaveLock)
         {
-            data = new SoloRaidMuseumStageData { StageId = stageId };
-            user.SoloRaidMuseumData[stageId] = data;
+            if (!user.SoloRaidMuseumData.TryGetValue(stageId, out var data))
+            {
+                data = new SoloRaidMuseumStageData { StageId = stageId };
+                user.SoloRaidMuseumData[stageId] = data;
+            }
+            return data;
         }
-
-        return data;
     }
 
     public static ResGetSoloRaidMuseumData GetData(User user)
@@ -54,6 +56,8 @@ internal static class SoloRaidMuseumHelper
     public static ResGetSoloRaidMuseumGroupData GetGroupData(User user, int groupId)
     {
         ResGetSoloRaidMuseumGroupData response = new();
+        using var db = GameContext.CreateNew();
+        var names = db.Users.ToDictionary(u => u.ID, u => u.Nickname);
         var stages = GameData.Instance.MuseumStageTable.Values
             .Where(x => x.GroupId == groupId).OrderBy(x => x.Order).ToList();
         foreach (var stage in stages)
@@ -73,31 +77,7 @@ internal static class SoloRaidMuseumHelper
                 JoinData = active.IsInProgress ? JoinData(active) : new NetSoloRaidMuseumJoinData(),
                 Teams = { teams },
             });
-            // StageReadyPage.UpdateUI requires UserRanking for the open button.
-            // Ranking missions also require exact 50/30/15/5/1 entries below.
-            var challenge = data.Challenge;
-            var rankerRankings = MuseumHistoryArchive.GetRankings(stage.Id).ToList();
-            var personalRank = MuseumHistoryArchive.PersonalRank(stage.Id, challenge.BestDamage);
-            Logging.WriteLine(
-                $"[SoloRaidMuseum] groupdata stage={stage.Id}, selectedMode={data.StageMode}, " +
-                $"challenge(inProgress={data.Challenge.IsInProgress},join={data.Challenge.StageJoinCount},damage={data.Challenge.TotalDamage},teams={data.Challenge.OpenTeams.Count}), " +
-                $"nolimit(inProgress={data.NoLimit.IsInProgress},join={data.NoLimit.StageJoinCount},damage={data.NoLimit.TotalDamage},teams={data.NoLimit.OpenTeams.Count}), " +
-                $"activeTeams={teams.Count}, userRanking(rank={personalRank},damage={challenge.BestDamage}), " +
-                $"rankers=[{string.Join(',', rankerRankings.Select(x => $"{x.Ranking}:{x.Damage}:past={(x.PastUserData != null)}:current={(x.CurrentUserData != null)}"))}]",
-                LogType.Info);
-            NetSoloRaidMuseumStagePastRanking pastRanking = new()
-            {
-                StageId = stage.Id,
-                UserRanking = new NetSoloRaidMuseumUserRankingData
-                {
-                    Ranking = personalRank,
-                    Damage = challenge.BestDamage,
-                    CurrentUserData = LobbyHandler.CreateWholeUserDataFromDbUser(user),
-                },
-                TotalUserCount = MuseumHistoryArchive.ParticipantCount(stage.Id),
-            };
-            pastRanking.RankerRankingList.AddRange(rankerRankings);
-            response.PastRankingList.Add(pastRanking);
+            response.PastRankingList.Add(SoloRaidMuseumRanking.GetBoard(user, stage, names));
         }
         return response;
     }
@@ -171,6 +151,12 @@ internal static class SoloRaidMuseumHelper
 
     public static SoloRaidMuseumModeData Open(User user, int stageId, bool noLimit, IEnumerable<int> teams)
     {
+        lock (JsonDb.SaveLock) return OpenCore(user, stageId, noLimit, teams);
+    }
+
+    private static SoloRaidMuseumModeData OpenCore(
+        User user, int stageId, bool noLimit, IEnumerable<int> teams)
+    {
         var stage = GetStage(user, stageId);
         var mode = noLimit ? stage.NoLimit : stage.Challenge;
         var requestedTeams = teams.Distinct().Take(MaxTeamCount - 1).ToList();
@@ -211,6 +197,12 @@ internal static class SoloRaidMuseumHelper
 
     public static (SoloRaidMuseumStageData stage, SoloRaidMuseumModeData mode) SetDamage(
         User user, int stageId, bool noLimit, NetSoloRaidMuseumBattleData? battle, int battleResult = 0)
+    {
+        lock (JsonDb.SaveLock) return SetDamageCore(user, stageId, noLimit, battle, battleResult);
+    }
+
+    private static (SoloRaidMuseumStageData stage, SoloRaidMuseumModeData mode) SetDamageCore(
+        User user, int stageId, bool noLimit, NetSoloRaidMuseumBattleData? battle, int battleResult)
     {
         var stage = GetStage(user, stageId);
         var mode = noLimit ? stage.NoLimit : stage.Challenge;

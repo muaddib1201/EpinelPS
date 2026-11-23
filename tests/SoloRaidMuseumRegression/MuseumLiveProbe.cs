@@ -1,8 +1,7 @@
 using System.Net.Http.Headers;
-using System.Reflection;
-using System.Security.Cryptography;
+using EpinelPS.Data;
+using Microsoft.Data.Sqlite;
 using EpinelPS;
-using EpinelPS.Models;
 using Google.Protobuf;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -11,7 +10,7 @@ using Paseto.Builder;
 
 internal static class MuseumLiveProbe
 {
-    // Called before JsonDb or GameData initialization. This probe never loads
+    // This probe never loads
     // the live save into the server's mutable persistence layer.
     public static async Task<int> Run()
     {
@@ -29,79 +28,74 @@ internal static class MuseumLiveProbe
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", new PasetoBuilder()
                 .Use(ProtocolVersion.V4, Purpose.Local).WithKey(key, Encryption.SymmetricKey).AddClaim("userId", id)
                 .Expiration(DateTime.UtcNow.AddMinutes(5)).Encode());
-            var archive = ReadArchive();
-            int stages = 0, records = 0, squads = 0;
-            foreach (var group in archive["Stages"]!.GroupBy(s => (int)s["StageId"]! / 100))
+            var names = ReadNames(Path.Combine(root, "Server and Server selector/epinelps.db"));
+            var users = live["Users"]!.OfType<JObject>().Where(u =>
+                (bool?)u["IsBanned"] != true && names.ContainsKey((long)u["ID"]!)).ToArray();
+            int stages = 0, records = 0;
+            foreach (var group in GameData.Instance.MuseumStageTable.Values.GroupBy(s => s.GroupId))
             {
                 var response = await Send<ResGetSoloRaidMuseumGroupData>(client, "soloraidmuseum/get/groupdata",
                     new ReqGetSoloRaidMuseumGroupData { GroupId = group.Key });
-                foreach (var source in group)
+                foreach (var definition in group)
                 {
-                    int stageId = (int)source["StageId"]!;
-                    var stage = response.PastRankingList.Single(s => s.StageId == stageId);
-                    Require(stage.TotalUserCount == 50 && stage.RankerRankingList.Count == 5, "live archive count differs");
-                    long ownBest = (long?)user["SoloRaidMuseumData"]?[stageId.ToString()]?["Challenge"]?["BestDamage"] ?? 0;
-                    long rank = ownBest > 0 ? source["Rankers"]!.Count(r => (long)r["Damage"]! > ownBest) + 1 : 0;
-                    Require(stage.UserRanking.CurrentUserData.Usn == (long)id && stage.UserRanking.Damage == ownBest && stage.UserRanking.Ranking == rank,
-                        "live personal best changed or profile mismatched");
+                    string stageKey = definition.Id.ToString();
+                    var stage = response.PastRankingList.Single(s => s.StageId == definition.Id);
+                    long hp = GameData.Instance.MuseumCommonStageHpGroupTable.Values
+                        .Where(h => h.Group == definition.SoloRaidStageHpGroup).Sum(h => h.HpValue);
+                    var ranked = users.Select(u => (Id: (long)u["ID"]!, Mode: u["SoloRaidMuseumData"]?[stageKey]?["Challenge"]))
+                        .Where(p => (long?)p.Mode?["BestDamage"] > 0)
+                        .OrderByDescending(p => (long)p.Mode!["BestDamage"]!).ThenBy(p => p.Id).ToList();
+                    Require(stage.TotalUserCount == ranked.Count, "local participant count differs");
+                    int own = ranked.FindIndex(p => p.Id == (long)id);
+                    Require(stage.UserRanking.CurrentUserData.Usn == (long)id && stage.UserRanking.Ranking == own + 1 &&
+                        stage.UserRanking.Damage == (own < 0 ? 0 : WireScore(ranked[own].Mode!, hp)), "personal record differs");
                     foreach (var row in stage.RankerRankingList)
                     {
-                        var expected = source["Rankers"]!.Single(r => (int)r["Ranking"]! == row.Ranking);
-                        Require(row.PastUserData.Usn == (long)expected["Usn"]! && row.PastUserData.Usn != (long)id &&
-                            row.PastUserData.Nickname == (string)expected["Nickname"]! && row.CurrentUserData.Usn == row.PastUserData.Usn &&
-                            row.Damage == (long)source["CommonHp"]! + (long)expected["Damage"]!, "live historical profile or damage differs");
+                        if (row.Ranking > ranked.Count)
+                        {
+                            Require(row.Damage == 0 && row.PastUserData == null && row.CurrentUserData == null, "vacant rank populated");
+                            continue;
+                        }
+                        var target = ranked[checked((int)row.Ranking - 1)];
+                        Require(row.PastUserData.Usn == target.Id && row.CurrentUserData.Usn == target.Id &&
+                            row.PastUserData.Nickname == names[target.Id] && row.Damage == WireScore(target.Mode!, hp),
+                            "public record or local identity differs");
                         var detail = await Send<ResGetSoloRaidMuseumRankerSquad>(client, "soloraidmuseum/get/rankersquad",
-                            new ReqGetSoloRaidMuseumRankerSquad { StageId = stageId, TargetUsn = row.PastUserData.Usn });
-                        Require(detail.SquadList.Count == 5 && detail.SquadList.Sum(s => s.Damage) == (long)expected["Damage"]!, "live five-team damage differs");
+                            new ReqGetSoloRaidMuseumRankerSquad { StageId = definition.Id, TargetUsn = target.Id });
+                        var logs = target.Mode!["Logs"]?.OfType<JObject>().ToArray() ?? [];
+                        Require(detail.SquadList.Count == logs.Length, "saved squad count differs");
                         foreach (var team in detail.SquadList)
                         {
-                            var expectedSquad = expected["Squads"]!.Single(s => (int)s["TeamNumber"]! == team.TeamNumber);
-                            var lineup = archive["Lineups"]![(int)expectedSquad["Lineup"]!]!;
-                            Require(team.Damage == (long)expectedSquad["Damage"]! && team.Team.Count == 5 &&
-                                team.Team.Select(c => c.Tid).SequenceEqual(lineup.Select(c => (int)c["Tid"]!)) &&
-                                team.Team.All(c => c.Lv == 400 && c.Combat > 0), "live historical lineup differs");
-                            squads++;
+                            var log = logs.Single(l => (int)l["TeamNumber"]! == team.TeamNumber);
+                            Require(team.Damage == (long)log["Damage"]! &&
+                                team.Team.Select(c => c.Tid).SequenceEqual(log["Team"]!.Select(c => (int)c["Tid"]!)), "saved squad differs");
                         }
                         records++;
                     }
                     stages++;
                 }
             }
-            var invalid = await Send<ResGetSoloRaidMuseumRankerSquad>(client, "soloraidmuseum/get/rankersquad",
-                new ReqGetSoloRaidMuseumRankerSquad { StageId = 101, TargetUsn = (long)id });
-            Require(invalid.SquadList.Count == 0, "live unknown archive target exposes personal data");
-            Console.WriteLine(JsonConvert.SerializeObject(new { status = "passed", stages, displayedRecords = records,
-                squads, realAccountBattlesSubmitted = 0, clientVisualAcceptance = "pending" }));
+            Console.WriteLine(JsonConvert.SerializeObject(new { status = "passed", stages, displayedRecords = records }));
             return 0;
         }
         catch (Exception ex) { Console.WriteLine("FAIL museum live read-only probe: " + ex.Message); return 1; }
     }
 
-    public static string ArchiveFingerprint()
+    private static Dictionary<long, string> ReadNames(string path)
     {
-        var type = typeof(User).Assembly.GetType("EpinelPS.LobbyServer.SoloraidMuseum.MuseumHistoryArchive")!;
-        var ranking = type.GetMethod("GetRankings", BindingFlags.Public | BindingFlags.Static)!;
-        var squads = type.GetMethod("GetSquads", BindingFlags.Public | BindingFlags.Static)!;
-        using var bytes = new MemoryStream();
-        foreach (var stage in ReadArchive()["Stages"]!)
-        {
-            int id = (int)stage["StageId"]!;
-            foreach (var row in (IEnumerable<NetSoloRaidMuseumRankerRankingData>)ranking.Invoke(null, [id])!)
-            {
-                row.WriteDelimitedTo(bytes);
-                foreach (var team in (IEnumerable<NetSoloRaidMuseumLog>)squads.Invoke(null, [id, row.PastUserData.Usn])!)
-                    team.WriteDelimitedTo(bytes);
-            }
-        }
-        return Convert.ToHexString(SHA256.HashData(bytes.ToArray()));
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            { DataSource = path, Mode = SqliteOpenMode.ReadOnly }.ToString());
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT ID, Nickname FROM Users";
+        using var reader = command.ExecuteReader();
+        var names = new Dictionary<long, string>();
+        while (reader.Read()) names.Add(reader.GetInt64(0), reader.GetString(1));
+        return names;
     }
 
-    private static JObject ReadArchive()
-    {
-        using var stream = typeof(User).Assembly.GetManifestResourceStream("EpinelPS.LobbyServer.SoloraidMuseum.MuseumNpcHistory.json")!;
-        using var reader = new StreamReader(stream);
-        return JObject.Parse(reader.ReadToEnd());
-    }
+    private static long WireScore(JToken mode, long hp) =>
+        (long)Math.Min(long.MaxValue, (decimal)(long)mode["BestDamage"]! + hp);
 
     private static async Task<T> Send<T>(HttpClient client, string route, IMessage request) where T : IMessage<T>, new()
     {

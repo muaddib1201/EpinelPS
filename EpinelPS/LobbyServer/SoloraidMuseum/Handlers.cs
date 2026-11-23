@@ -53,7 +53,7 @@ public class GetRankerSquad : LobbyMessage
     {
         var req = await ReadData<ReqGetSoloRaidMuseumRankerSquad>();
         ResGetSoloRaidMuseumRankerSquad response = new();
-        response.SquadList.AddRange(MuseumHistoryArchive.GetSquads(req.StageId, req.TargetUsn));
+        response.SquadList.AddRange(SoloRaidMuseumRanking.GetSquads(req.StageId, req.TargetUsn));
         await WriteDataAsync(response);
     }
 }

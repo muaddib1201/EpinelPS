@@ -366,29 +366,33 @@ public class SoloRaidHelper
             response.User = response.Rankings.FirstOrDefault(r => r.User.Usn == (long)user.ID)?.Clone()
                 ?? new NetSoloRaidRankingData { User = RankingProfile(user) };
         }
+    }
 
-        static NetWholeUserData RankingProfile(User user)
+    private static NetWholeUserData RankingProfile(User user)
+    {
+        using var db = GameContext.CreateNew();
+        return RankingProfile(user, db.Users.Find(user.ID)?.Nickname ?? "Player");
+    }
+
+    internal static NetWholeUserData RankingProfile(User user, string nickname)
+    {
+        // Reading a leaderboard must not refresh guild activity.
+        string guildName = user.Guild.guildId is { } guildId && JsonDb.Instance.Guilds.TryGetValue(guildId, out var guild)
+            ? guild.Data.Name : "";
+        return new NetWholeUserData
         {
-            // The shared profile helper refreshes guild activity as a side effect.
-            // Read the saved guild name directly so opening a leaderboard cannot change it.
-            using var db = GameContext.CreateNew();
-            string guildName = user.Guild.guildId is { } guildId && JsonDb.Instance.Guilds.TryGetValue(guildId, out var guild)
-                ? guild.Data.Name : "";
-            return new NetWholeUserData
-            {
-                Usn = (long)user.ID,
-                Nickname = db.Users.Find(user.ID)?.Nickname ?? "Player",
-                Lv = user.userPointData.UserLevel,
-                Frame = user.ProfileFrame,
-                Icon = user.ProfileIconId,
-                IconPrism = user.ProfileIconIsPrism,
-                UserTitleId = user.TitleId,
-                UserTitleDisplayData = new(),
-                GuildName = guildName,
-                LastActionAt = user.ManagedNpc?.LastActionUtc.Ticks ?? DateTimeOffset.UtcNow.Ticks,
-                Server = 1001,
-            };
-        }
+            Usn = (long)user.ID,
+            Nickname = nickname,
+            Lv = user.userPointData.UserLevel,
+            Frame = user.ProfileFrame,
+            Icon = user.ProfileIconId,
+            IconPrism = user.ProfileIconIsPrism,
+            UserTitleId = user.TitleId,
+            UserTitleDisplayData = new(),
+            GuildName = guildName,
+            LastActionAt = user.ManagedNpc?.LastActionUtc.Ticks ?? DateTimeOffset.UtcNow.Ticks,
+            Server = 1001,
+        };
     }
 
     private static SoloRaidLevelData? BestCompletedTrial(User user, int raidId)
@@ -400,7 +404,7 @@ public class SoloRaidHelper
     }
 
     // The overview and ranking carry a season total. Their challenge readouts deduct the normal-stage HP.
-    private static long SeasonTotal(long challengeDamage, long normalHp) =>
+    internal static long SeasonTotal(long challengeDamage, long normalHp) =>
         challengeDamage > long.MaxValue - normalHp ? long.MaxValue : challengeDamage + normalHp;
 
     private static long NormalClearHp(int raidId)
