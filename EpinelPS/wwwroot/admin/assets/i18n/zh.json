@@ -1,4 +1,53 @@
 {
+  "gearEditor": {
+    "title": "编辑超载装备",
+    "empty": "该玩家暂无超载装备。",
+    "settings": "全服重洗概率",
+    "saveAll": "全部保存",
+    "save": "保存角色装备",
+    "update": "保存这件装备",
+    "showId": "显示角色编号",
+    "showName": "显示角色名称",
+    "level": "装备等级",
+    "characterLevel": "角色等级",
+    "skill1": "技能一",
+    "skill2": "技能二",
+    "burst": "爆裂技能",
+    "slot": "词条",
+    "none": "无词条",
+    "tower": "跳过爬塔楼层",
+    "towerPrompt": "请输入塔编号和目标楼层，用空格分隔。例如 1 234。极乐净土 1，米西利斯 2，泰特拉 3，朝圣者 4，部队塔 5。",
+    "corp": {
+      "OVERSPEC": "朝圣者／超规格",
+      "PILGRIM": "朝圣者",
+      "ELYSION": "极乐净土",
+      "MISSILIS": "米西利斯",
+      "TETRA": "泰特拉",
+      "ABNORMAL": "反常",
+      "Unknown": "未知企业",
+      "None": "无企业",
+      "ALL": "所有企业",
+      "RANDOM": "随机企业"
+    },
+    "part": {
+      "Body": "身躯",
+      "Arm": "手臂",
+      "Head": "头部",
+      "Leg": "腿部",
+      "Unknown": "未知部位"
+    },
+    "effect": {
+      "EleDmg": "优越代码伤害",
+      "Hit": "命中率",
+      "Ammo": "最大装弹数",
+      "Atk": "攻击力",
+      "ChgDmg": "蓄力伤害",
+      "ChgSpd": "蓄力速度",
+      "Crit": "暴击率",
+      "CritDmg": "暴击伤害",
+      "Def": "防御力"
+    }
+  },
   "app": {
     "name": "胜利女神控制台",
     "version": "版本 v1.0.0",

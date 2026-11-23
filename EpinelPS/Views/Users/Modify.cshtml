@@ -208,8 +208,8 @@
                             <button class="btn btn-accent" onclick="runSimpleCmd('finish-all-tutorials', '@Model.ID')">
                                 <i class="fas fa-graduation-cap me-2"></i> <span data-i18n="users.modify.finishTutorials">完成所有教程</span>
                             </button>
-                            <button class="btn btn-accent" onclick="runSimpleCmdWithPr('skip-tower', '@Model.ID', 'Skip tower floor for the selected user, towerid floor (Elysion=1, Misslis=2, Tetra=3, Pilgrim=4, Tribe=5) e.g 1 234')">
-                                <i class="fas fa-building me-2"></i> <span>Skip Tower Floors</span>
+                            <button class="btn btn-accent" onclick="runSimpleCmdWithPr('skip-tower', '@Model.ID', i18n.t('gearEditor.towerPrompt'))">
+                                <i class="fas fa-building me-2"></i> <span data-i18n="gearEditor.tower">跳过爬塔楼层</span>
                             </button>
                             <a asp-action="Messenger" asp-route-id="@Model.ID" class="btn btn-accent">
                                 <i class="fas fa-comments me-2"></i> <span data-i18n="users.modify.messenger">Manage Messenger</span>
@@ -224,23 +224,23 @@
     <div class="container-fluid mt-3">
         @if (!Model.OverloadedGear.Any())
         {
-            <div class="alert alert-info">No overloaded gear found.</div>
+            <div class="alert alert-info"><span data-i18n="gearEditor.empty">该玩家暂无超载装备。</span></div>
         }
         else
         {
             <!-- Main form wrapping everything -->
             <form asp-action="ModifyGear" asp-route-id="@Model.ID" method="post" id="mainForm">
                 <div class="d-flex align-items-center justify-content-between mb-3">
-                    <h1 class="mb-0">Modify Overload Gear</h1>
+                    <h1 class="mb-0"><span data-i18n="gearEditor.title">编辑超载装备</span></h1>
                     <div class="d-flex align-items-center gap-3">
-                        <!-- Toggle for name display -->
+                        <a href="/admin/Configuration" data-i18n="gearEditor.settings">全服重洗概率</a>
                         <div class="form-check form-switch mb-0">
                             <input class="form-check-input" type="checkbox" id="nameDisplayToggle" />
                             <label class="form-check-label" for="nameDisplayToggle">
-                                Show <span id="nameDisplayLabel">Name</span>
+                                <span id="nameDisplayLabel" data-i18n="gearEditor.showName">显示角色名称</span>
                             </label>
                         </div>
-                        <button type="submit" name="submitType" value="saveAll" class="btn btn-info">Save All</button>
+                        <button type="submit" name="submitType" value="saveAll" class="btn btn-info" data-i18n="gearEditor.saveAll">全部保存</button>
                     </div>
                 </div>
 
@@ -254,7 +254,7 @@
                                 <button class="btn btn-link w-100 d-flex justify-content-between align-items-center text-decoration-none border-0 shadow-none"
                                         type="button" data-bs-toggle="collapse" data-bs-target="#@corp.Key" aria-expanded="true"
                                         aria-controls="@corp.Key">
-                                    <h3 class="mb-0">@(corp.Key == "OVERSPEC" ? "PILGRIM/OVERSPEC" : corp.Key)</h3>
+                                    <h3 class="mb-0" data-i18n="gearEditor.corp.@corp.Key">@(corp.Key == "OVERSPEC" ? "PILGRIM/OVERSPEC" : corp.Key)</h3>
                                     <i class="bi bi-chevron-down"></i>
                                 </button>
                             </div>
@@ -279,18 +279,18 @@
                                                             </h2>
                                                             <button type="submit" name="submitType"
                                                                     value="saveCharacter_@character.CharacterCsn"
-                                                                    class="btn btn-info btn-sm" style="font-size:12pt;">
-                                                                Save
+                                                                    class="btn btn-info btn-sm" style="font-size:12pt;" data-i18n="gearEditor.save">
+                                                                保存角色装备
                                                             </button>
                                                         </div>
                                                         <div class="d-flex align-items-stretch gap-1">
-                                                            <h3 class="mb-0">LV@(character.CharacterLevel)</h3>
+                                                            <h3 class="mb-0"><span data-i18n="gearEditor.characterLevel">角色等级</span> @(character.CharacterLevel)</h3>
                                                             <div class="vr w opacity-75" style="width:2.5px;"></div>
-                                                            <h3 class="mb-0">Skill 1: LV@(character.Skill1)</h3>
+                                                            <h3 class="mb-0"><span data-i18n="gearEditor.skill1">技能一</span> @(character.Skill1)</h3>
                                                             <div class="vr w opacity-75" style="width:2.5px;"></div>
-                                                            <h3 class="mb-0">Skill 2: LV@(character.Skill2)</h3>
+                                                            <h3 class="mb-0"><span data-i18n="gearEditor.skill2">技能二</span> @(character.Skill2)</h3>
                                                             <div class="vr w opacity-75" style="width:2.5px;"></div>
-                                                            <h3 class="mb-0">Burst Skill: LV@(character.BurstSkill)</h3>
+                                                            <h3 class="mb-0"><span data-i18n="gearEditor.burst">爆裂技能</span> @(character.BurstSkill)</h3>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -305,40 +305,37 @@
                                                                         <input type="hidden" name="GearUpdates[@gear.GearIsn].CharacterId" value="@character.CharacterCsn" />
                                                                         <input type="hidden" name="GearUpdates[@gear.GearIsn].GearId" value="@gear.GearIsn" />
 
-                                                                        <h2 class="card-title mb-3">@gear.GearType</h2>
+                                                                        <h2 class="card-title mb-3" data-i18n="gearEditor.part.@gear.GearType">@gear.GearType</h2>
 
                                                                         <div class="mb-2">
-                                                                            <label class="form-label mb-1 fw-bold fs-6">Level:</label>
+                                                                            <label class="form-label mb-1 fw-bold fs-6" data-i18n="gearEditor.level">装备等级</label>
                                                                             <input type="number"
                                                                                    class="form-control form-control-sm fw-bold fs-6"
                                                                                    name="GearUpdates[@gear.GearIsn].Level" value="@gear.GearLevel" min="0" max="5" />
                                                                         </div>
 
-                                                                        <div class="mb-2">
-                                                                            <label class="form-label mb-1 fw-bold fs-6">Option 1:</label>
-                                                                            <select class="form-select form-select-sm fw-bold fs-6 p-2"
-                                                                                    name="GearUpdates[@gear.GearIsn].Option1" asp-items="Model.GetOverloadSelectList(gear.Option1Id)">
-                                                                                <option value="0">No Option</option>
-                                                                            </select>
-                                                                        </div>
+                                                                        @{
+                                                                            int[] selectedEffects = [gear.Option1Id, gear.Option2Id, gear.Option3Id];
+                                                                        }
+                                                                        @for (int index = 0; index < selectedEffects.Length; index++)
+                                                                        {
+                                                                            var field = $"GearUpdates[{gear.GearIsn}].Option{index + 1}";
+                                                                            <div class="mb-2">
+                                                                                <label class="form-label mb-1" for="@field"><span data-i18n="gearEditor.slot">词条</span> @(index + 1)</label>
+                                                                                <select class="form-select form-select-sm fw-bold fs-6 p-2" name="@field" id="@field">
+                                                                                    <option value="0" data-i18n="gearEditor.none">无词条</option>
+                                                                                    @foreach (var group in Model.OverloadOptions.OrderBy(x => x.Key))
+                                                                                    {
+                                                                                        @foreach (var effect in group.Value.OrderBy(x => x.Key))
+                                                                                        {
+                                                                                            <option value="@effect.Key" selected="@(selectedEffects[index] == effect.Key)" data-effect="@group.Key" data-rate="@effect.Value">@group.Key | @effect.Key | @(effect.Value)%</option>
+                                                                                        }
+                                                                                    }
+                                                                                </select>
+                                                                            </div>
+                                                                        }
 
-                                                                        <div class="mb-2">
-                                                                            <label class="form-label mb-1">Option 2:</label>
-                                                                            <select class="form-select form-select-sm fw-bold fs-6 p-2"
-                                                                                    name="GearUpdates[@gear.GearIsn].Option2" asp-items="Model.GetOverloadSelectList(gear.Option2Id)">
-                                                                                <option value="0">No Option</option>
-                                                                            </select>
-                                                                        </div>
-
-                                                                        <div class="mb-3">
-                                                                            <label class="form-label mb-1">Option 3:</label>
-                                                                            <select class="form-select form-select-sm fw-bold fs-6 p-2"
-                                                                                    name="GearUpdates[@gear.GearIsn].Option3" asp-items="Model.GetOverloadSelectList(gear.Option3Id)">
-                                                                                <option value="0">No Option</option>
-                                                                            </select>
-                                                                        </div>
-
-                                                                        <button type="submit" name="submitType" value="updateGear_@gear.GearIsn" class="btn btn-primary w-100 mt-auto p-2">Update Gear</button>
+                                                                        <button type="submit" name="submitType" value="updateGear_@gear.GearIsn" class="btn btn-primary w-100 mt-auto p-2" data-i18n="gearEditor.update">保存这件装备</button>
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -652,6 +649,7 @@
 
         // Load saved preference (default: name)
         const showCharacterTid = localStorage.getItem('showCharacterTid') === 'true';
+        if (!nameToggle) return;
         nameToggle.checked = showCharacterTid;
         updateNameDisplay(showCharacterTid);
 
@@ -662,7 +660,8 @@
         });
 
         function updateNameDisplay(showTid) {
-            nameLabel.textContent = showTid ? 'TID' : 'Name';
+            nameLabel.dataset.i18n = showTid ? 'gearEditor.showId' : 'gearEditor.showName';
+            if (window.i18n) nameLabel.textContent = i18n.t(nameLabel.dataset.i18n);
             characterNames.forEach(el => {
                 const name = el.getAttribute('data-name');
                 const characterTid = el.getAttribute('data-character-tid');
@@ -671,6 +670,17 @@
                 el.setAttribute('title', showTid ? name : characterTid);
             });
         }
+
+        function translateEffects() {
+            if (!window.i18n) return;
+            document.querySelectorAll('#mainForm option[data-effect]').forEach(option => {
+                const name = i18n.t('gearEditor.effect.' + option.dataset.effect);
+                option.textContent = name + ' | ' + option.value + ' | ' + option.dataset.rate + '%';
+            });
+        }
+        translateEffects();
+        window.addEventListener('adminui:i18n-ready', translateEffects);
+        window.addEventListener('adminui:languageChanged', translateEffects);
 
         // --- Collapse state handling ---
         const collapsedCards = JSON.parse(localStorage.getItem('collapsedCards') || '{}');

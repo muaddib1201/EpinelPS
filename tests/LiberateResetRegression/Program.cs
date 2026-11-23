@@ -61,6 +61,9 @@ foreach (var row in await data.LoadZip<RewardRecord>("RewardTable.json", new Pro
 var character = data.LiberateCharacterTable.Values.OrderBy(c => c.Id).First();
 var group = data.LiberateMissionGroupTable.Values.Single(g => g.MissionStepGroup == character.MissionStepGroup && g.MissionStep == 2);
 var first = new User { ID = target, InfraCoreLvl = 17, CurCharacterIdId = character.Id };
+first.Characters.Add(new CharacterModel { Csn = 73001, Tid = 426001 });
+first.Items.Add(new DbItemData { Isn = 73002, Csn = 73001, ItemType = 3211001, Count = 1 });
+first.EquipmentAwakenings.Add(new EquipmentAwakeningData { Isn = 73002, Option = new NetEquipmentAwakeningOption { Option1Id = 7001204 } });
 var second = new User { ID = other, InfraCoreLvl = 1 };
 first.Currency[CurrencyType.FreeCash] = 345;
 first.ResetableData.DailyMissionPoints = 40;
@@ -164,6 +167,10 @@ Check(Settings().EffectChangeBands == null, "restore did not return to the stati
 Console.WriteLine("PASS: web admin equipment bands validate, persist decimals, and restore defaults");
 
 var html = await http.GetStringAsync($"/admin/Users/Modify/{target}");
+Check(html.Contains("gearEditor.title") && html.Contains("gearEditor.part.Body") && html.Contains("gearEditor.settings") &&
+    html.Contains("GearUpdates[73002].Option3") && Regex.IsMatch(html, "<option[^>]+value=\"7001204\"[^>]+selected[^>]+data-effect=\"CritDmg\""),
+    "localized gear form did not preserve selected critical damage or its editable field");
+Console.WriteLine("PASS: localized equipped armor renders the selected effect and the server settings shortcut");
 var token = Regex.Match(html, "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"").Groups[1].Value;
 var path = $"/admin/Users/ResetLiberate/{target}";
 Check(token.Length > 0 && Regex.IsMatch(html, $"<form\\b[^>]*action=\"{path}\""), "modify page has no independent liberation reset button");

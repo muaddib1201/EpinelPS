@@ -1,5 +1,4 @@
 using EpinelPS.Data;
-using Microsoft.AspNetCore.Mvc.Rendering;
 
 namespace EpinelPS.Models.Admin;
 
@@ -18,26 +17,6 @@ public class ModUserModel
     public List<CharacterGearModel> OverloadedGear { get; set; } = [];
     public Dictionary<string, Dictionary<int, double>> OverloadOptions { get; set; } = new();
 
-    public List<SelectListItem> GetOverloadSelectList(int? selectedId = null)
-    {
-        var items = new List<SelectListItem>();
-
-        foreach (var group in OverloadOptions.OrderBy(x => x.Key
-        ))
-        {
-            foreach (var effect in group.Value.OrderBy(x => x.Key))
-            {
-                items.Add(new SelectListItem
-                {
-                    Value = effect.Key.ToString(),
-                    Text = $"{group.Key} | {effect.Key} | {effect.Value}",
-                    Selected = effect.Key == selectedId
-                });
-            }
-        }
-
-        return items;
-    }
 }
 
 public class ModUserCurrencyModel

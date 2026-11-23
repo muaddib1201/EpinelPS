@@ -1,4 +1,53 @@
 {
+  "gearEditor": {
+    "title": "Modify Overload Gear",
+    "empty": "No overloaded gear found.",
+    "settings": "Server reroll rates",
+    "saveAll": "Save All",
+    "save": "Save character gear",
+    "update": "Update Gear",
+    "showId": "Show TID",
+    "showName": "Show Name",
+    "level": "Equipment level",
+    "characterLevel": "Level",
+    "skill1": "Skill 1",
+    "skill2": "Skill 2",
+    "burst": "Burst skill",
+    "slot": "Option",
+    "none": "No Option",
+    "tower": "Skip Tower Floors",
+    "towerPrompt": "Enter the tower ID and target floor separated by a space, e.g. 1 234. Elysion 1, Missilis 2, Tetra 3, Pilgrim 4, Tribe 5.",
+    "corp": {
+      "OVERSPEC": "PILGRIM/OVERSPEC",
+      "PILGRIM": "PILGRIM",
+      "ELYSION": "ELYSION",
+      "MISSILIS": "MISSILIS",
+      "TETRA": "TETRA",
+      "ABNORMAL": "ABNORMAL",
+      "Unknown": "Unknown",
+      "None": "None",
+      "ALL": "ALL",
+      "RANDOM": "RANDOM"
+    },
+    "part": {
+      "Body": "Body",
+      "Arm": "Arm",
+      "Head": "Head",
+      "Leg": "Leg",
+      "Unknown": "Unknown"
+    },
+    "effect": {
+      "EleDmg": "Elemental damage",
+      "Hit": "Hit rate",
+      "Ammo": "Max ammunition",
+      "Atk": "Attack",
+      "ChgDmg": "Charge damage",
+      "ChgSpd": "Charge speed",
+      "Crit": "Critical rate",
+      "CritDmg": "Critical damage",
+      "Def": "Defense"
+    }
+  },
   "app": {
     "name": "EpinelPS",
     "footer": "© 2025 EpinelPS"
