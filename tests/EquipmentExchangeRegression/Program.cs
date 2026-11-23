@@ -387,6 +387,142 @@ await Run("value-reset tier weights allocate exactly 10000 probability tickets",
     return Task.CompletedTask;
 });
 
+await Run("default effect-change slots match the active static pack and each percentage ticket", () =>
+{
+    var rates = EffectChangeSlotRates.Defaults();
+    int[] expectedGroups = [100100, 100200, 100300, 100400, 100500, 100600, 100700, 100800, 100900];
+    decimal[] expectedWeights = [10, 12, 12, 10, 12, 12, 12, 10, 10];
+    Check(rates.IsValid() && rates.Appearance.SequenceEqual(new decimal[] { 100, 50, 30 }), "wrong default slot chances");
+    Check(EffectChangeSlotRates.EffectTypes.Select(x => x.GroupId).SequenceEqual(expectedGroups), "effect order changed");
+    var excluded = new HashSet<int>();
+    for (int slot = 0; slot < 3; slot++)
+    {
+        var counts = expectedGroups.ToDictionary(group => group, _ => 0);
+        int hits = 0;
+        for (int ticket = 0; ticket < 10000; ticket++)
+        {
+            var random = new BandTicket(ticket, false);
+            if (rates.Appears(slot, random)) hits++;
+            counts[rates.DrawGroup(slot, excluded, random)]++;
+        }
+        Check(hits == rates.Appearance[slot] * 100 && rates.Effects[slot].SequenceEqual(expectedWeights), "default rate mismatch");
+        Check(expectedGroups.Select(group => counts[group]).SequenceEqual(expectedWeights.Select(p => (int)(p * 100))), "effect weights lost tickets");
+    }
+    return Task.CompletedTask;
+});
+
+await Run("fractional slot chances and conditional group weights preserve exact ticket boundaries", () =>
+{
+    var rates = EffectChangeSlotRates.Defaults();
+    rates.Appearance = [0, 0.01m, 100];
+    rates.Effects[1] = [80m, 0.01m, 19.99m, 0, 0, 0, 0, 0, 0];
+    var excluded = new HashSet<int> { 100100 };
+    Check(rates.IsValid() && rates.Appears(1, new BandTicket(0, false)) && !rates.Appears(1, new BandTicket(1, false)), "fractional appearance boundary");
+    Check(!rates.Appears(0, new BandTicket(0, false)) && rates.Appears(2, new BandTicket(9999, false)), "zero and full appearance boundary");
+    int hit = 0, ammo = 0;
+    for (int ticket = 0; ticket < 2000; ticket++)
+    {
+        int group = rates.DrawGroup(1, excluded, new BandTicket(ticket, false));
+        if (group == 100200) hit++;
+        if (group == 100300) ammo++;
+    }
+    Check(hit == 1 && ammo == 1999, "remaining groups must split the original 2000 tickets proportionally");
+    return Task.CompletedTask;
+});
+
+await Run("effect change reopens a missing slot, respects each column and the saved level settings", async () =>
+{
+    PrepareRoll();
+    var state = (CoreInfo)dbProperty.GetValue(null)!;
+    var rates = state.EffectChangeSlotRates = EffectChangeSlotRates.Defaults();
+    rates.Appearance = [0, 100, 100];
+    rates.Effects[1] = [0, 0, 0, 100, 0, 0, 0, 0, 0];
+    rates.Effects[2] = [0, 0, 0, 0, 0, 0, 100, 0, 0];
+    state.EffectChangeBands = new() { LowEnd = 1, MiddleEnd = 14, LowPercent = 0, MiddlePercent = 0, HighPercent = 100 };
+    save.Invoke(null, null);
+    reload.Invoke(null, null);
+    var first = (await ChangeEffects()).ResetOption;
+    Check(first.Option1Id == 0 && first.Option2Id == attack15 && first.Option3Id == 7001115, "slot-specific chances, groups or levels were ignored after reload");
+    state = (CoreInfo)dbProperty.GetValue(null)!;
+    state.EffectChangeSlotRates!.Appearance = [0, 0, 0];
+    var retry = await ChangeEffects();
+    Check(first.Equals(retry.ResetOption) && retry.Items.Count == 0 && Balance(module) == 9, "a settings change rerolled a pending result or charged twice");
+    await Choose(true);
+    var next = (await ChangeEffects()).ResetOption;
+    Check(next.Option1Id == 0 && next.Option2Id == 0 && next.Option3Id == 0 && Balance(module) == 8, "new chances were not picked up on the next roll");
+    await Choose(true);
+    Persisted();
+    Check(Current().EquipmentAwakenings.Single().Option.Equals(next), "all-empty configuration could not be accepted");
+});
+
+await Run("later fixed and disposable locks exclude their group even from a guaranteed first slot", async () =>
+{
+    foreach (bool disposable in new[] { false, true })
+    {
+        PrepareRoll();
+        var rates = ((CoreInfo)dbProperty.GetValue(null)!).EffectChangeSlotRates = EffectChangeSlotRates.Defaults();
+        rates.Appearance = [100, 100, 0];
+        rates.Effects[0] = [0, 0, 0, 100, 0, 0, 0, 0, 0];
+        rates.Effects[1] = [0.01m, 0, 0, 99.99m, 0, 0, 0, 0, 0];
+        var current = Current().EquipmentAwakenings.Single().Option;
+        current.Option3Id = attack15;
+        current.Option3Lock = !disposable;
+        var roll = await ChangeEffects(disposable ? LockRequest.ReserveDisposableLock : LockRequest.NoReserve);
+        var result = roll.ResetOption;
+        Check(result.Option1Id == 0 && result.Option2Id / 100 == element3 / 100 && result.Option3Id == attack15, "locked group was duplicated or a zero-weight group was selected");
+        Check(result.Option3Lock == !disposable && !result.IsOption3DisposableLock && Balance(module) == 8, "lock flags or actual roll cost changed");
+    }
+});
+
+await Run("newly drawn groups are excluded from successive columns without filling zero-weight alternatives", async () =>
+{
+    PrepareRoll();
+    var rates = ((CoreInfo)dbProperty.GetValue(null)!).EffectChangeSlotRates = EffectChangeSlotRates.Defaults();
+    rates.Appearance = [100, 100, 100];
+    rates.Effects[0] = [100, 0, 0, 0, 0, 0, 0, 0, 0];
+    rates.Effects[1] = [99.99m, 0.01m, 0, 0, 0, 0, 0, 0, 0];
+    rates.Effects[2] = [50, 50, 0, 0, 0, 0, 0, 0, 0];
+    var result = (await ChangeEffects()).ResetOption;
+    Check(result.Option1Id / 100 == 70005 && result.Option2Id / 100 == 70006 && result.Option3Id == 0, "later slots did not exclude earlier outcomes");
+});
+
+await Run("slot configuration leaves numeric resets and initial awakening independent", async () =>
+{
+    PrepareRoll();
+    var state = (CoreInfo)dbProperty.GetValue(null)!;
+    state.EffectChangeSlotRates = EffectChangeSlotRates.Defaults();
+    state.EffectChangeSlotRates.Appearance = [0, 0, 0];
+    state.ValueResetTierRates = new decimal[15];
+    state.ValueResetTierRates[14] = 100;
+    var reset = (await ResetValues()).ResetOption;
+    Check(reset.Option1Id == 7000915 && reset.Option2Id == 7001215 && reset.Option3Id == 0, "effect settings leaked into numeric resets");
+    Current().Items.Add(new DbItemData { Isn = 606, ItemType = 3110901, Count = 1, Level = 5 });
+    var awaken = await Send("equipment/awakening", new ReqEquipmentAwakening { Isn = 606 }, ResEquipmentAwakening.Parser);
+    Check(awaken.Awakening?.Option.Option1Id > 0, "effect-change chances leaked into initial awakening");
+});
+
+await Run("slot settings reject incomplete, oversized and malformed percentage tables", () =>
+{
+    var rates = EffectChangeSlotRates.Defaults();
+    rates.Appearance[1] = -1;
+    Check(!rates.IsValid(), "negative appearance accepted");
+    rates.Appearance = [100, 50];
+    Check(!rates.IsValid(), "missing appearance accepted");
+    rates.Appearance = [0, 0, 0];
+    Check(rates.IsValid(), "independent appearance values were summed");
+    rates.Effects[0] = [99.999m, 0.001m, 0, 0, 0, 0, 0, 0, 0];
+    Check(!rates.IsValid(), "out-of-precision percentages accepted");
+    rates.Effects[0] = [decimal.MaxValue, 1, 0, 0, 0, 0, 0, 0, 0];
+    Check(!rates.IsValid(), "out-of-range weights accepted");
+    rates.Effects[0] = [11, 12, 12, 10, 12, 12, 12, 10, 10];
+    Check(!rates.IsValid(), "wrong total accepted");
+    rates.Effects[0] = [100];
+    Check(!rates.IsValid(), "incomplete group table accepted");
+    rates.Effects = [[100], [100], [100], [100]];
+    Check(!rates.IsValid(), "extra slot accepted");
+    return Task.CompletedTask;
+});
+
 if (failures.Count > 0) throw new Exception($"FAIL: {string.Join("; ", failures)}");
 Console.WriteLine($"PASS: {passed} equipment scenarios");
 
@@ -446,6 +582,8 @@ Task<ResAwakeningUnlockOption> Unlock(int slot, long isn = 202) => Send("equipme
     new ReqAwakeningUnlockOption { Isn = isn, Slot = slot }, ResAwakeningUnlockOption.Parser);
 Task<ResGetAwakeningDetail> Detail() => Send("equipment/getawakeningdetail",
     new ReqGetAwakeningDetail { Isn = 202 }, ResGetAwakeningDetail.Parser);
+Task<ResAwakeningResetOption> ChangeEffects(LockRequest third = LockRequest.NoReserve) => Send("equipment/resetoption",
+    new ReqAwakeningResetOption { Isn = 202, Slot3 = third }, ResAwakeningResetOption.Parser);
 Task<ResAwakeningUpgradeOption> ResetValues() => Send("equipment/upgradeoption",
     new ReqAwakeningUpgradeOption { Isn = 202 }, ResAwakeningUpgradeOption.Parser);
 int Balance(int tid) => Current().Items.Where(x => x.ItemType == tid).Sum(x => x.Count);

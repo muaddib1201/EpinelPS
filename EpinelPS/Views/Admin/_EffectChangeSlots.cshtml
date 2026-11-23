@@ -1,0 +1,80 @@
+@model EpinelPS.Models.Admin.ServerConfiguration
+
+<style>
+    #effect-change-slots fieldset { min-inline-size: 0; margin-inline: 0; padding-inline: 0; }
+    #effect-change-slots table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+    #effect-change-slots td, #effect-change-slots th { padding: .35rem .25rem; }
+    #effect-change-slots input[type="number"] { box-sizing: border-box; min-width: 0; width: 100%; padding: .35rem .3rem; }
+</style>
+<form asp-action="SaveEffectChangeSlots" method="post" id="effect-change-slots" class="mt-4 text-start">
+    <fieldset>
+        <legend>效果变更 · 栏位与词条概率</legend>
+        <p>全服共用。先按各栏的出现概率决定是否生成词条，再按该栏的九项概率抽取一种。支持两位小数。</p>
+        <span asp-validation-for="EffectSlots" class="text-danger" role="alert"></span>
+        <table class="table align-middle mb-2">
+            <thead>
+                <tr>
+                    <th scope="col" style="width: 34%">概率（%）</th>
+                    @for (int slot = 0; slot < EffectChangeSlotRates.SlotCount; slot++)
+                    {
+                        <th scope="col" class="text-center">第 @(slot + 1) 栏</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                <tr class="table-active">
+                    <th scope="row">栏位出现</th>
+                    @for (int slot = 0; slot < EffectChangeSlotRates.SlotCount; slot++)
+                    {
+                        <td class="p-1"><input asp-for="EffectSlots.Appearance[slot]" asp-format="{0:0.##}" aria-label="第 @(slot + 1) 栏出现概率（%）"
+                            class="form-control form-control-sm" type="number" min="0" max="100" step="0.01" required /></td>
+                    }
+                </tr>
+                @for (int effect = 0; effect < EffectChangeSlotRates.EffectTypes.Count; effect++)
+                {
+                    string name = EffectChangeSlotRates.EffectTypes[effect].Name;
+                    <tr>
+                        <th scope="row">@name</th>
+                        @for (int slot = 0; slot < EffectChangeSlotRates.SlotCount; slot++)
+                        {
+                            <td class="p-1"><input asp-for="EffectSlots.Effects[slot][effect]" asp-format="{0:0.##}" aria-label="第 @(slot + 1) 栏@(name)概率（%）"
+                                data-weight-slot="@slot" class="form-control form-control-sm" type="number" min="0" max="100" step="0.01" required /></td>
+                        }
+                    </tr>
+                }
+            </tbody>
+            <tfoot>
+                <tr>
+                    <th scope="row">词条合计</th>
+                    @for (int slot = 0; slot < EffectChangeSlotRates.SlotCount; slot++)
+                    {
+                        <td class="text-center"><output data-total-slot="@slot" aria-label="第 @(slot + 1) 栏词条合计">@(Model.EffectSlots.Effects[slot].Sum().ToString("0.##"))%</output></td>
+                    }
+                </tr>
+            </tfoot>
+        </table>
+        <p>每栏的词条合计须为 100%。锁定和已抽中的词条会被排除，剩余词条按比例抽取。如果该栏剩余词条的概率全为 0，该栏留空。</p>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <button type="submit" class="btn btn-primary">保存栏位与词条概率</button>
+            <button type="submit" name="restoreDefaults" value="true" formnovalidate class="btn btn-outline-secondary">恢复栏位与词条默认概率</button>
+            @if (TempData["EffectSlotsSaved"] is string message) { <span role="status">@message</span> }
+        </div>
+    </fieldset>
+</form>
+<script>
+    (() => {
+        const form = document.getElementById('effect-change-slots');
+        for (const output of form.querySelectorAll('[data-total-slot]')) {
+            const slot = output.dataset.totalSlot;
+            const inputs = [...form.querySelectorAll('[data-weight-slot="' + slot + '"]')];
+            const update = () => {
+                const total = inputs.reduce((sum, input) => sum + Math.round(input.valueAsNumber * 100), 0);
+                output.value = Number.isFinite(total) ? (total / 100) + '%' : '—';
+                output.classList.toggle('text-danger', total !== 10000);
+                inputs[0].setCustomValidity(total !== 10000 ? '本栏九种词条的概率合计须为 100%。' : '');
+            };
+            inputs.forEach(input => input.addEventListener('input', update));
+            update();
+        }
+    })();
+</script>

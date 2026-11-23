@@ -7,6 +7,8 @@ public class ServerConfiguration
 {
     public EffectChangeBands EffectBands { get; set; } = new();
 
+    public EffectChangeSlotRates EffectSlots { get; set; } = new();
+
     public decimal[] ValueResetRates { get; set; } = ValueResetTiers.DefaultRates();
 
     [BindProperty]

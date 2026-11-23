@@ -27,6 +27,8 @@ public class CoreInfo
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public EffectChangeBands? EffectChangeBands { get; set; }
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public EffectChangeSlotRates? EffectChangeSlotRates { get; set; }
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public decimal[]? ValueResetTierRates { get; set; }
     public LogType LogLevel { get; set; } = LogType.Debug;
 

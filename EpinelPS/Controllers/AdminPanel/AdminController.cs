@@ -98,6 +98,7 @@ public partial class AdminController(ILogger<AdminController> logger, TimeProvid
     {
         LogType = JsonDb.Instance.LogLevel,
         EffectBands = JsonDb.Instance.EffectChangeBands ?? new(),
+        EffectSlots = JsonDb.Instance.EffectChangeSlotRates ?? EffectChangeSlotRates.Defaults(),
         ValueResetRates = JsonDb.Instance.ValueResetTierRates ?? ValueResetTiers.DefaultRates()
     };
 
@@ -115,6 +116,30 @@ public partial class AdminController(ILogger<AdminController> logger, TimeProvid
         return RedirectToAction(nameof(Configuration));
     }
 
+
+    [HttpPost("Configuration/EffectChangeSlots")]
+    [ValidateAntiForgeryToken]
+    public IActionResult SaveEffectChangeSlots([Bind(Prefix = "EffectSlots")] EffectChangeSlotRates rates, bool restoreDefaults = false)
+    {
+        if (!CheckAuth(HttpContext)) return Redirect("/admin/");
+        if (!restoreDefaults && (!ModelState.IsValid || !rates.IsValid()))
+        {
+            ModelState.AddModelError(nameof(ServerConfiguration.EffectSlots),
+                "请填写全部三栏。每项概率须为 0～100%，最多两位小数，每栏九种词条概率的合计须为 100%。");
+            return View("Configuration", CurrentConfiguration());
+        }
+
+        lock (JsonDb.SaveLock)
+        {
+            var db = JsonDb.Instance;
+            var previous = db.EffectChangeSlotRates;
+            db.EffectChangeSlotRates = restoreDefaults ? null : rates;
+            try { JsonDb.Save(); }
+            catch { db.EffectChangeSlotRates = previous; throw; }
+        }
+        TempData["EffectSlotsSaved"] = restoreDefaults ? "已恢复栏位与词条的默认概率。" : "已保存，下次效果变更时生效。";
+        return RedirectToAction(nameof(Configuration), null, null, "effect-change-slots");
+    }
 
     [HttpPost("Configuration/EffectChangeBands")]
     [ValidateAntiForgeryToken]
