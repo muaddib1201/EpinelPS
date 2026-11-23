@@ -166,6 +166,8 @@ await Run("user edit page renders an independent authenticated unlock form", asy
 {
     var html = await http.GetStringAsync($"/admin/Users/Modify/{target}");
     Check(Regex.IsMatch(html, $"<form\\b[^>]*action=\"/admin/Users/{target}/Counsel/unlock\""), "unlock form is missing");
+    Check(html.Contains($"formaction=\"/admin/Users/{target}/Counsel/unlock-all\"") && html.Contains("id=\"counselUnlockAll\""),
+        "bulk button is missing its per-account route");
     int depth = 0;
     foreach (Match tag in Regex.Matches(html, "</?form\\b[^>]*>", RegexOptions.IgnoreCase))
     {
@@ -244,6 +246,73 @@ await Run("invalid, cross-character and unowned entries do not change state", as
     Check((await Post(9999, queen, fourth)).StatusCode == HttpStatusCode.NotFound, "missing account was accepted");
     Check(JsonConvert.SerializeObject(State()) == before, "invalid selection changed state");
 });
+await Run("bulk unlock fills only this player's selected diary and survives reload", async () =>
+{
+    var options = await Options(target, queen);
+    var valid = options["dialogues"]!.Select(d => d.Value<int>("id")).ToArray();
+    var ids = Current(target).BondInfo.Single(b => b.NameCode == queen).CounselDialogCompleteIds;
+    ids.Clear();
+    ids.Add(valid[2]); // Keep an existing entry and historical IDs in their original order.
+    ids.Add(999999);
+    var expected = JToken.FromObject(State());
+    var expectedIds = (JArray)expected["Users"]![0]!["BondInfo"]![0]!["CounselDialogCompleteIds"]!;
+    foreach (int missing in valid.Where(id => !ids.Contains(id))) expectedIds.Add(missing);
+
+    var result = await UnlockAll(target, queen);
+    Check(result.Value<int>("added") == valid.Length - 1 && result.Value<int>("total") == valid.Length &&
+        result.Value<int>("collected") == valid.Length, "bulk receipt used incorrect new/collected/total counts");
+    Reload();
+    Check(JToken.DeepEquals(expected, JToken.FromObject(State())), "bulk unlock changed unrelated records or lost their order");
+    var answers = await Send<ResListAnsweredAttractiveCounsel>(target, "/character/counsel/answer/list",
+        new ReqListAnsweredAttractiveCounsel { NameCode = queen });
+    Check(answers.CorrectlyAnsweredAttractiveCounselTableIdList.SequenceEqual(expectedIds.Values<int>()),
+        "game diary did not return the saved entries");
+});
+await Run("single and bulk requests on a legacy character create one record, repeats do not write", async () =>
+{
+    var valid = (await Options(legacy, queen))["dialogues"]!.Select(d => d.Value<int>("id")).ToArray();
+    var responses = await Task.WhenAll(UnlockAll(legacy, queen), Unlock(legacy, queen, fourth), UnlockAll(legacy, queen));
+    Check(responses.Sum(r => r.Value<int>("added")) == valid.Length, "overlapping requests added the same entry twice");
+    Reload();
+    var bond = Current(legacy).BondInfo.Single();
+    Check(bond.Lv == 1 && bond.Exp == 0 && bond.CounseledCount == 0 &&
+        bond.CounselDialogCompleteIds.Order().SequenceEqual(valid.Order()), "missing or duplicate entries in the new bond");
+    Directory.CreateDirectory(savePath + ".tmp");
+    try
+    {
+        var repeat = await UnlockAll(legacy, queen);
+        Check(repeat.Value<int>("added") == 0 && repeat.Value<int>("collected") == valid.Length, "full diary tried to write again");
+    }
+    finally { Directory.Delete(savePath + ".tmp"); }
+});
+await Run("bulk save failure preserves a partial diary and a missing bond", async () =>
+{
+    var existing = Current(target).BondInfo.Single(b => b.NameCode == queen).CounselDialogCompleteIds;
+    existing.Clear();
+    existing.Add(fourth);
+    jsonDb.GetMethod("Save")!.Invoke(null, null);
+    var before = JToken.FromObject(State());
+    string disk = File.ReadAllText(savePath);
+    Directory.CreateDirectory(savePath + ".tmp");
+    try
+    {
+        foreach (ulong id in new[] { target, legacy })
+        {
+            using var response = await PostAll(id, queen);
+            Check(response.StatusCode == HttpStatusCode.InternalServerError, "failed bulk save reported success");
+        }
+    }
+    finally { Directory.Delete(savePath + ".tmp"); }
+    Check(JToken.DeepEquals(before, JToken.FromObject(State())) && File.ReadAllText(savePath) == disk, "bulk save left a partial change");
+});
+await Run("bulk unlock refuses missing or unowned selections", async () =>
+{
+    string before = JsonConvert.SerializeObject(State());
+    foreach (int invalid in new[] { 0, unownedDialogue.NameCode })
+        Check((await PostAll(target, invalid)).StatusCode == HttpStatusCode.BadRequest, "invalid selected character was accepted");
+    Check((await PostAll(9999, queen)).StatusCode == HttpStatusCode.NotFound, "missing user was accepted");
+    Check(JsonConvert.SerializeObject(State()) == before, "invalid bulk selection changed stored data");
+});
 await Run("authentication, CSRF and POST-only policy protect unlock and listing", async () =>
 {
     var anonymousCookies = new CookieContainer();
@@ -251,6 +320,7 @@ await Run("authentication, CSRF and POST-only policy protect unlock and listing"
     using var anon = new HttpClient(new HttpClientHandler { CookieContainer = anonymousCookies }) { BaseAddress = http.BaseAddress };
     Check((await anon.GetAsync($"/admin/Users/{target}/Counsel?nameCode={queen}")).StatusCode == HttpStatusCode.Unauthorized, "anonymous list was exposed");
     Check((await anon.PostAsync($"/admin/Users/{target}/Counsel/unlock", Form(queen, fourth))).StatusCode == HttpStatusCode.Unauthorized, "anonymous unlock accepted");
+    Check((await anon.PostAsync($"/admin/Users/{target}/Counsel/unlock-all", BulkForm(queen))).StatusCode == HttpStatusCode.Unauthorized, "anonymous bulk unlock accepted");
     string playerToken = new PasetoBuilder().Use(ProtocolVersion.V4, Purpose.Local).WithKey(testKey, Encryption.SymmetricKey)
         .AddClaim("userId", other).Expiration(DateTime.UtcNow.AddMinutes(5)).Encode();
     anon.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", playerToken);
@@ -258,11 +328,23 @@ await Run("authentication, CSRF and POST-only policy protect unlock and listing"
     Check((await anon.PostAsync($"/admin/Users/{target}/Counsel/unlock", Form(queen, fourth))).StatusCode == HttpStatusCode.Unauthorized, "non-admin unlock accepted");
     Check((await http.PostAsync($"/admin/Users/{target}/Counsel/unlock", new FormUrlEncodedContent([new("nameCode", queen.ToString()), new("counselTid", fourth.ToString())]))).StatusCode == HttpStatusCode.BadRequest, "tokenless unlock accepted");
     Check((await http.GetAsync($"/admin/Users/{target}/Counsel/unlock")).StatusCode == HttpStatusCode.MethodNotAllowed, "GET performed an unlock");
+    Check((await anon.PostAsync($"/admin/Users/{target}/Counsel/unlock-all", BulkForm(queen))).StatusCode == HttpStatusCode.Unauthorized, "non-admin bulk unlock accepted");
+    Check((await http.PostAsync($"/admin/Users/{target}/Counsel/unlock-all", new FormUrlEncodedContent([new("nameCode", queen.ToString())]))).StatusCode == HttpStatusCode.BadRequest,
+        "bulk unlock did not require the form token");
+    Check((await http.GetAsync($"/admin/Users/{target}/Counsel/unlock-all")).StatusCode == HttpStatusCode.MethodNotAllowed, "GET performed a bulk unlock");
     Check(!Current(target).BondInfo.First().CounselDialogCompleteIds.Contains(fourth), "rejected requests mutated state");
 });
 Console.WriteLine($"RESULT: {passes} passed, {failures} failed");
 return failures == 0 ? 0 : 1;
 
+FormUrlEncodedContent BulkForm(int nameCode) => new([new("nameCode", nameCode.ToString()), new("__RequestVerificationToken", token)]);
+Task<HttpResponseMessage> PostAll(ulong id, int nameCode) => http.PostAsync($"/admin/Users/{id}/Counsel/unlock-all", BulkForm(nameCode));
+async Task<JObject> UnlockAll(ulong id, int nameCode)
+{
+    using var response = await PostAll(id, nameCode);
+    response.EnsureSuccessStatusCode();
+    return JObject.Parse(await response.Content.ReadAsStringAsync());
+}
 FormUrlEncodedContent Form(int nameCode, int counselTid) => new([new("nameCode", nameCode.ToString()), new("counselTid", counselTid.ToString()), new("__RequestVerificationToken", token)]);
 Task<HttpResponseMessage> Post(ulong id, int nameCode, int counselTid) => http.PostAsync($"/admin/Users/{id}/Counsel/unlock", Form(nameCode, counselTid));
 async Task<JObject> Unlock(ulong id, int nameCode, int counselTid)

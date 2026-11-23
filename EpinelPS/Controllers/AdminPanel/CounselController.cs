@@ -40,7 +40,13 @@ public class CounselController : Controller
 
     [HttpPost("unlock")]
     [ValidateAntiForgeryToken]
-    public IActionResult Unlock(ulong id, int nameCode, int counselTid)
+    public IActionResult Unlock(ulong id, int nameCode, int counselTid) => UnlockEntries(id, nameCode, counselTid);
+
+    [HttpPost("unlock-all")]
+    [ValidateAntiForgeryToken]
+    public IActionResult UnlockAll(ulong id, int nameCode) => UnlockEntries(id, nameCode, null);
+
+    private IActionResult UnlockEntries(ulong id, int nameCode, int? counselTid)
     {
         if (!AdminController.CheckAuth(HttpContext)) return Unauthorized();
         if (!ModelState.IsValid) return BadRequest();
@@ -53,28 +59,38 @@ public class CounselController : Controller
             if (!user.Characters.Any(c => GameData.Instance.CharacterTable.TryGetValue(c.Tid, out var r) && r.NameCode == nameCode))
                 return BadRequest();
             var rows = Rows(nameCode);
-            if (!rows.Any(r => r.Id == counselTid)) return BadRequest();
+            if (rows.Length == 0 || (counselTid.HasValue && !rows.Any(r => r.Id == counselTid))) return BadRequest();
+
             var bond = user.BondInfo.FirstOrDefault(b => b.NameCode == nameCode);
-            bool alreadyUnlocked = bond?.CounselDialogCompleteIds.Contains(counselTid) == true;
-            if (!alreadyUnlocked)
+            var complete = bond?.CounselDialogCompleteIds.ToHashSet() ?? [];
+            int collected = rows.Count(r => complete.Contains(r.Id));
+            var missing = rows.Where(r => (!counselTid.HasValue || r.Id == counselTid) && !complete.Contains(r.Id))
+                .Select(r => r.Id).ToArray();
+            if (missing.Length > 0)
             {
                 bool created = bond == null;
-                if (created)
+                if (bond == null)
                 {
                     bond = new NetUserAttractiveData { NameCode = nameCode, Lv = 1, CanCounselToday = true };
                     user.BondInfo.Add(bond);
                 }
-                bond!.CounselDialogCompleteIds.Add(counselTid);
-                try { JsonDb.Save(); }
+                try
+                {
+                    bond.CounselDialogCompleteIds.AddRange(missing);
+                    JsonDb.Save();
+                }
                 catch
                 {
                     if (created) user.BondInfo.Remove(bond);
-                    else bond.CounselDialogCompleteIds.Remove(counselTid);
+                    else
+                    {
+                        foreach (int entry in missing) bond.CounselDialogCompleteIds.Remove(entry);
+                    }
                     throw;
                 }
             }
-            var complete = bond!.CounselDialogCompleteIds.ToHashSet();
-            return Json(new { counselTid, alreadyUnlocked, collected = rows.Count(r => complete.Contains(r.Id)), total = rows.Length });
+            return Json(new { counselTid, alreadyUnlocked = missing.Length == 0, added = missing.Length,
+                collected = collected + missing.Length, total = rows.Length });
         }
     }
 

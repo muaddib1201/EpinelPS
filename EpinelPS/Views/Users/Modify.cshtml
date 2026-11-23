@@ -167,7 +167,7 @@
                               id="counselUnlockForm" class="mt-3"
                               data-options-url="@Url.Action("Options", "Counsel", new { id = Model.ID })">
                             <h5 data-i18n="users.modify.counselUnlockTitle">解锁指定咨询</h5>
-                            <p class="small text-muted" data-i18n="users.modify.counselUnlockHint">补入所选咨询的收集记录后，可在游戏的咨询日志中回看。</p>
+                            <p class="small text-muted" data-i18n="users.modify.counselUnlockHint">解锁后可在游戏的咨询日志中回看。「一键解锁」会补齐当前角色的全部咨询。</p>
                             <div class="row g-2">
                                 <div class="col-sm-6">
                                     <label for="counselUnlockCharacter" class="form-label" data-i18n="users.modify.counselUnlockCharacter">角色</label>
@@ -178,9 +178,15 @@
                                     <select name="counselTid" id="counselUnlockEntry" class="form-select" required disabled></select>
                                 </div>
                             </div>
-                            <button type="submit" class="btn btn-accent mt-2" disabled>
-                                <i class="fas fa-unlock me-2"></i><span data-i18n="users.modify.counselUnlockButton">解锁所选咨询</span>
-                            </button>
+                            <div class="d-flex flex-wrap gap-2 mt-2">
+                                <button type="submit" class="btn btn-accent" id="counselUnlockSelected" disabled>
+                                    <i class="fas fa-unlock me-2"></i><span data-i18n="users.modify.counselUnlockButton">解锁所选咨询</span>
+                                </button>
+                                <button type="submit" class="btn btn-accent" id="counselUnlockAll" disabled
+                                        asp-controller="Counsel" asp-action="UnlockAll" asp-route-id="@Model.ID">
+                                    <i class="fas fa-unlock-alt me-2"></i><span data-i18n="users.modify.counselUnlockAllButton">一键解锁</span>
+                                </button>
+                            </div>
                             <small id="counselUnlockStatus" class="d-block mt-2" role="status"></small>
                         </form>
                     </div>
@@ -485,20 +491,25 @@
         const form = document.getElementById('counselUnlockForm');
         const character = document.getElementById('counselUnlockCharacter');
         const entry = document.getElementById('counselUnlockEntry');
-        const button = form.querySelector('button');
+        const selectedButton = document.getElementById('counselUnlockSelected');
+        const allButton = document.getElementById('counselUnlockAll');
         const status = document.getElementById('counselUnlockStatus');
         let version = 0;
-        let busy = false;
+        let loading = false;
+        let saving = false;
         const t = (key, values) => i18n.t('users.modify.' + key, values);
 
-        function updateButton() {
-            button.disabled = busy || !entry.value || entry.selectedOptions[0]?.dataset.unlocked === 'true';
+        function updateControls() {
+            character.disabled = saving || !character.options.length;
+            entry.disabled = saving || loading || !entry.options.length;
+            selectedButton.disabled = entry.disabled || !entry.value || entry.selectedOptions[0]?.dataset.unlocked === 'true';
+            allButton.disabled = entry.disabled || !Array.from(entry.options).some(option => option.dataset.unlocked === 'false');
         }
         async function loadOptions(keepEntry) {
             const current = ++version;
-            busy = true;
-            button.disabled = true;
-            entry.disabled = true;
+            const selectedCharacter = character.value;
+            loading = true;
+            updateControls();
             status.textContent = '';
             try {
                 const url = new URL(form.dataset.optionsUrl, window.location.origin);
@@ -508,11 +519,9 @@
                 if (!response.ok) throw new Error();
                 const data = await response.json();
                 if (current !== version) return;
-                const selectedCharacter = character.value;
                 character.replaceChildren();
                 for (const item of data.characters) character.add(new Option(item.name, item.nameCode));
                 if (selectedCharacter) character.value = selectedCharacter;
-                character.disabled = !character.options.length;
                 if (!selectedCharacter && character.value) return await loadOptions();
                 entry.replaceChildren();
                 for (const item of data.dialogues) {
@@ -524,39 +533,42 @@
                 }
                 const preferred = keepEntry && data.dialogues.find(item => String(item.id) === String(keepEntry));
                 entry.value = String((preferred || data.dialogues.find(item => !item.unlocked) || data.dialogues[0])?.id || '');
-                entry.disabled = !entry.options.length;
                 if (!character.options.length) status.textContent = t('counselUnlockEmpty');
+                else if (data.dialogues.length && data.dialogues.every(item => item.unlocked))
+                    status.textContent = t('counselUnlockComplete', { total: data.dialogues.length });
+                return true;
             } catch {
                 if (current === version) { entry.replaceChildren(); status.textContent = t('counselUnlockFailed'); }
+                return false;
             } finally {
-                if (current === version) { busy = false; updateButton(); }
+                if (current === version) { loading = false; updateControls(); }
             }
         }
         character.addEventListener('change', () => loadOptions());
-        entry.addEventListener('change', updateButton);
+        entry.addEventListener('change', updateControls);
         form.addEventListener('submit', async event => {
             event.preventDefault();
-            if (busy || button.disabled) return;
+            const all = event.submitter === allButton;
+            if ((all ? allButton : selectedButton).disabled) return;
             const selected = entry.value;
             const body = new FormData(form);
-            busy = true;
-            button.disabled = true;
-            character.disabled = true;
-            entry.disabled = true;
+            if (all) body.delete('counselTid');
+            saving = true;
+            updateControls();
             status.textContent = '';
             try {
-                const response = await fetch(form.action, { method: 'POST', body });
+                const response = await fetch(all ? allButton.formAction : form.action, { method: 'POST', body });
                 if (!response.ok) throw new Error();
                 const result = await response.json();
-                await loadOptions(selected);
-                status.textContent = t('counselUnlockDone', { count: result.collected, total: result.total });
+                if (await loadOptions(selected)) {
+                    status.textContent = t(all ? 'counselUnlockAllDone' : 'counselUnlockDone',
+                        { added: result.added, count: result.collected, total: result.total });
+                }
             } catch {
                 status.textContent = t('counselUnlockFailed');
             } finally {
-                busy = false;
-                character.disabled = !character.options.length;
-                entry.disabled = !entry.options.length;
-                updateButton();
+                saving = false;
+                updateControls();
             }
         });
         window.addEventListener('adminui:i18n-ready', () => loadOptions(entry.value));
