@@ -16,7 +16,7 @@ internal static class EquipmentOptionRoll
     }
 
     public static NetEquipmentAwakeningOption? Roll(User user, long isn, LockRequest[] requests,
-        IList<NetUserItemData> items, Func<int, int, List<int>, int> rollUnlocked)
+        IList<NetUserItemData> items, bool rollEmptySlots, Func<int, int, List<int>, int> rollUnlocked)
     {
         lock (user)
         lock (JsonDb.SaveLock)
@@ -47,6 +47,11 @@ internal static class EquipmentOptionRoll
                     (oneTime[slot] || requests[slot] == LockRequest.ReserveDisposableLock);
             }
 
+            var slotsToRoll = Enumerable.Range(0, ids.Length)
+                .Where(slot => !fixedLocks[slot] && !oneTime[slot] && (rollEmptySlots || ids[slot] != 0))
+                .ToArray();
+            if (slotsToRoll.Length == 0) return null;
+
             var cost = GetCosts(oldFixed, fixedLocks.Count(x => x), oneTime.Count(x => x));
             var debits = new List<(DbItemData Item, int Amount, int Before)>();
             foreach (var (itemId, required) in cost)
@@ -68,9 +73,8 @@ internal static class EquipmentOptionRoll
             (kept.Option1Lock, kept.Option2Lock, kept.Option3Lock) = (fixedLocks[0], fixedLocks[1], fixedLocks[2]);
             kept.IsOption1DisposableLock = kept.IsOption2DisposableLock = kept.IsOption3DisposableLock = false;
             var candidate = kept.Clone();
-            for (int slot = 0; slot < ids.Length; slot++)
+            foreach (int slot in slotsToRoll)
             {
-                if (fixedLocks[slot] || oneTime[slot]) continue;
                 ids[slot] = rollUnlocked(slot, ids[slot], excluded);
                 if (ids[slot] != 0) excluded.Add(ids[slot]);
             }

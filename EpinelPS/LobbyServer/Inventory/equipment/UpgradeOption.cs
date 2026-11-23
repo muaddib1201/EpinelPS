@@ -11,7 +11,7 @@ public class UpgradeOption : LobbyMessage
         ReqAwakeningUpgradeOption req = await ReadData<ReqAwakeningUpgradeOption>();
         var response = new ResAwakeningUpgradeOption();
         response.ResetOption = EquipmentOptionRoll.Roll(GetUser(), req.Isn,
-            [req.Slot1, req.Slot2, req.Slot3], response.Items, (_, currentId, _) => currentId == 0 ? 0 : GenerateNewOptionId(currentId));
+            [req.Slot1, req.Slot2, req.Slot3], response.Items, rollEmptySlots: false, (_, currentId, _) => GenerateNewOptionId(currentId));
         await WriteDataAsync(response);
     }
 

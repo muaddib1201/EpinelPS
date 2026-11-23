@@ -229,6 +229,108 @@ await Run("reserve on an empty slot cannot consume currency or roll the equipmen
     Check(r.ResetOption == null && Snapshot() == before, "empty lock request mutated state");
 });
 
+// The three effect IDs match the reported helmet. Force tier 8 so every actual draw is observable.
+const int critChance14 = 7001114, attack15 = 7000815, element3 = 7000503;
+for (int mask = 0; mask < 8; mask++)
+{
+    await Run($"saved unlocks, module price and every eligible value with lock mask {mask}", async () =>
+    {
+        PrepareLockedHelmet();
+        bool first = (mask & 1) != 0, second = (mask & 2) != 0, third = (mask & 4) != 0;
+        int locked = 0;
+        for (int slot = 1; slot <= 3; slot++)
+        {
+            if ((mask & (1 << (slot - 1))) != 0) { locked++; continue; }
+            await Unlock(slot);
+            await Unlock(slot); // Retry after an unacknowledged response.
+        }
+        Persisted();
+        var detail = await Detail();
+        var expected = new NetEquipmentAwakeningOption
+        {
+            Option1Id = critChance14, Option2Id = attack15, Option3Id = element3,
+            Option1Lock = first, Option2Lock = second, Option3Lock = third
+        };
+        Check(detail.CurrentOption.Equals(expected) && detail.NewOption == null && Balance(module) == 10,
+            "unlock changed values, affected another slot, or charged a material");
+
+        var state = Snapshot();
+        var roll = await ResetValues();
+        if (locked == 3)
+        {
+            Check(roll.ResetOption == null && roll.Items.Count == 0, "all-locked value reset returned a candidate or charge");
+            var effectRoll = await Send("equipment/resetoption", new ReqAwakeningResetOption { Isn = 202 }, ResAwakeningResetOption.Parser);
+            Check(effectRoll.ResetOption == null && effectRoll.Items.Count == 0 && Snapshot() == state,
+                "rolling all-locked equipment changed stored data or materials");
+            return;
+        }
+        if (!first) expected.Option1Id = 7001108;
+        if (!second) expected.Option2Id = 7000808;
+        if (!third) expected.Option3Id = 7000508;
+        int remaining = 10 - (1 + locked);
+        Check(roll.ResetOption.Equals(expected) && roll.Items.Single().Count == remaining &&
+            Balance(module) == remaining && Balance(key) == 100, "wrong candidate, client balance, or server charge");
+        var retry = await ResetValues();
+        Check(retry.ResetOption.Equals(expected) && retry.Items.Count == 0 && Balance(module) == remaining,
+            "replaying the comparison charged or rolled again");
+        await Choose(true);
+        Persisted();
+        Check((await Detail()).CurrentOption.Equals(expected), "confirmed locks or drawn values did not persist");
+    });
+}
+
+foreach (bool apply in new[] { false, true })
+    await Run($"unlock during a comparison survives reload and apply={apply}", async () =>
+    {
+        PrepareLockedHelmet();
+        await Unlock(3);
+        var candidate = (await ResetValues()).ResetOption;
+        await Unlock(2);
+        Persisted();
+        var detail = await Detail();
+        Check(!detail.CurrentOption.Option2Lock && !detail.NewOption.Option2Lock &&
+            detail.CurrentOption.Option1Lock && detail.NewOption.Option1Lock &&
+            detail.CurrentOption.Option3Id == element3 && detail.NewOption.Option3Id == candidate.Option3Id,
+            "unlock did not update both snapshots while preserving the pending draw");
+        await Choose(apply);
+        Persisted();
+        var chosen = (await Detail()).CurrentOption;
+        Check(chosen.Equals(apply ? detail.NewOption : detail.CurrentOption) && Balance(module) == 7,
+            "deciding a comparison restored a cleared lock or changed the charge");
+    });
+
+await Run("legacy disposable lock can be cleared and invalid unlocks leave equipment untouched", async () =>
+{
+    PrepareLockedHelmet();
+    var option = Current().EquipmentAwakenings.Single().Option;
+    option.IsOption3DisposableLock = true;
+    foreach (var (isn, slot, status) in new[] { (202L, -1, 400), (202L, 0, 400), (202L, 4, 400), (999L, 3, 404) })
+    {
+        string before = Snapshot();
+        bool rejected = false;
+        try { await Unlock(slot, isn); }
+        catch (BadHttpRequestException ex) when (ex.StatusCode == status) { rejected = true; }
+        Check(rejected && Snapshot() == before, "invalid unlock was acknowledged or modified inventory");
+    }
+    await Unlock(3);
+    var cleared = (await Detail()).CurrentOption;
+    Check(!cleared.Option3Lock && !cleared.IsOption3DisposableLock, "legacy lock was not fully cleared");
+    var roll = await ResetValues();
+    Check(roll.ResetOption.Option3Id == 7000508 && Balance(module) == 7 && Balance(key) == 100,
+        "a cleared legacy reservation still affected price or draw");
+});
+
+await Run("value reset cannot charge for an empty slot when every existing value is protected", async () =>
+{
+    PrepareRoll();
+    var option = Current().EquipmentAwakenings.Single().Option;
+    option.Option1Lock = true;
+    var before = Snapshot();
+    var result = await RollSecond(true);
+    Check(result.Option == null && result.Items.Count == 0 && Snapshot() == before,
+        "spent a one-shot key or modules with no value available to redraw");
+});
+
 await Run("effect change uses the global tier bands and preserves a one-shot lock", async () =>
 {
     PrepareRoll();
@@ -327,6 +429,25 @@ void PrepareRoll()
     user.Items.Add(new DbItemData { Isn = 404, ItemType = module, Count = 10 });
     user.Items.Add(new DbItemData { Isn = 505, ItemType = key, Count = 100 });
 }
+void PrepareLockedHelmet()
+{
+    PrepareRoll();
+    var state = (CoreInfo)dbProperty.GetValue(null)!;
+    state.ValueResetTierRates = new decimal[ValueResetTiers.Count];
+    state.ValueResetTierRates[7] = 100;
+    Current().EquipmentAwakenings.Single().Option = new NetEquipmentAwakeningOption
+    {
+        Option1Id = critChance14, Option1Lock = true, Option2Id = attack15, Option2Lock = true,
+        Option3Id = element3, Option3Lock = true
+    };
+    save.Invoke(null, null);
+}
+Task<ResAwakeningUnlockOption> Unlock(int slot, long isn = 202) => Send("equipment/unlockoption",
+    new ReqAwakeningUnlockOption { Isn = isn, Slot = slot }, ResAwakeningUnlockOption.Parser);
+Task<ResGetAwakeningDetail> Detail() => Send("equipment/getawakeningdetail",
+    new ReqGetAwakeningDetail { Isn = 202 }, ResGetAwakeningDetail.Parser);
+Task<ResAwakeningUpgradeOption> ResetValues() => Send("equipment/upgradeoption",
+    new ReqAwakeningUpgradeOption { Isn = 202 }, ResAwakeningUpgradeOption.Parser);
 int Balance(int tid) => Current().Items.Where(x => x.ItemType == tid).Sum(x => x.Count);
 Task<ResAwakeningChangeOption> Choose(bool accept) => Send("equipment/changeoption",
     new ReqAwakeningChangeOption { Isn = 202, IsChanged = accept }, ResAwakeningChangeOption.Parser);

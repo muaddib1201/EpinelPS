@@ -12,7 +12,7 @@ public class ResetOption : LobbyMessage
         ReqAwakeningResetOption req = await ReadData<ReqAwakeningResetOption>();
         var response = new ResAwakeningResetOption();
         response.ResetOption = EquipmentOptionRoll.Roll(GetUser(), req.Isn,
-            [req.Slot1, req.Slot2, req.Slot3], response.Items, RollEffect);
+            [req.Slot1, req.Slot2, req.Slot3], response.Items, rollEmptySlots: true, RollEffect);
         await WriteDataAsync(response);
     }
 
