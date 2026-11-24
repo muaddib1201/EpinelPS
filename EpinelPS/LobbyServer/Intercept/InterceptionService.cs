@@ -15,6 +15,44 @@ internal sealed class InterceptionService(User user, DateTime now, byte[]? nonce
     private int Day => int.Parse(now.AddHours(-JsonDb.Instance.ResetHourUtcTime).ToString("yyyyMMdd", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
     private static string BossKey(int type, int id) => $"{type}:{id}";
 
+    internal static (int Normal, int Special) DiaryStages(InterceptionProgress? state)
+    {
+        if (state == null) return (0, 0);
+        int normal = state.BestNormalDiaryStage, special = state.BestSpecialDiaryStage;
+        foreach (var (key, best) in state.BestByBoss)
+        {
+            var parts = key.Split(':');
+            if (parts.Length != 2 || !int.TryParse(parts[0], out int type) || !int.TryParse(parts[1], out int id)) continue;
+            int stage = DamageStage(type, id, best.Damage);
+            normal = Math.Max(normal, stage);
+            if (type == 2) special = Math.Max(special, stage);
+        }
+        return (normal, special);
+    }
+
+    private static int DamageStage(int type, int id, long damage)
+    {
+        var data = GameData.Instance;
+        int? group = type switch
+        {
+            1 when data.InterceptNormal.GetValueOrDefault(id) is { Type: InterceptType.InterceptNormalLevel2 } boss => boss.ConditionRewardGroup,
+            2 => data.InterceptSpecial.GetValueOrDefault(id)?.ConditionRewardGroup,
+            _ => null
+        };
+        if (group == null) return 0;
+        return data.ConditionRewards.Values.FirstOrDefault(r => r.Group == group && r.ValueMin <= damage &&
+            (r.ValueMax == 0 || damage <= r.ValueMax))?.Priority ?? 0;
+    }
+
+    private static void RecordDiaryStage(InterceptionProgress state, int type, int id, long damage)
+    {
+        // Preserve proven legacy bests before a different day's score replaces one.
+        var previous = DiaryStages(state);
+        int stage = DamageStage(type, id, damage);
+        state.BestNormalDiaryStage = Math.Max(previous.Normal, stage);
+        state.BestSpecialDiaryStage = Math.Max(previous.Special, type == 2 ? stage : 0);
+    }
+
     internal ResGetInterceptData Get()
     {
         FlushTriggers();
@@ -73,6 +111,7 @@ internal sealed class InterceptionService(User user, DateTime now, byte[]? nonce
         var reward = InterceptionHelper.Clear(user, type, id, damage);
         user.ResetableData.InterceptionTickets--;
         var state = user.Interception ??= new();
+        RecordDiaryStage(state, type, id, damage);
         int day = LobbyServer.Guild.GuildActivity.Day(now);
         var key = BossKey(type, id);
         long previous = state.BestByBoss.GetValueOrDefault(key) is { } saved && saved.Day == day ? saved.Damage : 0;
@@ -95,6 +134,7 @@ internal sealed class InterceptionService(User user, DateTime now, byte[]? nonce
             var reward = InterceptionHelper.Clear(user, type, id, damage);
             user.ResetableData.InterceptionTickets--;
             var progress = user.Interception ??= new();
+            RecordDiaryStage(progress, type, id, damage);
             if (!fast)
                 progress.BestByBoss[BossKey(type, id)] = new InterceptionBest { Day = Day, Damage = Math.Max(Best(type, id)?.Damage ?? 0, damage) };
             result = response(reward);

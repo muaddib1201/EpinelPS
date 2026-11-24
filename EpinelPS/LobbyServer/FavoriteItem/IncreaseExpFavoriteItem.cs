@@ -45,6 +45,9 @@ public class IncreaseExpFavoriteItem : LobbyMessage
                 throw new BadHttpRequestException($"Material item with ISN {req.ItemData.Isn} not found", 404);
             }
 
+            if (req.LoopCount <= 0 || req.ItemData.Count < req.LoopCount || req.ItemData.Count % req.LoopCount != 0 || userItem.ItemType != req.ItemData.Tid)
+                throw new BadHttpRequestException("Invalid collection upgrade material or count.", 400);
+
             if (userItem.Count < req.ItemData.Count)
             {
                 throw new BadHttpRequestException($"Insufficient material. Required: {req.ItemData.Count}, Available: {userItem.Count}", 400);
@@ -57,6 +60,8 @@ public class IncreaseExpFavoriteItem : LobbyMessage
                 throw new BadHttpRequestException($"Cannot upgrade at current level with this material", 400);
             }
 
+            var ownedItem = favoriteItem;
+            favoriteItem = ownedItem.Clone();
             int totalExpGained = 0;
             int actualLoopsUsed = 0;
             bool isGreatSuccess = false;
@@ -93,14 +98,16 @@ public class IncreaseExpFavoriteItem : LobbyMessage
             int actualUseCount = (req.ItemData.Count / req.LoopCount) * actualLoopsUsed;
             int goldCost = totalExpGained * 10;
 
-            // Apply costs
-            userItem.Count -= actualUseCount;
-
+            // Apply costs and the new level only after validating both balances.
             if (user.GetCurrencyVal(CurrencyType.Gold) < goldCost)
             {
                 throw new BadHttpRequestException($"Insufficient gold. Required: {goldCost}, Available: {user.GetCurrencyVal(CurrencyType.Gold)}", 400);
             }
 
+            userItem.Count -= actualUseCount;
+            ownedItem.Exp = favoriteItem.Exp;
+            ownedItem.Lv = favoriteItem.Lv;
+            user.AliceBestSrCollectionLevel = Mission.AliceDiaryProgress.CollectionLevel(user);
             user.AddCurrency(CurrencyType.Gold, -goldCost);
 
             response.FavoriteItem = favoriteItem.Clone();

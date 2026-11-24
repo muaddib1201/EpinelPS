@@ -56,6 +56,7 @@ public class UpgradeFavoriteItem : LobbyMessage
 
 
             int itemCountBefore = user.FavoriteItems.Count;
+            user.AliceBestSrCollectionLevel = Mission.AliceDiaryProgress.CollectionLevel(user);
             user.FavoriteItems.Remove(rFavoriteItem);
             user.FavoriteItems.Remove(srInventoryItem);
             int itemCountAfter = user.FavoriteItems.Count;
@@ -71,6 +72,7 @@ public class UpgradeFavoriteItem : LobbyMessage
                 response.FavoriteItems.Add(item.Clone());
             }
 
+            user.AliceBestSrCollectionLevel = Mission.AliceDiaryProgress.CollectionLevel(user);
             JsonDb.Save();
         }
 

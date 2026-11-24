@@ -30,6 +30,7 @@ public class EquipFavoriteItem : LobbyMessage
                 throw new BadHttpRequestException($"Character with CSN {req.Csn} not found", 404);
             }
 
+            user.AliceBestSrCollectionLevel = Mission.AliceDiaryProgress.CollectionLevel(user);
             NetUserFavoriteItemData? existingEquippedItem = user.FavoriteItems.FirstOrDefault(f => f.Csn == req.Csn);
             existingEquippedItem?.Csn = 0; // Unequip
 
@@ -40,6 +41,7 @@ public class EquipFavoriteItem : LobbyMessage
                 response.FavoriteItems.Add(item.Clone());
             }
 
+            user.AliceBestSrCollectionLevel = Mission.AliceDiaryProgress.CollectionLevel(user);
             JsonDb.Save();
         }
 

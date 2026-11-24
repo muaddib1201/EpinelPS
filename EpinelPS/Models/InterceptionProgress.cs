@@ -2,6 +2,8 @@ namespace EpinelPS.Models;
 
 public class InterceptionProgress
 {
+    public int BestNormalDiaryStage { get; set; }
+    public int BestSpecialDiaryStage { get; set; }
     public Dictionary<string, InterceptionBest> BestByBoss { get; set; } = [];
     public List<InterceptionReceipt> Receipts { get; set; } = [];
 }

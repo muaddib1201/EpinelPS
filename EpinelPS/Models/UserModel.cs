@@ -181,6 +181,7 @@ public class User
     public List<int> Memorial { get; set; } = [];
     public List<int> JukeboxBgm { get; set; } = [];
     public List<int> ClaimedJukeboxRewardTriggers { get; set; } = [];
+    public int AliceBestSrCollectionLevel { get; set; } = -1;
     public List<NetUserFavoriteItemData> FavoriteItems { get; set; } = [];
 
     public List<NetUserFavoriteItemQuestData> FavoriteItemQuests { get; set; } = [];

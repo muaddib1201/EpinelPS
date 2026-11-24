@@ -1,5 +1,6 @@
 using EpinelPS.Data;
 using EpinelPS.Database;
+using EpinelPS.LobbyServer.Mission;
 using EpinelPS.Utils;
 
 namespace EpinelPS.LobbyServer.Event.Mission;
@@ -13,6 +14,15 @@ public class ObtainDailyEventReward : LobbyMessage
         ReqObtainDailyEventReward req = await ReadData<ReqObtainDailyEventReward>();
         User user = GetUser();
 
+        var result = MissionProgressDelivery.Apply(user, () => Claim(user, req));
+        await WriteDataAsync(new ResObtainDailyEventReward { Reward = result });
+    }
+
+    private static NetRewardData Claim(User user, ReqObtainDailyEventReward req)
+    {
+        bool diary = req.EventId == AliceDiaryProgress.EventId;
+        if (diary) AliceDiaryProgress.Reconcile(user);
+        var history = diary ? MissionTriggerHistory.Read(user) : [];
         if (!user.EventMissionInfo.TryGetValue(req.EventId, out var userEvent))
         {
             userEvent = new EventMissionData();
@@ -24,12 +34,16 @@ public class ObtainDailyEventReward : LobbyMessage
         var records = GameData.Instance.DailyEventTable.Values.Where(de =>
             de.EventId == req.EventId
             && req.DailyEventId.Contains(de.Id)
-            && !userEvent.MissionIdList.Contains(de.Id)).ToList();
+            && !userEvent.MissionIdList.Contains(de.Id))
+            .OrderBy(de => diary ? de.Trigger switch { Trigger.EventPoint => 2, Trigger.DailyEventClear => 1, _ => 0 } : 0)
+            .ToList();
 
         NetRewardData reward = new();
         foreach (var record in records)
         {
+            if (diary && !AliceDiaryProgress.CanClaim(user, record, userEvent, history)) continue;
             userEvent.MissionIdList.Add(record.Id);
+            userEvent.LastDate = DateTime.UtcNow.Ticks;
 
             RewardRecord? rewardRecord = GameData.Instance.GetRewardTableEntry(record.RewardId);
             if (rewardRecord?.Rewards != null)
@@ -50,12 +64,6 @@ public class ObtainDailyEventReward : LobbyMessage
                 user.AddTrigger(Trigger.EventPoint, record.PointValue, record.EventId);
         }
 
-        if (records.Count > 0)
-        {
-            userEvent.LastDate = DateTime.UtcNow.Ticks;
-            JsonDb.Save();
-        }
-
-        await WriteDataAsync(new ResObtainDailyEventReward() { Reward = reward });
+        return reward;
     }
 }

@@ -151,6 +151,64 @@ await Run("a database rejection leaves all repair values retryable without parti
     Check(Total(result,133,0)==10 && Total(result,134,0)==10 && Total(result,76,5004)==22,"retry lost or duplicated repair values");
 });
 
+await Run("day nine rejects missing conditions, credits one paid clear and never duplicates claims", async () =>
+{
+    const int intercept = 200020903, collection = 200020905, summary = 200020901;
+    await Claim(summary, intercept, collection);
+    var ids = Current().EventMissionInfo[20002].MissionIdList;
+    Check(!ids.Contains(intercept) && !ids.Contains(collection) && !ids.Contains(summary), "unearned progress was paid");
+    Current().Interception = new();
+    var boss = data.InterceptSpecial[2];
+    long threshold = data.ConditionRewards.Values.Single(x => x.Group == boss.ConditionRewardGroup && x.Priority == 8).ValueMin;
+    Current().Interception.BestByBoss["2:2"] = new() { Damage = threshold - 1 };
+    await Claim(intercept);
+    Check(!ids.Contains(intercept), "stage seven credited as stage eight");
+    Current().Interception.BestByBoss["2:2"].Damage = threshold;
+    await Claim(intercept, intercept, collection, summary);
+    await Claim(intercept);
+    Check(ids.Count(i => i == intercept) == 1 && !ids.Contains(collection) && !ids.Contains(summary), "mixed claim or retry failed");
+    var sync = await Sync();
+    Check(Total(sync,(int)Trigger.InterceptNormalClearWithCondition,0)==8 &&
+        Total(sync,(int)Trigger.InterceptSpecialClearWithCondition,0)==8, "higher interception did not count towards both records");
+});
+await Run("only an SR collection equipped by Alice counts, including the exact equip and level transitions", async () =>
+{
+    var item = new NetUserFavoriteItemData { FavoriteItemId = 98765, Tid = data.FavoriteItemTable.Values.First(x =>
+        x.FavoriteType == FavoriteItemType.Collection && x.FavoriteRare == FavoriteItemRare.SR).Id, Lv = 1 };
+    Current().FavoriteItems.Add(item);
+    Check(Total(await Sync(),(int)Trigger.AliceEquipCollectionItemLevel,0)==0, "inventory item counted");
+    item.Lv = 0;
+    await Send<ResEquipFavoriteItem>(player,"/favoriteitem/equip", new ReqEquipFavoriteItem { Csn=1, FavoriteItemId=item.FavoriteItemId });
+    var equipped=await Sync();
+    Check(Total(equipped,(int)Trigger.AliceEquipCollectionItemSR,0)==1 &&
+        Total(equipped,(int)Trigger.AliceEquipCollectionItemLevel,0)==0, "SR equip and level one were confused");
+    var rate = data.FavoriteItemProbabilityTable.Values.First(x =>
+        x.ProbabilityGroup == data.FavoriteItemTable[item.Tid].ProbabilityGroup && x.LevelMin == 0);
+    item.Exp = data.FavoriteItemExpTable.Values.Single(x => x.FavoriteRare == FavoriteItemRare.SR && x.Level == 1).NeedExp - 1;
+    var material = new DbItemData { Isn=87654, ItemType=rate.NeedItemId, Count=rate.NeedItemCount };
+    Current().Items.Insert(0,material);
+    var increase = new ReqIncreaseExpFavoriteItem { FavoriteItemId=item.FavoriteItemId, LoopCount=1,
+        ItemData=new() { Isn=material.Isn, Tid=material.ItemType, Count=material.Count } };
+    await Send<ResIncreaseExpFavoriteItem>(player,"/favoriteitem/increaseexp",increase);
+    Check(item.Lv >= 1 && Current().AliceBestSrCollectionLevel == item.Lv, "successful care did not persist the high-water mark");
+    await Claim(200020905);
+    Check(Current().EventMissionInfo[20002].MissionIdList.Contains(200020905), "eligible collection claim lost");
+    Check(Total(await Sync(),(int)Trigger.AliceEquipCollectionItemLevel,0)==item.Lv, "collection level counted twice");
+});
+await Run("bulk claim checks the five receipts before the day bonus", async () =>
+{
+    var user=Current();
+    user.EventMissionInfo[20002].MissionIdList.AddRange([200020902,200020903,200020904,200020905]);
+    Alice().Level=125;
+    await Claim(200020901,200020906);
+    var ids=user.EventMissionInfo[20002].MissionIdList;
+    Check(ids.Contains(200020906) && ids.Contains(200020901), "eligible day bonus lost due to request ordering");
+});
+
+Task<ResObtainDailyEventReward> Claim(params int[] ids) =>
+    Send<ResObtainDailyEventReward>(player,"/event/dailymission/obtainreward",
+        new ReqObtainDailyEventReward { EventId=20002, DailyEventId={ids} });
+
 Console.WriteLine($"RESULT {passed} passed, {failed} failed");
 return failed==0?0:1;
 
