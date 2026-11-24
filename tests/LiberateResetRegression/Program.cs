@@ -49,6 +49,7 @@ var workspace = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../.
 var pack = Directory.GetFiles(Path.Combine(workspace, "Server and Server selector/cache"), "StaticData.pack", SearchOption.AllDirectories).Single();
 var data = new GameData(pack);
 typeof(GameData).GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, data);
+foreach (var row in await data.LoadZip<EquipmentOptionRecord>("EquipmentOptionTable.json", new Progress<double>())) data.EquipmentOptionTable.Add(row.Id, row);
 foreach (var row in await data.LoadZip<LiberateCharacterRecord>("LiberateCharacterTable.json", new Progress<double>())) data.LiberateCharacterTable.Add(row.Id, row);
 foreach (var row in await data.LoadZip<LiberateMissionGroupRecord>("LiberateMissionGroupTable.json", new Progress<double>())) data.LiberateMissionGroupTable.Add(row.Id, row);
 foreach (var row in await data.LoadZip<LiberateMissionRecord>("LiberateMissionTable.json", new Progress<double>())) data.LiberateMissionTable.Add(row.Id, row);
