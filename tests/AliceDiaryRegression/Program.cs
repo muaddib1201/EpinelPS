@@ -209,6 +209,40 @@ Task<ResObtainDailyEventReward> Claim(params int[] ids) =>
     Send<ResObtainDailyEventReward>(player,"/event/dailymission/obtainreward",
         new ReqObtainDailyEventReward { EventId=20002, DailyEventId={ids} });
 
+await Run("only watched Alice episodes accrue; prior credit, duplicate sync and other accounts are isolated", async () =>
+{
+    var user = Current();
+    Bond().Lv = 22;
+    user.CompletedScenarios.AddRange(["d_nikke_alice_02", "d_nikke_alice_02", "d_nikke_alice_05", "d_nikke_anis_01"]);
+    user.AddTrigger(Trigger.AliceAccessAttractiveScenario, 1, 65);
+    var before = JsonConvert.SerializeObject(user);
+    await Sync();
+    var history = await Sync();
+    for (int i = 1; i <= 5; i++)
+        Check(Total(history, 129, 60+i) == (i is 2 or 5 ? 1 : 0), $"wrong progress for episode {i}");
+    Check(JsonConvert.SerializeObject(user) == before, "sync changed claims, currency or watched scenarios");
+    var otherHistory = await Send<ResSyncTrigger>(other, "/trigger/sync", new ReqSyncTrigger());
+    Check(otherHistory.Triggers.All(t => t.Trigger != 129), "episode credit crossed accounts");
+});
+
+await Run("new watches satisfy their own diary claims without replaying episode rewards", async () =>
+{
+    var missions = data.DailyEventTable.Values.Where(m => m.EventId == 20002 && m.Trigger == Trigger.AliceAccessAttractiveScenario)
+        .OrderBy(m => m.ConditionId).ToArray();
+    Check(missions.Select(m => m.ConditionId).SequenceEqual(Enumerable.Range(61,5)), "unexpected episode mapping");
+    await Claim(missions[0].Id);
+    Check(!Current().EventMissionInfo[20002].MissionIdList.Contains(missions[0].Id), "unwatched episode claimed");
+    foreach (var mission in missions)
+    {
+        var scene=data.AttractiveLevelReward[mission.ConditionId].AttractiveScenarioGroupId!;
+        await Send<ResSetScenarioComplete>(player, "/User/SetScenarioComplete", new ReqSetScenarioComplete { ScenarioId=scene });
+    }
+    await Claim(missions.Select(m => m.Id).ToArray());
+    var history=await Sync();
+    Check(missions.All(m => Total(history,129,m.ConditionId)==1 &&
+        Current().EventMissionInfo[20002].MissionIdList.Contains(m.Id)), "newly watched episodes did not qualify");
+});
+
 Console.WriteLine($"RESULT {passed} passed, {failed} failed");
 return failed==0?0:1;
 

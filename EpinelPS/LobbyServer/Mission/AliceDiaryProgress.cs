@@ -54,7 +54,7 @@ internal static class AliceDiaryProgress
             // These diary missions stack over the account's entire history. A
             // current level is evidence for that level, not another full grant
             // on every login. Keep old rows and append only the missing amount.
-            var levels = new[]
+            List<(Trigger Type, int Condition, int Level)> levels = new()
             {
                 (Type: Trigger.AliceSkill1Level, Condition: 0, Level: characters.Select(c => c.Skill1Lvl).DefaultIfEmpty().Max()),
                 (Type: Trigger.AliceSkillBurstLevel, Condition: 0, Level: characters.Select(c => c.UltimateLevel).DefaultIfEmpty().Max()),
@@ -65,6 +65,14 @@ internal static class AliceDiaryProgress
                 (Type: Trigger.AliceEquipCollectionItemSR, Condition: 0, Level: collection >= 0 ? 1 : 0),
                 (Type: Trigger.AliceEquipCollectionItemLevel, Condition: 0, Level: Math.Max(0, collection))
             };
+            foreach (var mission in GameData.Instance.DailyEventTable.Values.Where(m =>
+                m.EventId == EventId && m.Trigger == Trigger.AliceAccessAttractiveScenario).DistinctBy(m => m.ConditionId))
+            {
+                if (GameData.Instance.AttractiveLevelReward.GetValueOrDefault(mission.ConditionId) is
+                    { NameCode: AliceNameCode, AttractiveScenarioGroupId: { Length: > 0 } scene } &&
+                    user.CompletedScenarios.Contains(scene))
+                    levels.Add((mission.Trigger, mission.ConditionId, 1));
+            }
             using var db = GameContext.CreateNew();
             using var transaction = db.Database.BeginTransaction();
             var types = levels.Select(x => x.Type).ToArray();
